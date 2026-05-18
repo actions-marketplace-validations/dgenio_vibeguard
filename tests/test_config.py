@@ -128,6 +128,24 @@ class TestScannerConfig:
         cfg = VibeGuardConfig.load(cfg_file)
         assert cfg.scanner.max_file_size_kb == 512
 
+    def test_max_file_size_zero_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("scanner:\n  max_file_size_kb: 0\n")
+        with pytest.raises(ValidationError):
+            VibeGuardConfig.load(cfg_file)
+
+    def test_invalid_fail_on_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("fail_on: disaster\n")
+        with pytest.raises(ValidationError):
+            VibeGuardConfig.load(cfg_file)
+
+    def test_invalid_policy_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("policy: aggressive\n")
+        with pytest.raises(ValidationError):
+            VibeGuardConfig.load(cfg_file)
+
 
 class TestLoadIgnorefile:
     """Tests for .vibeguardignore loading (#26)."""

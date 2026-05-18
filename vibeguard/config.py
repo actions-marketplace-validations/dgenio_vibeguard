@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -102,7 +102,7 @@ class VibeGuardConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    policy: str = "balanced"
+    policy: Literal["relaxed", "balanced", "strict"] = "balanced"
     fail_on: Severity = Severity.HIGH
     ignore: IgnoreConfig = Field(default_factory=IgnoreConfig)
     package_allowlist: PackageAllowlistConfig = Field(default_factory=PackageAllowlistConfig)
