@@ -1,0 +1,270 @@
+"""Dependency risk rule."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules.base import Rule
+
+# Common package names that are frequent typosquatting targets
+_POPULAR_PACKAGES_NODE = {
+    "lodash", "react", "express", "axios", "moment", "chalk", "debug",
+    "commander", "yargs", "inquirer", "webpack", "babel", "eslint", "jest",
+    "mocha", "chai", "sinon", "typescript", "prettier", "rollup", "vite",
+}
+
+_POPULAR_PACKAGES_PYTHON = {
+    "requests", "numpy", "pandas", "flask", "django", "fastapi", "sqlalchemy",
+    "pydantic", "click", "boto3", "urllib3", "pillow", "scipy", "matplotlib",
+    "pytest", "setuptools", "pip", "wheel", "cryptography", "paramiko",
+}
+
+# Suspicious name patterns (typosquatting signals)
+_TYPOSQUAT_RE = re.compile(
+    r"(python-|py-|-python|-py|node-|-node|js-).*|.*(-js|js$)"
+    r"|.*[0-9]{2,}.*"  # unusual number sequences
+)
+
+# URL / path / git dependency patterns for npm
+_URL_DEP_RE = re.compile(r"^(https?://|git\+|git://|file:|\.\.?/)")
+
+# Broad version constraint patterns
+_BROAD_VERSION_RE = re.compile(r"^[*x]$|^\s*$")
+
+
+def _is_suspicious_name(name: str, popular_set: set[str]) -> bool:
+    """Heuristic: is this package name suspiciously similar to a popular one?"""
+    name_lower = name.lower().replace("-", "").replace("_", "")
+    for popular in popular_set:
+        pop_lower = popular.lower().replace("-", "").replace("_", "")
+        # Simple edit-distance check (1-2 char difference)
+        if name_lower != pop_lower and _levenshtein(name_lower, pop_lower) <= 2:
+            return True
+    return False
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Compute Levenshtein distance between two strings (small strings only)."""
+    if len(a) > 30 or len(b) > 30:
+        return 99
+    m, n = len(a), len(b)
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev = dp[0]
+        dp[0] = i
+        for j in range(1, n + 1):
+            temp = dp[j]
+            if a[i - 1] == b[j - 1]:
+                dp[j] = prev
+            else:
+                dp[j] = 1 + min(prev, dp[j], dp[j - 1])
+            prev = temp
+    return dp[n]
+
+
+class DependenciesRule(Rule):
+    id = "dependencies"
+    name = "Dependency Risk"
+    description = "Detects risky dependency changes: typosquatting, git deps, broad versions"
+
+    def scan(self, context: ScanContext) -> list[Finding]:
+        findings: list[Finding] = []
+        files_to_check = context.changed_files if context.diff_only else context.files
+
+        for path in files_to_check:
+            rel = self._rel(context, path)
+            if path.name == "package.json":
+                findings.extend(self._check_package_json(path, rel, context))
+            elif path.name == "pyproject.toml":
+                findings.extend(self._check_pyproject(path, rel, context))
+
+        return findings
+
+    # ------------------------------------------------------------------
+    # Node / npm
+    # ------------------------------------------------------------------
+
+    def _check_package_json(
+        self, path: Path, rel: str, context: ScanContext
+    ) -> list[Finding]:
+        findings: list[Finding] = []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return findings
+
+        dep_groups = {
+            "dependencies": data.get("dependencies", {}),
+            "devDependencies": data.get("devDependencies", {}),
+            "optionalDependencies": data.get("optionalDependencies", {}),
+        }
+
+        all_deps: dict[str, str] = {}
+        for _group, deps in dep_groups.items():
+            if isinstance(deps, dict):
+                all_deps.update(deps)
+
+        is_strict = context.config.policy == "strict"
+
+        for name, version in all_deps.items():
+            version_str = str(version)
+
+            # URL / git / path dependencies
+            if _URL_DEP_RE.match(version_str):
+                findings.append(
+                    Finding(
+                        id="DEP-URLNODE",
+                        rule=self.id,
+                        title=f"URL/git/path dependency: {name}",
+                        description=(
+                            f"`{rel}`: dependency `{name}` uses a URL/git/path specifier "
+                            f"(`{version_str[:80]}`). These bypass npm's integrity checks."
+                        ),
+                        severity=Severity.HIGH,
+                        path=rel,
+                        evidence=f"{name}: {version_str[:80]}",
+                        recommendation=(
+                            "Publish the dependency to a registry and use a versioned specifier."
+                        ),
+                        tags=["dependencies", "npm", "supply-chain"],
+                        confidence=Confidence.HIGH,
+                    )
+                )
+
+            # Broad version constraints in strict mode
+            if is_strict and _BROAD_VERSION_RE.match(version_str):
+                findings.append(
+                    Finding(
+                        id="DEP-BROADVER",
+                        rule=self.id,
+                        title=f"Unpinned dependency version: {name}",
+                        description=(
+                            f"`{rel}`: `{name}` has an overly broad version `{version_str}`. "
+                            "This allows any version to be installed, including malicious updates."
+                        ),
+                        severity=Severity.MEDIUM,
+                        path=rel,
+                        evidence=f"{name}: {version_str}",
+                        recommendation="Pin to a specific version or narrow version range.",
+                        tags=["dependencies", "npm"],
+                        confidence=Confidence.HIGH,
+                    )
+                )
+
+            # Typosquatting heuristic
+            if _is_suspicious_name(name, _POPULAR_PACKAGES_NODE):
+                findings.append(
+                    Finding(
+                        id="DEP-TYPOSQUATNPM",
+                        rule=self.id,
+                        title=f"Possible typosquatting: {name}",
+                        description=(
+                            f"`{rel}`: `{name}` is suspiciously similar to a popular npm package. "
+                            "This may be a typosquatting attack."
+                        ),
+                        severity=Severity.HIGH,
+                        path=rel,
+                        evidence=name,
+                        recommendation="Verify this is the intended package on npmjs.com.",
+                        tags=["dependencies", "npm", "typosquatting", "supply-chain"],
+                        confidence=Confidence.LOW,
+                    )
+                )
+
+        return findings
+
+    # ------------------------------------------------------------------
+    # Python / pyproject.toml
+    # ------------------------------------------------------------------
+
+    def _check_pyproject(
+        self, path: Path, rel: str, context: ScanContext
+    ) -> list[Finding]:
+        findings: list[Finding] = []
+        try:
+            try:
+                import tomllib
+            except ImportError:
+                try:
+                    import tomli as tomllib  # type: ignore[no-redef]
+                except ImportError:
+                    return findings
+
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return findings
+
+        deps: list[str] = data.get("project", {}).get("dependencies", [])
+        is_strict = context.config.policy == "strict"
+
+        for dep in deps:
+            # Extract package name (before any version specifier)
+            name = re.split(r"[>=<!;\s\[]", dep)[0].strip()
+            if not name:
+                continue
+
+            # URL / VCS dependencies (e.g. git+https://...)
+            if re.search(r"(git\+|https?://|file://|\.\.?/)", dep):
+                findings.append(
+                    Finding(
+                        id="DEP-URLPYTHON",
+                        rule=self.id,
+                        title=f"URL/VCS dependency: {name}",
+                        description=(
+                            f"`{rel}`: dependency `{name}` uses a URL/VCS specifier. "
+                            "These bypass PyPI integrity checks."
+                        ),
+                        severity=Severity.HIGH,
+                        path=rel,
+                        evidence=dep[:100],
+                        recommendation=(
+                            "Publish the package to PyPI and use a versioned specifier."
+                        ),
+                        tags=["dependencies", "python", "supply-chain"],
+                        confidence=Confidence.HIGH,
+                    )
+                )
+
+            # Broad / unpinned in strict mode
+            if is_strict and not re.search(r"[>=<~!]", dep):
+                findings.append(
+                    Finding(
+                        id="DEP-UNPINNEDPY",
+                        rule=self.id,
+                        title=f"Unpinned Python dependency: {name}",
+                        description=(
+                            f"`{rel}`: `{name}` has no version constraint. "
+                            "This allows any version to be installed."
+                        ),
+                        severity=Severity.LOW,
+                        path=rel,
+                        evidence=dep[:100],
+                        recommendation="Add a version constraint, e.g. `name>=1.0,<2.0`.",
+                        tags=["dependencies", "python"],
+                        confidence=Confidence.HIGH,
+                    )
+                )
+
+            # Typosquatting
+            if _is_suspicious_name(name, _POPULAR_PACKAGES_PYTHON):
+                findings.append(
+                    Finding(
+                        id="DEP-TYPOSQUATPY",
+                        rule=self.id,
+                        title=f"Possible typosquatting: {name}",
+                        description=(
+                            f"`{rel}`: `{name}` is suspiciously similar to a popular PyPI package."
+                        ),
+                        severity=Severity.HIGH,
+                        path=rel,
+                        evidence=name,
+                        recommendation="Verify this is the intended package on pypi.org.",
+                        tags=["dependencies", "python", "typosquatting", "supply-chain"],
+                        confidence=Confidence.LOW,
+                    )
+                )
+
+        return findings

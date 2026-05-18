@@ -1,0 +1,1 @@
+"""Rule package for VibeGuard."""

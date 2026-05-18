@@ -1,0 +1,52 @@
+# VibeGuard configuration
+# Run `vibeguard init` to regenerate this file with comments.
+
+policy: balanced
+fail_on: high
+
+ignore:
+  paths:
+    - .git/
+    - node_modules/
+    - .venv/
+    - venv/
+    - dist/
+    - build/
+    - "*.egg-info/"
+    - .tox/
+    - __pycache__/
+  findings: []
+
+package_allowlist:
+  files:
+    - README.md
+    - README.rst
+    - LICENSE
+    - pyproject.toml
+    - setup.cfg
+    - setup.py
+    - package.json
+    - CHANGELOG.md
+    - NOTICE
+
+secrets:
+  enabled: true
+  min_entropy: 3.5
+
+sourcemaps:
+  enabled: true
+
+packaging:
+  enabled: true
+
+dependencies:
+  enabled: true
+
+risky_patterns:
+  enabled: true
+
+tests:
+  enabled: true
+
+ai_footprints:
+  enabled: true
