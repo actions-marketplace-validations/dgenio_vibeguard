@@ -12,7 +12,11 @@ _SOURCE_DIRS = {"src", "app", "lib", "vibeguard", "api", "server", "core", "pkg"
 
 # Patterns that indicate test files
 _TEST_INDICATORS = {
-    "tests", "test", "__tests__", "spec", "specs",
+    "tests",
+    "test",
+    "__tests__",
+    "spec",
+    "specs",
 }
 
 _TEST_SUFFIXES = {"_test.py", ".test.js", ".test.ts", ".spec.js", ".spec.ts"}

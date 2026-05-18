@@ -23,6 +23,7 @@ def _load_toml(text: str) -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001
         return None
 
+
 # Patterns that should not be published
 _DANGEROUS_INCLUDE_PATTERNS = [
     (r"\.env", "Environment files (.env)"),
@@ -75,9 +76,7 @@ class PackagingRule(Rule):
     # Node / npm
     # ------------------------------------------------------------------
 
-    def _check_package_json(
-        self, path: Path, rel: str, context: ScanContext
-    ) -> list[Finding]:
+    def _check_package_json(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -158,9 +157,7 @@ class PackagingRule(Rule):
     # Python / pyproject.toml
     # ------------------------------------------------------------------
 
-    def _check_pyproject(
-        self, path: Path, rel: str, context: ScanContext
-    ) -> list[Finding]:
+    def _check_pyproject(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         data = _load_toml(path.read_text(encoding="utf-8"))
         if data is None:
@@ -178,9 +175,7 @@ class PackagingRule(Rule):
             .get("sdist", {})
             .get("include", [])
         )
-        findings.extend(
-            self._audit_include_list(hatch_include, rel, "hatch sdist include")
-        )
+        findings.extend(self._audit_include_list(hatch_include, rel, "hatch sdist include"))
 
         # Setuptools find_packages with include all is fine, but check for explicit bad patterns
         setuptools = tool.get("setuptools", {})
@@ -209,9 +204,7 @@ class PackagingRule(Rule):
 
         return findings
 
-    def _audit_include_list(
-        self, patterns: list, rel: str, source: str
-    ) -> list[Finding]:
+    def _audit_include_list(self, patterns: list, rel: str, source: str) -> list[Finding]:
         findings: list[Finding] = []
         for pattern in patterns:
             if str(pattern) in _BROAD_PATTERNS:

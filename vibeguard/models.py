@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,16 +16,16 @@ class Severity(str, Enum):
     HIGH = "high"
     CRITICAL = "critical"
 
-    def __lt__(self, other: Severity) -> bool:
+    def __lt__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] < _SEVERITY_ORDER[other]
 
-    def __le__(self, other: Severity) -> bool:
+    def __le__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] <= _SEVERITY_ORDER[other]
 
-    def __gt__(self, other: Severity) -> bool:
+    def __gt__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] > _SEVERITY_ORDER[other]
 
-    def __ge__(self, other: Severity) -> bool:
+    def __ge__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] >= _SEVERITY_ORDER[other]
 
 
@@ -75,7 +75,7 @@ class ScanResult(BaseModel):
     scanned_files: int = 0
     changed_files: int = 0
     scan_path: str = "."
-    policy: str = "balanced"
+    policy: Literal["relaxed", "balanced", "strict"] = "balanced"
     errors: list[str] = Field(default_factory=list)
 
     def by_severity(self, severity: Severity) -> list[Finding]:

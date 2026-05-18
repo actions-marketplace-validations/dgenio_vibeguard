@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from vibeguard.models import Severity
 
 
 class IgnoreConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     paths: list[str] = Field(
         default=[
             ".git/",
@@ -27,6 +31,8 @@ class IgnoreConfig(BaseModel):
 
 
 class PackageAllowlistConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     files: list[str] = Field(
         default=[
             "README.md",
@@ -43,39 +49,61 @@ class PackageAllowlistConfig(BaseModel):
 
 
 class SecretsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
     min_entropy: float = 3.5
 
 
 class SourcemapsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class PackagingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class DependenciesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class RiskyPatternsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class TestsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class AIFootprintsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
+
+
+class ScannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_file_size_kb: int = Field(default=1024, ge=1)
 
 
 class VibeGuardConfig(BaseModel):
     """Root configuration model."""
 
-    policy: str = "balanced"
-    fail_on: str = "high"
+    model_config = ConfigDict(extra="forbid")
+
+    policy: Literal["relaxed", "balanced", "strict"] = "balanced"
+    fail_on: Severity = Severity.HIGH
     ignore: IgnoreConfig = Field(default_factory=IgnoreConfig)
     package_allowlist: PackageAllowlistConfig = Field(default_factory=PackageAllowlistConfig)
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
@@ -85,6 +113,7 @@ class VibeGuardConfig(BaseModel):
     risky_patterns: RiskyPatternsConfig = Field(default_factory=RiskyPatternsConfig)
     tests: TestsConfig = Field(default_factory=TestsConfig)
     ai_footprints: AIFootprintsConfig = Field(default_factory=AIFootprintsConfig)
+    scanner: ScannerConfig = Field(default_factory=ScannerConfig)
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> VibeGuardConfig:
@@ -115,6 +144,18 @@ class VibeGuardConfig(BaseModel):
                 if fnmatch.fnmatch(part, clean):
                     return True
         return False
+
+
+def load_ignorefile(root: Path) -> list[str]:
+    """Load .vibeguardignore patterns from the scan root using pathspec."""
+    ignore_path = root / ".vibeguardignore"
+    if not ignore_path.exists():
+        return []
+    return [
+        line.strip()
+        for line in ignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
 
 DEFAULT_CONFIG_YAML = """\
@@ -148,6 +189,9 @@ package_allowlist:
     - package.json
     - CHANGELOG.md
     - NOTICE
+
+scanner:
+  max_file_size_kb: 1024  # skip files larger than this (KB)
 
 secrets:
   enabled: true

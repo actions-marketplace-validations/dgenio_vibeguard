@@ -53,9 +53,7 @@ _SECRET_PATTERNS: list[tuple[str, str, re.Pattern[str], Severity]] = [
     (
         "hardcoded-password",
         "Hardcoded Password",
-        re.compile(
-            r'(?i)(?:password|passwd|pwd)\s*[=:]\s*["\']([^"\'\s]{8,})["\']'
-        ),
+        re.compile(r'(?i)(?:password|passwd|pwd)\s*[=:]\s*["\']([^"\'\s]{8,})["\']'),
         Severity.HIGH,
     ),
     (
@@ -93,9 +91,27 @@ _SENSITIVE_FILENAMES = {".env", ".env.local", ".env.production", ".env.staging"}
 
 # Extensions to skip (binary, images, etc.)
 _SKIP_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2",
-    ".ttf", ".eot", ".otf", ".mp4", ".mp3", ".wav", ".zip", ".tar",
-    ".gz", ".tgz", ".bz2", ".lock", ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".otf",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".tgz",
+    ".bz2",
+    ".lock",
+    ".pdf",
 }
 
 
@@ -114,9 +130,22 @@ def _is_likely_placeholder(value: str) -> bool:
     """Return True if the value looks like a placeholder rather than a real secret."""
     lower = value.lower()
     placeholders = {
-        "your_api_key_here", "changeme", "secret", "password", "example",
-        "placeholder", "xxx", "todo", "test", "fake", "dummy", "replace_me",
-        "xxxxxxxx", "insert_key_here", "your-token-here", "your-secret-here",
+        "your_api_key_here",
+        "changeme",
+        "secret",
+        "password",
+        "example",
+        "placeholder",
+        "xxx",
+        "todo",
+        "test",
+        "fake",
+        "dummy",
+        "replace_me",
+        "xxxxxxxx",
+        "insert_key_here",
+        "your-token-here",
+        "your-secret-here",
     }
     if lower in placeholders:
         return True
@@ -170,9 +199,7 @@ class SecretsRule(Rule):
                 continue
 
             for idx, line in enumerate(content.splitlines(), start=1):
-                findings.extend(
-                    self._check_line(line, idx, rel, is_example, context)
-                )
+                findings.extend(self._check_line(line, idx, rel, is_example, context))
 
         return findings
 
@@ -190,7 +217,9 @@ class SecretsRule(Rule):
         for pat_id, label, pattern, severity in _SECRET_PATTERNS:
             for match in pattern.finditer(line):
                 # Get the most interesting group (the value itself)
-                value = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
+                value = (
+                    match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
+                )
 
                 if _is_likely_placeholder(value):
                     continue

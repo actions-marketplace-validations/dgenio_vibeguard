@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import platform
+import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 
 from vibeguard import __version__
@@ -57,9 +60,7 @@ def init(
     """Create a default vibeguard.yaml configuration file."""
     config_path = path / "vibeguard.yaml"
     if config_path.exists():
-        err_console.print(
-            f"[yellow]vibeguard.yaml already exists at {config_path}. Skipping.[/]"
-        )
+        err_console.print(f"[yellow]vibeguard.yaml already exists at {config_path}. Skipping.[/]")
         raise typer.Exit(0)
 
     path.mkdir(parents=True, exist_ok=True)
@@ -69,8 +70,75 @@ def init(
 
 
 # ---------------------------------------------------------------------------
+# version
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def version() -> None:
+    """Show version, Python, platform, and install path."""
+    import vibeguard
+
+    install_path = Path(vibeguard.__file__).resolve().parent
+    lines = [
+        f"vibeguard {__version__}",
+        f"Python {sys.version.split()[0]}",
+        f"Platform: {platform.platform()}",
+        f"Install path: {install_path}",
+    ]
+    for line in lines:
+        typer.echo(line)
+
+
+# ---------------------------------------------------------------------------
+# validate
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def validate(
+    path: Annotated[
+        Path,
+        typer.Option("--path", "-p", help="Directory to search for vibeguard.yaml"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
+    ] = None,
+) -> None:
+    """Validate a vibeguard.yaml config file and exit 0 (valid) or 1 (invalid)."""
+    config_path = config or (path / "vibeguard.yaml")
+    if not config_path.exists():
+        err_console.print(f"[red]Config file not found: {config_path}[/]")
+        raise typer.Exit(1)
+
+    try:
+        VibeGuardConfig.load(config_path)
+    except ValidationError as exc:
+        err_console.print(f"[red]Invalid config: {config_path}[/]\n")
+        for error in exc.errors():
+            loc = " → ".join(str(p) for p in error["loc"])
+            err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        err_console.print(f"[red]Error reading config: {exc}[/]")
+        raise typer.Exit(1) from None
+
+    typer.echo(f"✓ Config is valid: {config_path}")
+
+
+# ---------------------------------------------------------------------------
 # scan
 # ---------------------------------------------------------------------------
+
+
+def _validate_output_options(json_output: bool, markdown_output: bool) -> None:
+    """Fail fast if mutually exclusive output options are both set."""
+    if json_output and markdown_output:
+        err_console.print(
+            "[red]Error: --json and --markdown are mutually exclusive. Choose one.[/]"
+        )
+        raise typer.Exit(2)
 
 
 @app.command()
@@ -108,9 +176,10 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
+    _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
     if fail_on:
-        cfg.fail_on = fail_on
+        cfg.fail_on = _parse_severity(fail_on)
 
     git_meta = None
     if diff:
@@ -177,9 +246,10 @@ def gate(
     ] = False,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
+    _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
     if fail_on:
-        cfg.fail_on = fail_on
+        cfg.fail_on = _parse_severity(fail_on)
 
     git_meta = None
     if diff:
@@ -203,7 +273,7 @@ def gate(
         for err in result.errors:
             err_console.print(f"[yellow]⚠ {err}[/]")
 
-    threshold = _parse_severity(cfg.fail_on)
+    threshold = cfg.fail_on
     if result.has_blocking(threshold):
         err_console.print(
             f"\n[bold red]✗ Gate failed:[/] findings at or above "
@@ -329,6 +399,12 @@ def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
     if config_path:
         try:
             return VibeGuardConfig.load(config_path)
+        except ValidationError as exc:
+            err_console.print(f"[red]Invalid config {config_path}:[/]")
+            for error in exc.errors():
+                loc = " → ".join(str(p) for p in error["loc"])
+                err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
+            raise typer.Exit(2) from exc
         except Exception as exc:
             err_console.print(f"[red]Error loading config {config_path}: {exc}[/]")
             raise typer.Exit(2) from exc
@@ -338,6 +414,12 @@ def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
     if candidate.exists():
         try:
             return VibeGuardConfig.load(candidate)
+        except ValidationError as exc:
+            err_console.print(f"[red]Invalid config {candidate}:[/]")
+            for error in exc.errors():
+                loc = " → ".join(str(p) for p in error["loc"])
+                err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
+            raise typer.Exit(2) from exc
         except Exception as exc:
             err_console.print(f"[yellow]⚠ Could not load {candidate}: {exc}. Using defaults.[/]")
 
@@ -349,8 +431,5 @@ def _parse_severity(value: str) -> Severity:
     try:
         return Severity(value.lower())
     except ValueError:
-        err_console.print(
-            f"[red]Invalid severity: {value!r}. "
-            f"Valid options: {', '.join(valid)}[/]"
-        )
+        err_console.print(f"[red]Invalid severity: {value!r}. Valid options: {', '.join(valid)}[/]")
         raise typer.Exit(2) from None

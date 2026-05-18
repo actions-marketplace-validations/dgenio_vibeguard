@@ -87,9 +87,7 @@ class SourceMapsRule(Rule):
                         # Inline data URIs are less concerning
                         if url.startswith("data:"):
                             continue
-                        sev = (
-                            Severity.HIGH if self._in_publish_dir(path) else Severity.MEDIUM
-                        )
+                        sev = Severity.HIGH if self._in_publish_dir(path) else Severity.MEDIUM
                         findings.append(
                             Finding(
                                 id="MAP-URL",
