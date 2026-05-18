@@ -14,12 +14,15 @@ from vibeguard.rules.base import Rule
 def _load_toml(text: str) -> dict[str, Any] | None:
     """Parse TOML text, returning None if no TOML parser is available."""
     try:
+        import tomllib  # Python 3.11+
+    except ImportError:
         try:
-            import tomllib  # Python 3.11+
-        except ImportError:
             import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    try:
         return tomllib.loads(text)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — malformed TOML
         return None
 
 # Common package names that are frequent typosquatting targets

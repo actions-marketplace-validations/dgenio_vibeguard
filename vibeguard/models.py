@@ -105,7 +105,7 @@ class ScanContext(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     root: Path
-    config: Any  # VibeGuardConfig — avoid circular import
+    config: Any  # VibeGuardConfig — forward ref to avoid circular import
     files: list[Path] = Field(default_factory=list)
     changed_files: list[Path] = Field(default_factory=list)
     git: GitMetadata = Field(default_factory=GitMetadata)

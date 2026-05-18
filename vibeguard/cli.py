@@ -345,8 +345,12 @@ def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
 
 
 def _parse_severity(value: str) -> Severity:
+    valid = [s.value for s in Severity]
     try:
         return Severity(value.lower())
     except ValueError:
-        err_console.print(f"[red]Invalid severity: {value!r}. Using 'high'.[/]")
-        return Severity.HIGH
+        err_console.print(
+            f"[red]Invalid severity: {value!r}. "
+            f"Valid options: {', '.join(valid)}[/]"
+        )
+        raise typer.Exit(2) from None

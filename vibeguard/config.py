@@ -105,16 +105,12 @@ class VibeGuardConfig(BaseModel):
         """Return True if the path matches any ignore pattern."""
         import fnmatch
 
-        path_str = str(path)
+        path_str = str(path).replace("\\", "/")
+        parts = path_str.split("/")
         for pattern in self.ignore.paths:
             # Normalize pattern – strip trailing slash for directory matching
             clean = pattern.rstrip("/")
-            if fnmatch.fnmatch(path_str, f"*{clean}*") or fnmatch.fnmatch(
-                path_str, f"{clean}*"
-            ):
-                return True
-            # Also check individual path components
-            parts = Path(path_str).parts
+            # Check individual path components against the pattern
             for part in parts:
                 if fnmatch.fnmatch(part, clean):
                     return True

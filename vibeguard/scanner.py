@@ -78,6 +78,10 @@ def run_scan(
     findings: list[Finding] = []
     errors: list[str] = []
 
+    # Propagate git errors so callers know git context was degraded
+    if diff_only and git_meta and not git_meta.is_available and git_meta.error:
+        errors.append(f"Git context unavailable: {git_meta.error}")
+
     for rule in rules:
         try:
             rule_findings = rule.scan(ctx)
