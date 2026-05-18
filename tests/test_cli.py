@@ -55,9 +55,7 @@ class TestCLIScan:
 class TestCLIGate:
     def test_gate_clean_dir_exits_zero(self, tmp_path: Path):
         (tmp_path / "hello.py").write_text("print('hello')\n")
-        result = runner.invoke(
-            app, ["gate", "--path", str(tmp_path), "--fail-on", "high"]
-        )
+        result = runner.invoke(app, ["gate", "--path", str(tmp_path), "--fail-on", "high"])
         assert result.exit_code == 0
 
     def test_gate_with_critical_finding_exits_one(self, tmp_path: Path):

@@ -27,46 +27,37 @@ class TestDependenciesRule:
     rule = DependenciesRule()
 
     def test_url_dep_flagged(self, tmp_path: Path):
-        data = json.dumps({
-            "name": "app",
-            "dependencies": {"mylib": "https://github.com/user/mylib"}
-        })
+        data = json.dumps(
+            {"name": "app", "dependencies": {"mylib": "https://github.com/user/mylib"}}
+        )
         ctx = _ctx(tmp_path, {"package.json": data})
         findings = self.rule.scan(ctx)
         assert any(f.id == "DEP-URLNODE" for f in findings)
 
     def test_git_dep_flagged(self, tmp_path: Path):
-        data = json.dumps({
-            "name": "app",
-            "dependencies": {"mylib": "git+https://github.com/user/mylib.git"}
-        })
+        data = json.dumps(
+            {"name": "app", "dependencies": {"mylib": "git+https://github.com/user/mylib.git"}}
+        )
         ctx = _ctx(tmp_path, {"package.json": data})
         findings = self.rule.scan(ctx)
         assert any(f.id == "DEP-URLNODE" for f in findings)
 
     def test_broad_version_strict_mode(self, tmp_path: Path):
-        data = json.dumps({
-            "name": "app",
-            "dependencies": {"lodash": "*"}
-        })
+        data = json.dumps({"name": "app", "dependencies": {"lodash": "*"}})
         ctx = _ctx(tmp_path, {"package.json": data}, policy="strict")
         findings = self.rule.scan(ctx)
         assert any(f.id == "DEP-BROADVER" for f in findings)
 
     def test_broad_version_balanced_mode_no_finding(self, tmp_path: Path):
-        data = json.dumps({
-            "name": "app",
-            "dependencies": {"lodash": "*"}
-        })
+        data = json.dumps({"name": "app", "dependencies": {"lodash": "*"}})
         ctx = _ctx(tmp_path, {"package.json": data}, policy="balanced")
         findings = self.rule.scan(ctx)
         assert not any(f.id == "DEP-BROADVER" for f in findings)
 
     def test_normal_dep_no_finding(self, tmp_path: Path):
-        data = json.dumps({
-            "name": "app",
-            "dependencies": {"express": "^4.18.2", "lodash": "^4.17.21"}
-        })
+        data = json.dumps(
+            {"name": "app", "dependencies": {"express": "^4.18.2", "lodash": "^4.17.21"}}
+        )
         ctx = _ctx(tmp_path, {"package.json": data})
         findings = self.rule.scan(ctx)
         assert not any(f.id in ("DEP-URLNODE", "DEP-BROADVER") for f in findings)
@@ -82,11 +73,7 @@ class TestDependenciesRule:
         assert any(f.id == "DEP-URLPYTHON" for f in findings)
 
     def test_python_unpinned_strict(self, tmp_path: Path):
-        toml = (
-            "[project]\n"
-            'name = "app"\n'
-            'dependencies = ["requests"]\n'
-        )
+        toml = '[project]\nname = "app"\ndependencies = ["requests"]\n'
         ctx = _ctx(tmp_path, {"pyproject.toml": toml}, policy="strict")
         findings = self.rule.scan(ctx)
         assert any(f.id == "DEP-UNPINNEDPY" for f in findings)

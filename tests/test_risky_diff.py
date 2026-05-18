@@ -33,9 +33,7 @@ class TestRiskyDiffRule:
         assert any("EVALEXEC" in f.id for f in findings)
 
     def test_subprocess_shell_detected(self, tmp_path: Path):
-        ctx = _ctx(
-            tmp_path, {"deploy.py": "subprocess.run(cmd, shell=True)\n"}
-        )
+        ctx = _ctx(tmp_path, {"deploy.py": "subprocess.run(cmd, shell=True)\n"})
         findings = self.rule.scan(ctx)
         assert any("SUBPROCESSSHELL" in f.id for f in findings)
 
@@ -53,9 +51,7 @@ class TestRiskyDiffRule:
         assert any("JWT" in f.id for f in findings)
 
     def test_deserialization_detected(self, tmp_path: Path):
-        ctx = _ctx(
-            tmp_path, {"loader.py": "data = pickle.loads(raw_data)\n"}
-        )
+        ctx = _ctx(tmp_path, {"loader.py": "data = pickle.loads(raw_data)\n"})
         findings = self.rule.scan(ctx)
         assert any("DESERIALIZATION" in f.id for f in findings)
 

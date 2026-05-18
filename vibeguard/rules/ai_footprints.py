@@ -10,67 +10,113 @@ from vibeguard.rules.base import Rule
 # (id_suffix, label, pattern, severity)
 _AI_PATTERNS: list[tuple[str, str, re.Pattern[str], Severity]] = [
     # AI generation markers
-    ("ai-generated", "AI-generated code comment", re.compile(
-        r"(?i)(generated\s+by\s+(chatgpt|gpt|claude|copilot|cursor|codeium)|"
-        r"auto[\-_]?generated\s+by\s+(ai|llm)|"
-        r"this\s+code\s+was\s+(written|generated)\s+by\s+(ai|chatgpt|an?\s+ai))"
-    ), Severity.INFO),
-
+    (
+        "ai-generated",
+        "AI-generated code comment",
+        re.compile(
+            r"(?i)(generated\s+by\s+(chatgpt|gpt|claude|copilot|cursor|codeium)|"
+            r"auto[\-_]?generated\s+by\s+(ai|llm)|"
+            r"this\s+code\s+was\s+(written|generated)\s+by\s+(ai|chatgpt|an?\s+ai))"
+        ),
+        Severity.INFO,
+    ),
     # Placeholder credentials
-    ("placeholder-cred", "Placeholder credential", re.compile(
-        r'(?i)(password\s*=\s*["\']?(admin|password|123456|test|demo|default|changeme|pass)["\']?|'
-        r'secret\s*=\s*["\']?(secret|mysecret|topsecret|supersecret)["\']?|'
-        r'token\s*=\s*["\']?(token|mytoken|test_token|fake_token)["\']?)'
-    ), Severity.HIGH),
-
+    (
+        "placeholder-cred",
+        "Placeholder credential",
+        re.compile(
+            r'(?i)(password\s*=\s*["\']?(admin|password|123456|test|demo|default|changeme|pass)["\']?|'
+            r'secret\s*=\s*["\']?(secret|mysecret|topsecret|supersecret)["\']?|'
+            r'token\s*=\s*["\']?(token|mytoken|test_token|fake_token)["\']?)'
+        ),
+        Severity.HIGH,
+    ),
     # Security bypass comments
-    ("disable-security", "Security disabled in code", re.compile(
-        r"(?i)(disable\s+(security|auth|authentication|authorization|validation|csrf)|"
-        r"security\s*=\s*[Ff]alse|auth\s+disabled|skip\s+(auth|security|validation))"
-    ), Severity.HIGH),
-
+    (
+        "disable-security",
+        "Security disabled in code",
+        re.compile(
+            r"(?i)(disable\s+(security|auth|authentication|authorization|validation|csrf)|"
+            r"security\s*=\s*[Ff]alse|auth\s+disabled|skip\s+(auth|security|validation))"
+        ),
+        Severity.HIGH,
+    ),
     # Trust-all certificates
-    ("trust-all-certs", "Trust-all certificates", re.compile(
-        r"(?i)(trust\s+all\s+(certs?|certificates?)|"
-        r"verify\s*=\s*False|"
-        r"ssl_verify\s*=\s*False|"
-        r"InsecureRequestWarning|"
-        r"urllib3.*disable_warnings)"
-    ), Severity.HIGH),
-
+    (
+        "trust-all-certs",
+        "Trust-all certificates",
+        re.compile(
+            r"(?i)(trust\s+all\s+(certs?|certificates?)|"
+            r"verify\s*=\s*False|"
+            r"ssl_verify\s*=\s*False|"
+            r"InsecureRequestWarning|"
+            r"urllib3.*disable_warnings)"
+        ),
+        Severity.HIGH,
+    ),
     # Allow all CORS origins
-    ("cors-wildcard", "Wildcard CORS origin", re.compile(
-        r'(?i)(allow[_\-]?origins?\s*[=:]\s*[\[\(]?\s*["\']?\*["\']?|'
-        r'Access-Control-Allow-Origin["\']?\s*:\s*["\']?\*)'
-    ), Severity.HIGH),
-
+    (
+        "cors-wildcard",
+        "Wildcard CORS origin",
+        re.compile(
+            r'(?i)(allow[_\-]?origins?\s*[=:]\s*[\[\(]?\s*["\']?\*["\']?|'
+            r'Access-Control-Allow-Origin["\']?\s*:\s*["\']?\*)'
+        ),
+        Severity.HIGH,
+    ),
     # Temporary bypass / mock
-    ("temp-bypass", "Temporary security bypass or mock", re.compile(
-        r"(?i)(temporary\s+bypass|mock\s+for\s+now|"
-        r"TODO[\s:]+remove\s+(this|auth|security|check)|"
-        r"FIXME[\s:]+security|"
-        r"HACK[\s:]+.{0,30}(auth|security|bypass)|"
-        r"# noqa.*security)"
-    ), Severity.MEDIUM),
-
+    (
+        "temp-bypass",
+        "Temporary security bypass or mock",
+        re.compile(
+            r"(?i)(temporary\s+bypass|mock\s+for\s+now|"
+            r"TODO[\s:]+remove\s+(this|auth|security|check)|"
+            r"FIXME[\s:]+security|"
+            r"HACK[\s:]+.{0,30}(auth|security|bypass)|"
+            r"# noqa.*security)"
+        ),
+        Severity.MEDIUM,
+    ),
     # Skip validation
-    ("skip-validation", "Validation skipped", re.compile(
-        r"(?i)(skip[_\-]?validation|bypass[_\-]?validation|"
-        r"no[_\-]?validate|validate\s*=\s*[Ff]alse|"
-        r"unsafe\s+.*\s*(load|parse|exec))"
-    ), Severity.MEDIUM),
-
+    (
+        "skip-validation",
+        "Validation skipped",
+        re.compile(
+            r"(?i)(skip[_\-]?validation|bypass[_\-]?validation|"
+            r"no[_\-]?validate|validate\s*=\s*[Ff]alse|"
+            r"unsafe\s+.*\s*(load|parse|exec))"
+        ),
+        Severity.MEDIUM,
+    ),
     # Hallucinated-looking TODOs
-    ("hallucinated-todo", "TODO that looks auto-generated", re.compile(
-        r"(?i)(# TODO[\s:]+implement\s+(this|the|a)\s+(function|method|logic|code)|"
-        r"# TODO[\s:]+add\s+(error\s+handling|validation|authentication|tests?)\s+here|"
-        r"# TODO[\s:]+replace\s+with\s+(actual|real|proper)\s+(implementation|logic))"
-    ), Severity.LOW),
+    (
+        "hallucinated-todo",
+        "TODO that looks auto-generated",
+        re.compile(
+            r"(?i)(# TODO[\s:]+implement\s+(this|the|a)\s+(function|method|logic|code)|"
+            r"# TODO[\s:]+add\s+(error\s+handling|validation|authentication|tests?)\s+here|"
+            r"# TODO[\s:]+replace\s+with\s+(actual|real|proper)\s+(implementation|logic))"
+        ),
+        Severity.LOW,
+    ),
 ]
 
 _CODE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".rb", ".php",
-    ".cs", ".sh", ".yaml", ".yml", ".json", ".toml",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".go",
+    ".java",
+    ".rb",
+    ".php",
+    ".cs",
+    ".sh",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".toml",
 }
 
 

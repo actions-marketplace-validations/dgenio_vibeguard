@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IgnoreConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     paths: list[str] = Field(
         default=[
             ".git/",
@@ -27,6 +29,8 @@ class IgnoreConfig(BaseModel):
 
 
 class PackageAllowlistConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     files: list[str] = Field(
         default=[
             "README.md",
@@ -43,36 +47,58 @@ class PackageAllowlistConfig(BaseModel):
 
 
 class SecretsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
     min_entropy: float = 3.5
 
 
 class SourcemapsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class PackagingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class DependenciesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class RiskyPatternsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class TestsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
 
 
 class AIFootprintsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
+
+
+class ScannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_file_size_kb: int = 1024
 
 
 class VibeGuardConfig(BaseModel):
     """Root configuration model."""
+
+    model_config = ConfigDict(extra="forbid")
 
     policy: str = "balanced"
     fail_on: str = "high"
@@ -85,6 +111,7 @@ class VibeGuardConfig(BaseModel):
     risky_patterns: RiskyPatternsConfig = Field(default_factory=RiskyPatternsConfig)
     tests: TestsConfig = Field(default_factory=TestsConfig)
     ai_footprints: AIFootprintsConfig = Field(default_factory=AIFootprintsConfig)
+    scanner: ScannerConfig = Field(default_factory=ScannerConfig)
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> VibeGuardConfig:
@@ -115,6 +142,18 @@ class VibeGuardConfig(BaseModel):
                 if fnmatch.fnmatch(part, clean):
                     return True
         return False
+
+
+def load_ignorefile(root: Path) -> list[str]:
+    """Load .vibeguardignore patterns from the scan root using pathspec."""
+    ignore_path = root / ".vibeguardignore"
+    if not ignore_path.exists():
+        return []
+    return [
+        line
+        for line in ignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
 
 DEFAULT_CONFIG_YAML = """\
@@ -148,6 +187,9 @@ package_allowlist:
     - package.json
     - CHANGELOG.md
     - NOTICE
+
+scanner:
+  max_file_size_kb: 1024  # skip files larger than this (KB)
 
 secrets:
   enabled: true

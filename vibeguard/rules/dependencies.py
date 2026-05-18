@@ -25,17 +25,53 @@ def _load_toml(text: str) -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001 — malformed TOML
         return None
 
+
 # Common package names that are frequent typosquatting targets
 _POPULAR_PACKAGES_NODE = {
-    "lodash", "react", "express", "axios", "moment", "chalk", "debug",
-    "commander", "yargs", "inquirer", "webpack", "babel", "eslint", "jest",
-    "mocha", "chai", "sinon", "typescript", "prettier", "rollup", "vite",
+    "lodash",
+    "react",
+    "express",
+    "axios",
+    "moment",
+    "chalk",
+    "debug",
+    "commander",
+    "yargs",
+    "inquirer",
+    "webpack",
+    "babel",
+    "eslint",
+    "jest",
+    "mocha",
+    "chai",
+    "sinon",
+    "typescript",
+    "prettier",
+    "rollup",
+    "vite",
 }
 
 _POPULAR_PACKAGES_PYTHON = {
-    "requests", "numpy", "pandas", "flask", "django", "fastapi", "sqlalchemy",
-    "pydantic", "click", "boto3", "urllib3", "pillow", "scipy", "matplotlib",
-    "pytest", "setuptools", "pip", "wheel", "cryptography", "paramiko",
+    "requests",
+    "numpy",
+    "pandas",
+    "flask",
+    "django",
+    "fastapi",
+    "sqlalchemy",
+    "pydantic",
+    "click",
+    "boto3",
+    "urllib3",
+    "pillow",
+    "scipy",
+    "matplotlib",
+    "pytest",
+    "setuptools",
+    "pip",
+    "wheel",
+    "cryptography",
+    "paramiko",
 }
 
 # Suspicious name patterns (typosquatting signals)
@@ -103,9 +139,7 @@ class DependenciesRule(Rule):
     # Node / npm
     # ------------------------------------------------------------------
 
-    def _check_package_json(
-        self, path: Path, rel: str, context: ScanContext
-    ) -> list[Finding]:
+    def _check_package_json(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -196,9 +230,7 @@ class DependenciesRule(Rule):
     # Python / pyproject.toml
     # ------------------------------------------------------------------
 
-    def _check_pyproject(
-        self, path: Path, rel: str, context: ScanContext
-    ) -> list[Finding]:
+    def _check_pyproject(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         data = _load_toml(path.read_text(encoding="utf-8"))
         if data is None:

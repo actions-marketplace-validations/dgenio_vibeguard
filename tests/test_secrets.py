@@ -37,7 +37,9 @@ class TestSecretsRule:
     def test_private_key_detected(self, tmp_path: Path):
         ctx = _make_context(
             tmp_path,
-            {"private.pem": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAK\n-----END RSA PRIVATE KEY-----"},
+            {
+                "private.pem": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAK\n-----END RSA PRIVATE KEY-----"
+            },
         )
         findings = self.rule.scan(ctx)
         assert any("private" in f.title.lower() for f in findings)

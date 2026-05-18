@@ -5,7 +5,10 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from vibeguard.config import VibeGuardConfig
+import pytest
+from pydantic import ValidationError
+
+from vibeguard.config import VibeGuardConfig, load_ignorefile
 
 
 def test_defaults():
@@ -86,3 +89,60 @@ def test_policy_relaxed(tmp_path: Path):
     cfg_file.write_text(yaml_content)
     cfg = VibeGuardConfig.load(cfg_file)
     assert cfg.policy == "relaxed"
+
+
+class TestStrictValidation:
+    """Tests for extra='forbid' config validation (#13)."""
+
+    def test_unknown_root_key_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("policy: balanced\nfail_oon: high\n")
+        with pytest.raises(ValidationError) as exc_info:
+            VibeGuardConfig.load(cfg_file)
+        assert "fail_oon" in str(exc_info.value)
+
+    def test_unknown_nested_key_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("secrets:\n  enabeld: true\n")
+        with pytest.raises(ValidationError) as exc_info:
+            VibeGuardConfig.load(cfg_file)
+        assert "enabeld" in str(exc_info.value)
+
+    def test_valid_config_accepted(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("policy: strict\nfail_on: medium\n")
+        cfg = VibeGuardConfig.load(cfg_file)
+        assert cfg.policy == "strict"
+
+
+class TestScannerConfig:
+    """Tests for scanner config (max_file_size_kb)."""
+
+    def test_default_max_file_size(self):
+        cfg = VibeGuardConfig()
+        assert cfg.scanner.max_file_size_kb == 1024
+
+    def test_custom_max_file_size(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("scanner:\n  max_file_size_kb: 512\n")
+        cfg = VibeGuardConfig.load(cfg_file)
+        assert cfg.scanner.max_file_size_kb == 512
+
+
+class TestLoadIgnorefile:
+    """Tests for .vibeguardignore loading (#26)."""
+
+    def test_missing_file_returns_empty(self, tmp_path: Path):
+        patterns = load_ignorefile(tmp_path)
+        assert patterns == []
+
+    def test_loads_patterns(self, tmp_path: Path):
+        (tmp_path / ".vibeguardignore").write_text("*.log\nbuild/\n")
+        patterns = load_ignorefile(tmp_path)
+        assert "*.log" in patterns
+        assert "build/" in patterns
+
+    def test_ignores_comments_and_blanks(self, tmp_path: Path):
+        (tmp_path / ".vibeguardignore").write_text("# comment\n\n*.tmp\n  \n")
+        patterns = load_ignorefile(tmp_path)
+        assert patterns == ["*.tmp"]

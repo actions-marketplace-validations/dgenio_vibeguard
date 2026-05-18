@@ -25,16 +25,11 @@ def render_markdown(result: ScanResult) -> str:
         lines.append("✅ **No findings** — scan passed.\n")
     else:
         badges = " | ".join(
-            f"{_SEV_EMOJI.get(Severity(k), '')} **{k}**: {v}"
-            for k, v in counts.items()
-            if v > 0
+            f"{_SEV_EMOJI.get(Severity(k), '')} **{k}**: {v}" for k, v in counts.items() if v > 0
         )
         lines.append(f"**{total} finding(s)** — {badges}\n")
 
-        lines.append(
-            "| Severity | Rule | Path | Title |\n"
-            "| --- | --- | --- | --- |"
-        )
+        lines.append("| Severity | Rule | Path | Title |\n| --- | --- | --- | --- |")
 
         for finding in sorted(result.findings, key=lambda f: f.severity, reverse=True):
             emoji = _SEV_EMOJI.get(finding.severity, "")
@@ -49,9 +44,7 @@ def render_markdown(result: ScanResult) -> str:
         for finding in sorted(result.findings, key=lambda f: f.severity, reverse=True):
             lines.extend(_finding_detail(finding))
 
-    lines.append(
-        f"\n---\n*Scanned {result.scanned_files} file(s) · policy: {result.policy}*"
-    )
+    lines.append(f"\n---\n*Scanned {result.scanned_files} file(s) · policy: {result.policy}*")
     return "\n".join(lines)
 
 

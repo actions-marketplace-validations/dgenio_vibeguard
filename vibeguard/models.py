@@ -16,16 +16,16 @@ class Severity(str, Enum):
     HIGH = "high"
     CRITICAL = "critical"
 
-    def __lt__(self, other: Severity) -> bool:
+    def __lt__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] < _SEVERITY_ORDER[other]
 
-    def __le__(self, other: Severity) -> bool:
+    def __le__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] <= _SEVERITY_ORDER[other]
 
-    def __gt__(self, other: Severity) -> bool:
+    def __gt__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] > _SEVERITY_ORDER[other]
 
-    def __ge__(self, other: Severity) -> bool:
+    def __ge__(self, other: Severity) -> bool:  # type: ignore[override]
         return _SEVERITY_ORDER[self] >= _SEVERITY_ORDER[other]
 
 
