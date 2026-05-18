@@ -205,7 +205,10 @@ class SecretsRule(Rule):
                     effective_severity = Severity.HIGH
 
                 # Redact most of the matched value for display
-                display = value[:4] + "****" + value[-2:] if len(value) > 8 else "****"
+                if len(value) > 8:
+                    display = value[:4] + "****" + (value[-2:] if len(value) > 6 else "")
+                else:
+                    display = "****"
                 evidence = line.replace(value, display).strip()[:150]
 
                 results.append(

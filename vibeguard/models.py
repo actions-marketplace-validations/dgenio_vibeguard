@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Severity(str, Enum):
@@ -59,10 +59,13 @@ class Finding(BaseModel):
     tags: list[str] = Field(default_factory=list)
     confidence: Confidence = Confidence.MEDIUM
 
-    def model_post_init(self, __context: Any) -> None:
-        # Redact potential real secrets from evidence for safety
-        if self.evidence and len(self.evidence) > 200:
-            object.__setattr__(self, "evidence", self.evidence[:200] + "…")
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _truncate_evidence(cls, v: Any) -> Any:
+        # Limit evidence length to avoid inadvertently storing long secrets
+        if isinstance(v, str) and len(v) > 200:
+            return v[:200] + "…"
+        return v
 
 
 class ScanResult(BaseModel):

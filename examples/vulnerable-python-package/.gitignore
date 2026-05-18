@@ -1,0 +1,3 @@
+# Override global .gitignore for example/demo purposes
+# These files exist intentionally to demonstrate VibeGuard findings
+!.env

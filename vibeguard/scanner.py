@@ -6,7 +6,7 @@ from pathlib import Path
 
 from vibeguard.config import VibeGuardConfig
 from vibeguard.git import get_git_metadata
-from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult, Severity
+from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
 from vibeguard.rules.ai_footprints import AIFootprintsRule
 from vibeguard.rules.dependencies import DependenciesRule
 from vibeguard.rules.packaging import PackagingRule
@@ -27,13 +27,6 @@ def _collect_files(root: Path, config: VibeGuardConfig) -> list[Path]:
             continue
         files.append(path)
     return sorted(files)
-
-
-def _severity_from_str(s: str) -> Severity:
-    try:
-        return Severity(s.lower())
-    except ValueError:
-        return Severity.HIGH
 
 
 def run_scan(

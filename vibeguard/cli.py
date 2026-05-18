@@ -311,8 +311,6 @@ def explain(
     finding_id: Annotated[str, typer.Argument(help="Finding ID to explain, e.g. SEC-ENV")],
 ) -> None:
     """Print an explanation of a finding type and how to fix it."""
-    from rich.console import Console
-
     c = Console()
     text = _FINDING_EXPLANATIONS.get(
         finding_id.upper(),

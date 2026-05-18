@@ -1,0 +1,1 @@
+{"version":3,"sources":["../src/server.js"],"names":["express","cors","app","require"],"mappings":"AAAA;AACA;AACA"}

@@ -106,7 +106,8 @@ class RiskyDiffRule(Rule):
             for lineno, line in enumerate(content.splitlines(), start=1):
                 # Skip comment lines (simple heuristic)
                 stripped = line.strip()
-                if stripped.startswith(("#", "//", "*", "<!--")):
+                # "* " prefix is a block comment continuation (Javadoc, JSDoc, etc.)
+                if stripped.startswith(("#", "//", "<!--")) or stripped.startswith("* ") or stripped == "*":
                     continue
 
                 for pat_id, label, pattern in _RISKY_PATTERNS:

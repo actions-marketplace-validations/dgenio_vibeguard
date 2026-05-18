@@ -5,9 +5,23 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+
+
+# Lazily load tomllib/tomli
+def _load_toml(text: str) -> dict[str, Any] | None:
+    """Parse TOML text, returning None if no TOML parser is available."""
+    try:
+        try:
+            import tomllib  # Python 3.11+
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        return tomllib.loads(text)
+    except Exception:  # noqa: BLE001
+        return None
 
 # Patterns that should not be published
 _DANGEROUS_INCLUDE_PATTERNS = [
@@ -148,17 +162,8 @@ class PackagingRule(Rule):
         self, path: Path, rel: str, context: ScanContext
     ) -> list[Finding]:
         findings: list[Finding] = []
-        try:
-            try:
-                import tomllib  # Python 3.11+
-            except ImportError:
-                try:
-                    import tomli as tomllib  # type: ignore[no-redef]
-                except ImportError:
-                    return findings  # can't parse toml without a library
-
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+        data = _load_toml(path.read_text(encoding="utf-8"))
+        if data is None:
             return findings
 
         # Check [tool.hatch.build.targets.sdist] / [tool.setuptools.package-data]
