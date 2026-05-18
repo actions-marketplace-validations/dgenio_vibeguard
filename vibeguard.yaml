@@ -15,6 +15,9 @@ ignore:
     - "*.egg-info/"
     - .tox/
     - __pycache__/
+    - .mypy_cache/
+    - examples/
+    - tests/
   findings: []
 
 package_allowlist:

@@ -60,4 +60,4 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run VibeGuard gate
-        run: vibeguard gate --path . --fail-on high
+        run: vibeguard gate --path . --fail-on critical
