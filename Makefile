@@ -8,7 +8,7 @@ install-dev: ## Install package in editable mode with dev deps
 	pip install -e ".[dev]"
 
 test: ## Run tests with coverage
-	pytest tests/ -v --cov=vibeguard --cov-report=term-missing
+	pytest tests/ -v --cov=vibeguard --cov-report=term-missing --cov-report=xml
 
 lint: ## Run ruff linter
 	ruff check vibeguard/ tests/
@@ -22,7 +22,7 @@ typecheck: ## Run mypy type checking
 ci: lint format-check typecheck test ## Run full CI pipeline locally
 
 clean: ## Remove build artifacts
-	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .coverage htmlcov/
+	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .coverage htmlcov/ .ruff_cache/ coverage.xml
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 demo: ## Run vibeguard against bundled examples

@@ -124,7 +124,7 @@ def validate(
         err_console.print(f"[red]Error reading config: {exc}[/]")
         raise typer.Exit(1) from None
 
-    err_console.print(f"[green]✓[/] Config is valid: {config_path}")
+    typer.echo(f"✓ Config is valid: {config_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +179,7 @@ def scan(
     _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
     if fail_on:
-        _parse_severity(fail_on)  # validate early
-        cfg.fail_on = fail_on
+        cfg.fail_on = _parse_severity(fail_on)
 
     git_meta = None
     if diff:
@@ -250,8 +249,7 @@ def gate(
     _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
     if fail_on:
-        _parse_severity(fail_on)  # validate early
-        cfg.fail_on = fail_on
+        cfg.fail_on = _parse_severity(fail_on)
 
     git_meta = None
     if diff:
@@ -275,7 +273,7 @@ def gate(
         for err in result.errors:
             err_console.print(f"[yellow]⚠ {err}[/]")
 
-    threshold = _parse_severity(cfg.fail_on)
+    threshold = cfg.fail_on
     if result.has_blocking(threshold):
         err_console.print(
             f"\n[bold red]✗ Gate failed:[/] findings at or above "

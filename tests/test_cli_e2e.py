@@ -52,11 +52,10 @@ class TestScanE2ENodePackage:
         result = runner.invoke(app, ["gate", "--path", self.pkg_path, "--fail-on", "high"])
         assert result.exit_code == 1
 
-    def test_gate_passes_on_critical_if_no_critical(self):
-        """Gate with --fail-on critical may pass if no critical findings."""
+    def test_gate_fails_on_critical(self):
+        """Gate with --fail-on critical fails because the fixture has critical findings."""
         result = runner.invoke(app, ["gate", "--path", self.pkg_path, "--fail-on", "critical"])
-        # Either passes (0) or fails (1) — just ensure it doesn't crash
-        assert result.exit_code in (0, 1)
+        assert result.exit_code == 1
 
 
 class TestScanE2EPythonPackage:

@@ -21,13 +21,17 @@ from vibeguard.rules.tests import MissingTestsRule
 _BINARY_SNIFF_SIZE = 8192
 
 
-def _is_binary(path: Path) -> bool:
-    """Detect binary files via null-byte presence in the first 8 KB."""
+def _is_binary(path: Path) -> bool | None:
+    """Detect binary files via null-byte presence in the first 8 KB.
+
+    Returns True if binary, False if text, None if the file could not be read.
+    """
     try:
-        chunk = path.read_bytes()[:_BINARY_SNIFF_SIZE]
+        with path.open("rb") as f:
+            chunk = f.read(_BINARY_SNIFF_SIZE)
         return b"\x00" in chunk
     except OSError:
-        return True
+        return None
 
 
 def _collect_files(
@@ -63,7 +67,11 @@ def _collect_files(
             continue
 
         # Binary check
-        if _is_binary(path):
+        binary = _is_binary(path)
+        if binary is None:
+            skipped.append(f"Cannot read: {rel_str}")
+            continue
+        if binary:
             skipped.append(f"Skipped (binary): {rel_str}")
             continue
 

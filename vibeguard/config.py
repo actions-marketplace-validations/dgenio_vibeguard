@@ -8,6 +8,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from vibeguard.models import Severity
+
 
 class IgnoreConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -92,7 +94,7 @@ class AIFootprintsConfig(BaseModel):
 class ScannerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    max_file_size_kb: int = 1024
+    max_file_size_kb: int = Field(default=1024, ge=1)
 
 
 class VibeGuardConfig(BaseModel):
@@ -101,7 +103,7 @@ class VibeGuardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     policy: str = "balanced"
-    fail_on: str = "high"
+    fail_on: Severity = Severity.HIGH
     ignore: IgnoreConfig = Field(default_factory=IgnoreConfig)
     package_allowlist: PackageAllowlistConfig = Field(default_factory=PackageAllowlistConfig)
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
@@ -150,7 +152,7 @@ def load_ignorefile(root: Path) -> list[str]:
     if not ignore_path.exists():
         return []
     return [
-        line
+        line.strip()
         for line in ignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
