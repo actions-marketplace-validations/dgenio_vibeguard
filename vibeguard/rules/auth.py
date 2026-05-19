@@ -32,8 +32,9 @@ _AUTH_PATTERNS: list[tuple[str, str, re.Pattern[str], Severity, Confidence]] = [
         "AUTH-DISABLED-MIDDLEWARE",
         "Commented-out auth middleware",
         re.compile(
-            r"(?i)(//|#)\s*.*(authenticate|authorize|requireAuth|isAuthenticated|checkPermission"
-            r"|middleware\.use.*auth|app\.use.*auth)"
+            r"(?i)(//|#)\s*.*(authenticate\(|authorize\(|requireAuth\(|isAuthenticated\(|"
+            r"checkPermission\(|middleware\.use\(.*auth|app\.use\(.*auth|"
+            r"import\s+.*(?:authenticate|authorize|requireAuth))"
         ),
         Severity.HIGH,
         Confidence.MEDIUM,

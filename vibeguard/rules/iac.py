@@ -155,31 +155,78 @@ class IaCRule(Rule):
             return findings
 
         for finding_id, label, pattern, severity in _K8S_PATTERNS:
-            # Special case: K8S-NO-TLS checks for Ingress without tls: block
+            # Special case: K8S-NO-TLS checks for Ingress without tls: block per document
             if finding_id == "K8S-NO-TLS":
-                if pattern.search(content) and "tls:" not in content:
-                    lineno = 1
-                    for i, line in enumerate(content.splitlines(), 1):
-                        if re.search(r"kind\s*:\s*Ingress", line, re.IGNORECASE):
-                            lineno = i
-                            break
-                    findings.append(
-                        Finding(
-                            id=finding_id,
-                            rule=self.id,
-                            title=f"Kubernetes: {label}",
-                            description=(
-                                f"`{rel}` line {lineno}: Ingress resource without TLS configured."
-                            ),
-                            severity=severity,
-                            path=rel,
-                            line=lineno,
-                            evidence="kind: Ingress (no tls: block found)",
-                            recommendation=_K8S_RECOMMENDATIONS.get(finding_id, "Review."),
-                            tags=["iac", "kubernetes", finding_id.lower()],
-                            confidence=Confidence.MEDIUM,
+                # Split on YAML document separators for multi-doc files
+                docs = re.split(r"^---\s*$", content, flags=re.MULTILINE)
+                line_offset = 0
+                for doc in docs:
+                    if pattern.search(doc) and "tls:" not in doc:
+                        lineno = line_offset + 1
+                        for i, line in enumerate(doc.splitlines(), 1):
+                            if re.search(r"kind\s*:\s*Ingress", line, re.IGNORECASE):
+                                lineno = line_offset + i
+                                break
+                        findings.append(
+                            Finding(
+                                id=finding_id,
+                                rule=self.id,
+                                title=f"Kubernetes: {label}",
+                                description=(
+                                    f"`{rel}` line {lineno}: Ingress resource without TLS configured."
+                                ),
+                                severity=severity,
+                                path=rel,
+                                line=lineno,
+                                evidence="kind: Ingress (no tls: block found)",
+                                recommendation=_K8S_RECOMMENDATIONS.get(finding_id, "Review."),
+                                tags=["iac", "kubernetes", finding_id.lower()],
+                                confidence=Confidence.MEDIUM,
+                            )
                         )
+                    # Track line offset for multi-doc positioning
+                    line_offset += doc.count("\n") + 1  # +1 for the --- separator line
+                continue
+
+            # Special case: K8S-ALLOW-ALL requires NetworkPolicy kind with no ingress/egress rules
+            if finding_id == "K8S-ALLOW-ALL":
+                docs = re.split(r"^---\s*$", content, flags=re.MULTILINE)
+                line_offset = 0
+                for doc in docs:
+                    is_network_policy = re.search(
+                        r"kind\s*:\s*NetworkPolicy", doc, re.IGNORECASE
                     )
+                    has_empty_pod_selector = pattern.search(doc)
+                    has_ingress_egress = re.search(
+                        r"^\s*(ingress|egress)\s*:", doc, re.MULTILINE
+                    )
+                    if is_network_policy and has_empty_pod_selector and not has_ingress_egress:
+                        lineno = line_offset + 1
+                        for i, line in enumerate(doc.splitlines(), 1):
+                            if pattern.search(line):
+                                lineno = line_offset + i
+                                break
+                        findings.append(
+                            Finding(
+                                id=finding_id,
+                                rule=self.id,
+                                title=f"Kubernetes: {label}",
+                                description=(
+                                    f"`{rel}` line {lineno}: NetworkPolicy with empty "
+                                    "podSelector and no ingress/egress rules allows all traffic."
+                                ),
+                                severity=severity,
+                                path=rel,
+                                line=lineno,
+                                evidence="podSelector: {} (no ingress/egress rules)",
+                                recommendation=_K8S_RECOMMENDATIONS.get(
+                                    finding_id, "Review carefully."
+                                ),
+                                tags=["iac", "kubernetes", finding_id.lower()],
+                                confidence=Confidence.HIGH,
+                            )
+                        )
+                    line_offset += doc.count("\n") + 1
                 continue
 
             match = pattern.search(content)

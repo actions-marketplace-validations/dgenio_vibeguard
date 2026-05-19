@@ -321,7 +321,13 @@ class DependenciesRule(Rule):
 
     def _check_lockfile_drift(self, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
-        changed_names = {p.name for p in context.changed_files}
+        # Group changed files by directory for monorepo-safe pairing
+        changed_by_dir: dict[Path, set[str]] = {}
+        for p in context.changed_files:
+            dir_key = p.parent
+            if dir_key not in changed_by_dir:
+                changed_by_dir[dir_key] = set()
+            changed_by_dir[dir_key].add(p.name)
 
         lockfile_map = {
             "package-lock.json": "package.json",
@@ -332,42 +338,46 @@ class DependenciesRule(Rule):
             "Pipfile.lock": "Pipfile",
         }
 
-        for lockfile, manifest in lockfile_map.items():
-            if lockfile in changed_names and manifest not in changed_names:
-                findings.append(
-                    Finding(
-                        id="DEP-LOCKFILE-MISMATCH",
-                        rule=self.id,
-                        title=f"Lockfile changed without manifest: {lockfile}",
-                        description=(
-                            f"`{lockfile}` was modified but `{manifest}` was not. "
-                            "This may indicate lockfile tampering or an incomplete update."
-                        ),
-                        severity=Severity.MEDIUM,
-                        path=lockfile,
-                        recommendation=(
-                            "Verify the lockfile change is intentional. "
-                            "Regenerate from the manifest if uncertain."
-                        ),
-                        tags=["dependencies", "lockfile", "supply-chain"],
-                        confidence=Confidence.MEDIUM,
+        for dir_path, names_in_dir in changed_by_dir.items():
+            for lockfile, manifest in lockfile_map.items():
+                if lockfile in names_in_dir and manifest not in names_in_dir:
+                    rel_lockfile = str(dir_path / lockfile)
+                    findings.append(
+                        Finding(
+                            id="DEP-LOCKFILE-MISMATCH",
+                            rule=self.id,
+                            title=f"Lockfile changed without manifest: {lockfile}",
+                            description=(
+                                f"`{rel_lockfile}` was modified but `{manifest}` in the same "
+                                "directory was not. This may indicate lockfile tampering or an "
+                                "incomplete update."
+                            ),
+                            severity=Severity.MEDIUM,
+                            path=rel_lockfile,
+                            recommendation=(
+                                "Verify the lockfile change is intentional. "
+                                "Regenerate from the manifest if uncertain."
+                            ),
+                            tags=["dependencies", "lockfile", "supply-chain"],
+                            confidence=Confidence.MEDIUM,
+                        )
                     )
-                )
-            elif manifest in changed_names and lockfile not in changed_names:
-                # Only flag if the lockfile actually exists in the repo
-                for f in context.files:
-                    if f.name == lockfile:
+                elif manifest in names_in_dir and lockfile not in names_in_dir:
+                    # Only flag if the lockfile actually exists in the repo
+                    lockfile_path = dir_path / lockfile
+                    if lockfile_path.exists():
+                        rel_manifest = str(dir_path / manifest)
                         findings.append(
                             Finding(
                                 id="DEP-MANIFEST-NO-LOCK",
                                 rule=self.id,
                                 title=f"Manifest changed without lockfile: {manifest}",
                                 description=(
-                                    f"`{manifest}` was modified but `{lockfile}` was not updated. "
-                                    "The lockfile may be stale."
+                                    f"`{rel_manifest}` was modified but `{lockfile}` in the "
+                                    "same directory was not updated. The lockfile may be stale."
                                 ),
                                 severity=Severity.MEDIUM,
-                                path=manifest,
+                                path=rel_manifest,
                                 recommendation=(
                                     "Run the package manager's install/lock command to update "
                                     "the lockfile."
@@ -376,7 +386,6 @@ class DependenciesRule(Rule):
                                 confidence=Confidence.MEDIUM,
                             )
                         )
-                        break
 
         return findings
 

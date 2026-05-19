@@ -46,7 +46,7 @@ _JS_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
         "Concatenated SQL query",
         re.compile(
             r'(?i)("SELECT\s|"INSERT\s|"UPDATE\s|"DELETE\s).*"\s*\+|'
-            r"query\s*=\s*[\"'].*\\+",
+            r"query\s*=\s*[\"'].*\"\s*\+",
         ),
     ),
 ]

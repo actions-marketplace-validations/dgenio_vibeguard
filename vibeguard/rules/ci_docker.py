@@ -164,7 +164,46 @@ class CiDockerRule(Rule):
         except OSError:
             return findings
 
+        lines = content.splitlines()
+
         for finding_id, label, pattern, severity in _GHA_PATTERNS:
+            # GHA-DISABLE-CHECK: only flag continue-on-error near security-related steps
+            if finding_id == "GHA-DISABLE-CHECK":
+                _SECURITY_KEYWORDS = re.compile(
+                    r"(?i)(audit|scan|lint|bandit|trivy|snyk|codeql|security|sast|"
+                    r"dast|vulnerability|semgrep|gitleaks|checkov|tfsec)"
+                )
+                for i, line in enumerate(lines):
+                    if pattern.search(line):
+                        # Check surrounding 5 lines for security context
+                        context_start = max(0, i - 5)
+                        context_end = min(len(lines), i + 6)
+                        context_block = "\n".join(lines[context_start:context_end])
+                        if _SECURITY_KEYWORDS.search(context_block):
+                            lineno = i + 1
+                            line_text = line.strip()[:120]
+                            findings.append(
+                                Finding(
+                                    id=finding_id,
+                                    rule=self.id,
+                                    title=f"GitHub Actions: {label}",
+                                    description=(
+                                        f"`{rel}` line {lineno}: {label} in workflow file. "
+                                        "This may suppress security check failures."
+                                    ),
+                                    severity=severity,
+                                    path=rel,
+                                    line=lineno,
+                                    evidence=line_text,
+                                    recommendation=_GHA_RECOMMENDATIONS.get(
+                                        finding_id, "Review carefully."
+                                    ),
+                                    tags=["github-actions", finding_id.lower()],
+                                    confidence=Confidence.HIGH,
+                                )
+                            )
+                continue
+
             match = pattern.search(content)
             if match:
                 lineno = content[: match.start()].count("\n") + 1
