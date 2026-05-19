@@ -6,6 +6,7 @@ from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 # Source directories that indicate "real" code
 _SOURCE_DIRS = {"src", "app", "lib", "vibeguard", "api", "server", "core", "pkg"}
@@ -101,3 +102,17 @@ class MissingTestsRule(Rule):
         )
 
         return findings
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="tests",
+        title="Missing Tests",
+        description="Flags source file changes that lack corresponding test file changes.",
+        finding_ids=["TEST-MISSING"],
+        default_severity="low",
+        confidence="medium",
+        tags=["tests", "coverage"],
+        applies_to=["*.py", "*.js", "*.ts"],
+    )
+)

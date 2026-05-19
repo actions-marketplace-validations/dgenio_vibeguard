@@ -77,6 +77,8 @@ class RiskyPatternsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
+    diff_size_threshold: int = Field(default=30, ge=1)
+    diff_breadth_threshold: int = Field(default=5, ge=1)
 
 
 class TestsConfig(BaseModel):
@@ -86,6 +88,42 @@ class TestsConfig(BaseModel):
 
 
 class AIFootprintsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class GoRulesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class CiDockerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class IaCConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class AuthConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class SqlConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class AgentMemoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
@@ -113,6 +151,12 @@ class VibeGuardConfig(BaseModel):
     risky_patterns: RiskyPatternsConfig = Field(default_factory=RiskyPatternsConfig)
     tests: TestsConfig = Field(default_factory=TestsConfig)
     ai_footprints: AIFootprintsConfig = Field(default_factory=AIFootprintsConfig)
+    go_rules: GoRulesConfig = Field(default_factory=GoRulesConfig)
+    ci_docker: CiDockerConfig = Field(default_factory=CiDockerConfig)
+    iac: IaCConfig = Field(default_factory=IaCConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
+    sql: SqlConfig = Field(default_factory=SqlConfig)
+    agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
 
     @classmethod

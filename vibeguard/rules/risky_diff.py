@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 # (id_suffix, label, pattern, extensions_hint)
 _RISKY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
@@ -78,13 +80,6 @@ _RISKY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
         "CORS configuration",
         re.compile(
             r"(?i)(cors\(|allow_origins|Access-Control-Allow-Origin|allowedOrigins|origins\s*=\s*[\[\(]\s*[\"\']\*)"
-        ),
-    ),
-    (
-        "sql-construct",
-        "SQL query construction",
-        re.compile(
-            r"(?i)(\"SELECT|\"INSERT|\"UPDATE|\"DELETE|f\".*SELECT|f\".*INSERT|\braw\(|\.raw_query|cursor\.execute)"
         ),
     ),
     (
@@ -216,6 +211,106 @@ class RiskyDiffRule(Rule):
                             )
                         )
 
+        # Diff scope checks (only in diff mode)
+        findings.extend(self._check_diff_scope(context))
+
+        return findings
+
+    def _check_diff_scope(self, context: ScanContext) -> list[Finding]:
+        """Check diff-level breadth, size, and risk-file signals."""
+        findings: list[Finding] = []
+        if not context.diff_only or not context.changed_files:
+            return findings
+
+        changed_paths = [self._rel(context, p) for p in context.changed_files]
+        config = context.config.risky_patterns
+
+        # DIFF-SIZE: too many files changed
+        max_files = getattr(config, "diff_size_threshold", 30)
+        if len(changed_paths) > max_files:
+            findings.append(
+                Finding(
+                    id="DIFF-SIZE",
+                    rule=self.id,
+                    title="Large diff: many files changed",
+                    description=(
+                        f"This diff touches {len(changed_paths)} files "
+                        f"(threshold: {max_files}). Large diffs warrant extra review."
+                    ),
+                    severity=Severity.LOW,
+                    path=".",
+                    recommendation=("Consider splitting this change into smaller, reviewable PRs."),
+                    tags=["diff-scope", "size"],
+                    confidence=Confidence.HIGH,
+                )
+            )
+
+        # DIFF-BREADTH: too many top-level directories
+        max_dirs = getattr(config, "diff_breadth_threshold", 5)
+        top_dirs = set()
+        for p in changed_paths:
+            parts = Path(p).parts
+            if len(parts) > 1:
+                top_dirs.add(parts[0])
+        if len(top_dirs) > max_dirs:
+            findings.append(
+                Finding(
+                    id="DIFF-BREADTH",
+                    rule=self.id,
+                    title="Wide diff: many directories touched",
+                    description=(
+                        f"This diff spans {len(top_dirs)} top-level directories "
+                        f"(threshold: {max_dirs}): {', '.join(sorted(top_dirs)[:8])}. "
+                        "Broad diffs may indicate unfocused changes."
+                    ),
+                    severity=Severity.MEDIUM,
+                    path=".",
+                    recommendation=(
+                        "Verify all changes are related. Consider splitting unrelated changes."
+                    ),
+                    tags=["diff-scope", "breadth"],
+                    confidence=Confidence.HIGH,
+                )
+            )
+
+        # DIFF-RISK-FILES: high-risk file types in diff
+        risk_patterns = [
+            "**/auth*",
+            "**/middleware*",
+            "**/*secret*",
+            "**/crypto*",
+            "**/iam*",
+            "**/Dockerfile",
+            "**/*.tf",
+            "**/.github/workflows/*.yml",
+        ]
+        risk_files = []
+        for p in changed_paths:
+            posix_p = p.replace("\\", "/")
+            for rp in risk_patterns:
+                if fnmatch.fnmatch(posix_p, rp) or fnmatch.fnmatch(posix_p, rp.removeprefix("**/")):
+                    risk_files.append(p)
+                    break
+        if risk_files:
+            findings.append(
+                Finding(
+                    id="DIFF-RISK-FILES",
+                    rule=self.id,
+                    title="High-risk files modified in diff",
+                    description=(
+                        f"This diff includes {len(risk_files)} high-risk file(s): "
+                        f"{', '.join(risk_files[:5])}. These files require careful review."
+                    ),
+                    severity=Severity.MEDIUM,
+                    path=risk_files[0],
+                    recommendation=(
+                        "Give extra attention to changes in auth, crypto, CI, and IaC files."
+                    ),
+                    tags=["diff-scope", "risk-files"],
+                    confidence=Confidence.HIGH,
+                )
+            )
+
         return findings
 
 
@@ -230,3 +325,39 @@ def _is_test_file(path: Path) -> bool:
         or "tests" in path.parts
         or "spec" in path.parts
     )
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="risky_diff",
+        title="Risky Code Pattern",
+        description=(
+            "Flags changes to risk-sensitive areas (auth, crypto, shell, network, etc.) "
+            "and diff-scope signals (breadth, size, risk files) for human review."
+        ),
+        finding_ids=[
+            "RISK-AUTHBYPASS",
+            "RISK-AUTHZCHECK",
+            "RISK-CRYPTOUSAGE",
+            "RISK-EVALEXEC",
+            "RISK-SUBPROCESSSHELL",
+            "RISK-FILEDELETE",
+            "RISK-NETWORKCALL",
+            "RISK-DBWRITE",
+            "RISK-PAYMENTLOGIC",
+            "RISK-ENVACCESS",
+            "RISK-CORSCONFIG",
+            "RISK-DESERIALIZATION",
+            "RISK-JWTHANDLING",
+            "RISK-TRUSTCERTS",
+            "RISK-PERMCHANGE",
+            "DIFF-BREADTH",
+            "DIFF-SIZE",
+            "DIFF-RISK-FILES",
+        ],
+        default_severity="medium",
+        confidence="medium",
+        tags=["security", "risky-diff"],
+        applies_to=["*.py", "*.js", "*.ts", "*.go", "*.java", "*.rb"],
+    )
+)

@@ -381,12 +381,28 @@ def explain(
     finding_id: Annotated[str, typer.Argument(help="Finding ID to explain, e.g. SEC-ENV")],
 ) -> None:
     """Print an explanation of a finding type and how to fix it."""
+    from vibeguard.rules.registry import RULE_REGISTRY
+
     c = Console()
-    text = _FINDING_EXPLANATIONS.get(
-        finding_id.upper(),
-        _DEFAULT_EXPLANATION.format(finding_id=finding_id),
-    )
-    c.print(text)
+    upper_id = finding_id.upper()
+
+    # First try hardcoded explanations for rich output
+    text = _FINDING_EXPLANATIONS.get(upper_id)
+    if text:
+        c.print(text)
+        return
+
+    # Then try the registry
+    for metadata in RULE_REGISTRY.values():
+        if upper_id in metadata.finding_ids:
+            c.print(f"[bold]{upper_id}[/] — from rule [cyan]{metadata.title}[/]\n")
+            c.print(f"{metadata.description}\n")
+            c.print(f"[dim]Rule ID:[/] {metadata.rule_id}")
+            c.print(f"[dim]Applies to:[/] {', '.join(metadata.applies_to)}")
+            c.print(f"[dim]Tags:[/] {', '.join(metadata.tags)}")
+            return
+
+    c.print(_DEFAULT_EXPLANATION.format(finding_id=finding_id))
 
 
 # ---------------------------------------------------------------------------

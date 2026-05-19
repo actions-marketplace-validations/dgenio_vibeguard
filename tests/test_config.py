@@ -22,6 +22,12 @@ def test_defaults():
     assert cfg.risky_patterns.enabled is True
     assert cfg.tests.enabled is True
     assert cfg.ai_footprints.enabled is True
+    assert cfg.go_rules.enabled is True
+    assert cfg.ci_docker.enabled is True
+    assert cfg.iac.enabled is True
+    assert cfg.auth.enabled is True
+    assert cfg.sql.enabled is True
+    assert cfg.agent_memory.enabled is True
 
 
 def test_load_from_file(tmp_path: Path):

@@ -9,14 +9,21 @@ import pathspec
 from vibeguard.config import VibeGuardConfig, load_ignorefile
 from vibeguard.git import get_git_metadata
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
+from vibeguard.rules.agent_memory import AgentMemoryRule
 from vibeguard.rules.ai_footprints import AIFootprintsRule
+from vibeguard.rules.auth import AuthRule
 from vibeguard.rules.base import Rule
+from vibeguard.rules.ci_docker import CiDockerRule
 from vibeguard.rules.dependencies import DependenciesRule
+from vibeguard.rules.go_rules import GoRulesRule
+from vibeguard.rules.iac import IaCRule
 from vibeguard.rules.packaging import PackagingRule
 from vibeguard.rules.risky_diff import RiskyDiffRule
 from vibeguard.rules.secrets import SecretsRule
 from vibeguard.rules.sourcemaps import SourceMapsRule
+from vibeguard.rules.sql import SqlRule
 from vibeguard.rules.tests import MissingTestsRule
+from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressions
 
 _BINARY_SNIFF_SIZE = 8192
 
@@ -131,6 +138,18 @@ def run_scan(
         rules.append(MissingTestsRule())
     if config.ai_footprints.enabled:
         rules.append(AIFootprintsRule())
+    if config.go_rules.enabled:
+        rules.append(GoRulesRule())
+    if config.ci_docker.enabled:
+        rules.append(CiDockerRule())
+    if config.iac.enabled:
+        rules.append(IaCRule())
+    if config.auth.enabled:
+        rules.append(AuthRule())
+    if config.sql.enabled:
+        rules.append(SqlRule())
+    if config.agent_memory.enabled:
+        rules.append(AgentMemoryRule())
 
     findings: list[Finding] = []
     errors: list[str] = []
@@ -151,6 +170,10 @@ def run_scan(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Rule {rule.id} failed: {exc}")
 
+    # Apply inline suppressions (#44)
+    findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)
+    findings.extend(suppression_warnings)
+
     return ScanResult(
         findings=findings,
         scanned_files=len(all_files),
@@ -159,3 +182,82 @@ def run_scan(
         policy=config.policy,
         errors=errors,
     )
+
+
+def _apply_inline_suppressions(
+    findings: list[Finding],
+    all_files: list[Path],
+    root: Path,
+) -> tuple[list[Finding], list[Finding]]:
+    """Apply inline suppressions and return (filtered_findings, warnings)."""
+    from vibeguard.models import Confidence, Severity
+
+    # Build set of files with findings for optimized suppression filtering
+    files_with_findings: set[str] = set()
+    for finding in findings:
+        if finding.path:
+            files_with_findings.add(finding.path.replace("\\", "/"))
+
+    # Build a map of file -> suppressions
+    file_suppressions: dict[str, dict[int, list[str]]] = {}
+    warnings: list[Finding] = []
+
+    suppression_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb", ".java", ".cs"}
+
+    for path in all_files:
+        if path.suffix.lower() not in suppression_extensions:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        rel = str(path.relative_to(root)).replace("\\", "/")
+
+        # Parse suppressions only for files that have findings (M5 optimization)
+        if rel in files_with_findings:
+            suppressions = parse_inline_suppressions(content)
+            if suppressions:
+                file_suppressions[rel] = suppressions
+
+        # Check for missing reasons on all files (user-facing warning)
+        missing = find_missing_reasons(content)
+        for lineno, ids in missing:
+            warnings.append(
+                Finding(
+                    id="SUPPRESSION-NO-REASON",
+                    rule="suppressions",
+                    title="Inline suppression without reason",
+                    description=(
+                        f"`{rel}` line {lineno}: inline suppression for "
+                        f"{', '.join(ids)} is missing a required reason= argument."
+                    ),
+                    severity=Severity.LOW,
+                    path=rel,
+                    line=lineno,
+                    recommendation=('Add reason="..." to the inline suppression comment.'),
+                    tags=["suppressions"],
+                    confidence=Confidence.HIGH,
+                )
+            )
+
+    if not file_suppressions:
+        return findings, warnings
+
+    # Filter findings that match suppressed (file, line, id) triples
+    # Supports same-line and next-line suppression (comment on line N suppresses N and N+1)
+    filtered: list[Finding] = []
+    for finding in findings:
+        rel_path = finding.path.replace("\\", "/")
+        if rel_path in file_suppressions and finding.line is not None:
+            # Check same-line suppression
+            suppressed_ids = file_suppressions[rel_path].get(finding.line, [])
+            if finding.id in suppressed_ids:
+                continue
+            # Check preceding-line suppression (comment on line N-1 suppresses line N)
+            suppressed_ids_prev = file_suppressions[rel_path].get(finding.line - 1, [])
+            if finding.id in suppressed_ids_prev:
+                continue
+        filtered.append(finding)
+
+    return filtered, warnings
