@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 
@@ -12,13 +13,13 @@ class RuleMetadata:
     rule_id: str
     title: str
     description: str
-    finding_ids: tuple[str, ...] = field(default_factory=tuple)
+    finding_ids: Sequence[str] = field(default_factory=tuple)
     default_severity: str = "medium"
     confidence: str = "medium"
-    tags: tuple[str, ...] = field(default_factory=tuple)
+    tags: Sequence[str] = field(default_factory=tuple)
     docs_url: str | None = None
-    applies_to: tuple[str, ...] = field(default_factory=tuple)
-    examples: tuple[dict[str, str], ...] = field(default_factory=tuple)
+    applies_to: Sequence[str] = field(default_factory=tuple)
+    examples: Sequence[dict[str, str]] = field(default_factory=tuple)
 
 
 RULE_REGISTRY: dict[str, RuleMetadata] = {}
