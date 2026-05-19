@@ -193,13 +193,9 @@ class IaCRule(Rule):
                 docs = re.split(r"^---\s*$", content, flags=re.MULTILINE)
                 line_offset = 0
                 for doc in docs:
-                    is_network_policy = re.search(
-                        r"kind\s*:\s*NetworkPolicy", doc, re.IGNORECASE
-                    )
+                    is_network_policy = re.search(r"kind\s*:\s*NetworkPolicy", doc, re.IGNORECASE)
                     has_empty_pod_selector = pattern.search(doc)
-                    has_ingress_egress = re.search(
-                        r"^\s*(ingress|egress)\s*:", doc, re.MULTILINE
-                    )
+                    has_ingress_egress = re.search(r"^\s*(ingress|egress)\s*:", doc, re.MULTILINE)
                     if is_network_policy and has_empty_pod_selector and not has_ingress_egress:
                         lineno = line_offset + 1
                         for i, line in enumerate(doc.splitlines(), 1):
