@@ -9,6 +9,7 @@ from typing import Any
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 
 # Lazily load tomllib/tomli
@@ -324,3 +325,27 @@ class PackagingRule(Rule):
                             )
 
         return findings
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="packaging",
+        title="Packaging Hygiene",
+        description=(
+            "Detects files that should not be published in npm/PyPI packages: "
+            "secrets, test data, build configs, source maps."
+        ),
+        finding_ids=[
+            "PKG-NPMFILES",
+            "PKG-NPMBROAD",
+            "PKG-NPMLEAK",
+            "PKG-PYBROAD",
+            "PKG-PYLEAK",
+            "PKG-MANIFESTLEAK",
+        ],
+        default_severity="medium",
+        confidence="high",
+        tags=["packaging", "supply-chain"],
+        applies_to=["package.json", "pyproject.toml", "MANIFEST.in", "setup.cfg"],
+    )
+)

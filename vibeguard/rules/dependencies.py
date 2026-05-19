@@ -9,6 +9,7 @@ from typing import Any
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 
 def _load_toml(text: str) -> dict[str, Any] | None:
@@ -132,6 +133,12 @@ class DependenciesRule(Rule):
                 findings.extend(self._check_package_json(path, rel, context))
             elif path.name == "pyproject.toml":
                 findings.extend(self._check_pyproject(path, rel, context))
+            elif path.name in (".npmrc", "pip.conf"):
+                findings.extend(self._check_registry_change(path, rel))
+
+        # Diff-mode-only checks: lockfile vs manifest mismatch
+        if context.diff_only and context.changed_files:
+            findings.extend(self._check_lockfile_drift(context))
 
         return findings
 
@@ -307,3 +314,136 @@ class DependenciesRule(Rule):
                 )
 
         return findings
+
+    # ------------------------------------------------------------------
+    # Lockfile drift checks (diff-mode only)
+    # ------------------------------------------------------------------
+
+    def _check_lockfile_drift(self, context: ScanContext) -> list[Finding]:
+        findings: list[Finding] = []
+        changed_names = {p.name for p in context.changed_files}
+
+        lockfile_map = {
+            "package-lock.json": "package.json",
+            "yarn.lock": "package.json",
+            "pnpm-lock.yaml": "package.json",
+            "poetry.lock": "pyproject.toml",
+            "uv.lock": "pyproject.toml",
+            "Pipfile.lock": "Pipfile",
+        }
+
+        for lockfile, manifest in lockfile_map.items():
+            if lockfile in changed_names and manifest not in changed_names:
+                findings.append(
+                    Finding(
+                        id="DEP-LOCKFILE-MISMATCH",
+                        rule=self.id,
+                        title=f"Lockfile changed without manifest: {lockfile}",
+                        description=(
+                            f"`{lockfile}` was modified but `{manifest}` was not. "
+                            "This may indicate lockfile tampering or an incomplete update."
+                        ),
+                        severity=Severity.MEDIUM,
+                        path=lockfile,
+                        recommendation=(
+                            "Verify the lockfile change is intentional. "
+                            "Regenerate from the manifest if uncertain."
+                        ),
+                        tags=["dependencies", "lockfile", "supply-chain"],
+                        confidence=Confidence.MEDIUM,
+                    )
+                )
+            elif manifest in changed_names and lockfile not in changed_names:
+                # Only flag if the lockfile actually exists in the repo
+                for f in context.files:
+                    if f.name == lockfile:
+                        findings.append(
+                            Finding(
+                                id="DEP-MANIFEST-NO-LOCK",
+                                rule=self.id,
+                                title=f"Manifest changed without lockfile: {manifest}",
+                                description=(
+                                    f"`{manifest}` was modified but `{lockfile}` was not updated. "
+                                    "The lockfile may be stale."
+                                ),
+                                severity=Severity.MEDIUM,
+                                path=manifest,
+                                recommendation=(
+                                    "Run the package manager's install/lock command to update "
+                                    "the lockfile."
+                                ),
+                                tags=["dependencies", "lockfile"],
+                                confidence=Confidence.MEDIUM,
+                            )
+                        )
+                        break
+
+        return findings
+
+    # ------------------------------------------------------------------
+    # Registry change detection
+    # ------------------------------------------------------------------
+
+    def _check_registry_change(self, path: Path, rel: str) -> list[Finding]:
+        findings: list[Finding] = []
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return findings
+
+        # Look for non-standard registry URLs
+        registry_re = re.compile(r"(?i)(registry\s*=|index-url\s*=|--index-url)\s*(https?://\S+)")
+        for match in registry_re.finditer(content):
+            url = match.group(2)
+            # Standard registries are fine
+            if "registry.npmjs.org" in url or "pypi.org" in url:
+                continue
+            findings.append(
+                Finding(
+                    id="DEP-REGISTRY-CHANGE",
+                    rule=self.id,
+                    title=f"Non-standard package registry: {path.name}",
+                    description=(
+                        f"`{rel}` configures a non-standard package registry: `{url[:80]}`. "
+                        "Verify this is a trusted registry."
+                    ),
+                    severity=Severity.HIGH,
+                    path=rel,
+                    evidence=url[:100],
+                    recommendation=(
+                        "Ensure the registry is a trusted source. "
+                        "Non-standard registries may serve malicious packages."
+                    ),
+                    tags=["dependencies", "supply-chain", "registry"],
+                    confidence=Confidence.HIGH,
+                )
+            )
+
+        return findings
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="dependencies",
+        title="Dependency Risk",
+        description=(
+            "Detects risky dependency changes: typosquatting, git/URL deps, "
+            "broad versions, lockfile drift, and registry changes."
+        ),
+        finding_ids=[
+            "DEP-URLNODE",
+            "DEP-BROADVER",
+            "DEP-TYPOSQUATNPM",
+            "DEP-URLPYTHON",
+            "DEP-UNPINNEDPY",
+            "DEP-TYPOSQUATPY",
+            "DEP-LOCKFILE-MISMATCH",
+            "DEP-MANIFEST-NO-LOCK",
+            "DEP-REGISTRY-CHANGE",
+        ],
+        default_severity="high",
+        confidence="medium",
+        tags=["security", "supply-chain", "dependencies"],
+        applies_to=["package.json", "pyproject.toml", ".npmrc", "pip.conf"],
+    )
+)

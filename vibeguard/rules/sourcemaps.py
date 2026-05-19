@@ -7,6 +7,7 @@ from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 # Directories that indicate publishable / distribution output
 _PUBLISH_DIRS = {"dist", "build", "public", "out", "release", "pkg"}
@@ -142,3 +143,19 @@ class SourceMapsRule(Rule):
 
     def _in_publish_dir(self, path: Path) -> bool:
         return any(part.lower() in _PUBLISH_DIRS for part in path.parts)
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="sourcemaps",
+        title="Source Map Exposure",
+        description=(
+            "Detects source maps that may expose original source code in published packages."
+        ),
+        finding_ids=["MAP-DIST", "MAP-FILE", "MAP-URL", "MAP-PKG"],
+        default_severity="high",
+        confidence="high",
+        tags=["security", "sourcemaps", "packaging"],
+        applies_to=["*.map", "*.js", "package.json"],
+    )
+)

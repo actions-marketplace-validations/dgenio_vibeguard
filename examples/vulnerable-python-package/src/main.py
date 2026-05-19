@@ -2,8 +2,8 @@
 # DO NOT use in production.
 
 import subprocess
+
 import yaml
-import os
 
 
 # AI-generated: unsafe yaml load — TODO: switch to safe_load
@@ -25,8 +25,11 @@ def run_command(user_input: str) -> str:
 
 # Disable SSL verification — trust all certificates
 import urllib3
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import requests
+
+
 def fetch_data(url: str):
     return requests.get(url, verify=False)  # nosec — skip validation

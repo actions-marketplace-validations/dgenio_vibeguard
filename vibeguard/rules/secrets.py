@@ -7,6 +7,7 @@ import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 # ---------------------------------------------------------------------------
 # Patterns: (id_suffix, label, regex, severity)
@@ -146,12 +147,49 @@ def _is_likely_placeholder(value: str) -> bool:
         "insert_key_here",
         "your-token-here",
         "your-secret-here",
+        "abc123",
     }
     if lower in placeholders:
         return True
     if re.match(r"^[x*]{6,}$", lower):
         return True
-    return bool(re.match(r"^[a-z]{1,3}[_\-][a-z]{1,3}[_\-][a-z]{1,3}$", lower))
+    if re.match(r"^[a-z]{1,3}[_\-][a-z]{1,3}[_\-][a-z]{1,3}$", lower):
+        return True
+    # Enhanced placeholder heuristics (#42)
+    # Only apply to values that look like human-readable placeholders
+    # (not high-entropy keys that happen to contain a substring match)
+    if len(lower) <= 30 and not re.match(r"^[A-Za-z0-9/+=]{16,}$", value):
+        placeholder_indicators = (
+            "your-",
+            "your_",
+            "<",
+            ">",
+            "replace",
+            "example",
+            "placeholder",
+            "fake",
+            "test-",
+            "test_",
+            "dummy",
+            "xxx",
+            "000",
+        )
+        if any(indicator in lower for indicator in placeholder_indicators):
+            return True
+    return False
+
+
+def _is_test_path(rel: str) -> bool:
+    """Check if a path is in a test/fixture/example directory."""
+    parts = rel.replace("\\", "/").lower().split("/")
+    test_dirs = {"test", "tests", "__tests__", "spec", "fixtures", "fixture"}
+    return any(p in test_dirs for p in parts) or any(
+        p.startswith("test_")
+        or p.endswith("_test.py")
+        or p.endswith(".test.js")
+        or p.endswith(".spec.ts")
+        for p in parts
+    )
 
 
 class SecretsRule(Rule):
@@ -169,6 +207,7 @@ class SecretsRule(Rule):
             rel = self._rel(context, path)
             # Skip test fixtures and examples unless they look dangerous
             is_example = "example" in rel.lower() or "fixture" in rel.lower()
+            is_test = _is_test_path(rel)
 
             # Check sensitive filenames
             if path.name in _SENSITIVE_FILENAMES:
@@ -199,7 +238,7 @@ class SecretsRule(Rule):
                 continue
 
             for idx, line in enumerate(content.splitlines(), start=1):
-                findings.extend(self._check_line(line, idx, rel, is_example, context))
+                findings.extend(self._check_line(line, idx, rel, is_example, is_test, context))
 
         return findings
 
@@ -209,6 +248,7 @@ class SecretsRule(Rule):
         lineno: int,
         rel: str,
         is_example: bool,
+        is_test: bool,
         context: ScanContext,
     ) -> list[Finding]:
         results: list[Finding] = []
@@ -228,10 +268,22 @@ class SecretsRule(Rule):
                 if entropy < min_entropy and severity not in (Severity.CRITICAL, Severity.HIGH):
                     continue
 
+                # Low-entropy strings (repeated chars) downgrade confidence
+                effective_confidence = Confidence.HIGH if entropy > 4.0 else Confidence.MEDIUM
+                if entropy < 2.5 and len(value) > 10:
+                    effective_confidence = Confidence.LOW
+
                 # Downgrade severity in example/fixture files
                 effective_severity = severity
                 if is_example and severity == Severity.CRITICAL:
                     effective_severity = Severity.HIGH
+
+                # Downgrade severity in test files by one level (#42)
+                if is_test:
+                    if effective_severity == Severity.CRITICAL:
+                        effective_severity = Severity.HIGH
+                    elif effective_severity == Severity.HIGH:
+                        effective_severity = Severity.MEDIUM
 
                 # Redact most of the matched value for display
                 if len(value) > 8:
@@ -248,6 +300,7 @@ class SecretsRule(Rule):
                         description=(
                             f"A likely {label} was found in `{rel}` at line {lineno}. "
                             "Committed secrets can be exploited by anyone with repo access."
+                            + (" [in test file]" if is_test else "")
                         ),
                         severity=effective_severity,
                         path=rel,
@@ -257,8 +310,8 @@ class SecretsRule(Rule):
                             "Remove the secret from source code. Rotate it immediately. "
                             "Use environment variables or a secrets manager instead."
                         ),
-                        tags=["secrets", pat_id],
-                        confidence=Confidence.HIGH if entropy > 4.0 else Confidence.MEDIUM,
+                        tags=["secrets", pat_id] + (["test-file"] if is_test else []),
+                        confidence=effective_confidence,
                     )
                 )
 
@@ -281,3 +334,33 @@ They should never be committed. Add them to .gitignore and use a secrets manager
 or CI environment variables instead.
 """,
 }
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="secrets",
+        title="Secrets Detection",
+        description=(
+            "Detects likely committed secrets using regex patterns and entropy heuristics. "
+            "Includes AWS keys, GitHub tokens, OpenAI keys, private keys, and more."
+        ),
+        finding_ids=[
+            "SEC-AWSACCESSKEY",
+            "SEC-AWSSECRETKEY",
+            "SEC-GITHUBTOKEN",
+            "SEC-OPENAIKEY",
+            "SEC-PRIVATEKEY",
+            "SEC-BEARERTOKEN",
+            "SEC-HARDCODEDPASSWORD",
+            "SEC-DATABASEURL",
+            "SEC-SLACKTOKEN",
+            "SEC-STRIPEKEY",
+            "SEC-GENERICAPIKEY",
+            "SEC-ENV",
+        ],
+        default_severity="high",
+        confidence="high",
+        tags=["security", "secrets"],
+        applies_to=["*"],
+    )
+)

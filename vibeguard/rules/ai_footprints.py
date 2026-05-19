@@ -6,6 +6,7 @@ import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
+from vibeguard.rules.registry import RuleMetadata, register_rule
 
 # (id_suffix, label, pattern, severity)
 _AI_PATTERNS: list[tuple[str, str, re.Pattern[str], Severity]] = [
@@ -209,3 +210,29 @@ class AIFootprintsRule(Rule):
             ),
         }
         return recs.get(pat_id, "Review and address this finding before merging.")
+
+
+register_rule(
+    RuleMetadata(
+        rule_id="ai_footprints",
+        title="AI Footprint Detection",
+        description=(
+            "Detects AI-generated artifacts, placeholders, security bypasses, "
+            "trust-all certificates, CORS wildcards, and hallucinated TODOs."
+        ),
+        finding_ids=[
+            "AI-AIGENERATED",
+            "AI-PLACEHOLDERCRED",
+            "AI-DISABLESECURITY",
+            "AI-TRUSTALLCERTS",
+            "AI-CORSWILDCARD",
+            "AI-TEMPBYPASS",
+            "AI-SKIPVALIDATION",
+            "AI-HALLUCINATEDTODO",
+        ],
+        default_severity="medium",
+        confidence="medium",
+        tags=["ai-footprint", "security"],
+        applies_to=["*.py", "*.js", "*.ts", "*.go", "*.yaml"],
+    )
+)
