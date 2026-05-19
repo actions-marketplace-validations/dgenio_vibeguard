@@ -192,6 +192,12 @@ def _apply_inline_suppressions(
     """Apply inline suppressions and return (filtered_findings, warnings)."""
     from vibeguard.models import Confidence, Severity
 
+    # Build set of files with findings for optimized suppression filtering
+    files_with_findings: set[str] = set()
+    for finding in findings:
+        if finding.path:
+            files_with_findings.add(finding.path.replace("\\", "/"))
+
     # Build a map of file -> suppressions
     file_suppressions: dict[str, dict[int, list[str]]] = {}
     warnings: list[Finding] = []
@@ -206,15 +212,17 @@ def _apply_inline_suppressions(
         except OSError:
             continue
 
-        suppressions = parse_inline_suppressions(content)
-        if suppressions:
-            rel = str(path.relative_to(root)).replace("\\", "/")
-            file_suppressions[rel] = suppressions
+        rel = str(path.relative_to(root)).replace("\\", "/")
 
-        # Check for missing reasons
+        # Parse suppressions only for files that have findings (M5 optimization)
+        if rel in files_with_findings:
+            suppressions = parse_inline_suppressions(content)
+            if suppressions:
+                file_suppressions[rel] = suppressions
+
+        # Check for missing reasons on all files (user-facing warning)
         missing = find_missing_reasons(content)
         for lineno, ids in missing:
-            rel = str(path.relative_to(root)).replace("\\", "/")
             warnings.append(
                 Finding(
                     id="SUPPRESSION-NO-REASON",
@@ -237,12 +245,18 @@ def _apply_inline_suppressions(
         return findings, warnings
 
     # Filter findings that match suppressed (file, line, id) triples
+    # Supports same-line and next-line suppression (comment on line N suppresses N and N+1)
     filtered: list[Finding] = []
     for finding in findings:
         rel_path = finding.path.replace("\\", "/")
         if rel_path in file_suppressions and finding.line is not None:
+            # Check same-line suppression
             suppressed_ids = file_suppressions[rel_path].get(finding.line, [])
             if finding.id in suppressed_ids:
+                continue
+            # Check preceding-line suppression (comment on line N-1 suppresses line N)
+            suppressed_ids_prev = file_suppressions[rel_path].get(finding.line - 1, [])
+            if finding.id in suppressed_ids_prev:
                 continue
         filtered.append(finding)
 

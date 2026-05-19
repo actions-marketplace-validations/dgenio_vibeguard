@@ -60,7 +60,7 @@ class TestInlineSuppressionIntegration:
         # The finding should be suppressed
         assert not any(f.id == "SEC-AWSACCESSKEY" for f in result.findings)
 
-    def test_suppression_on_wrong_line_not_effective(self, tmp_path: Path):
+    def test_suppression_on_preceding_line_is_effective(self, tmp_path: Path):
         content = (
             '# vibeguard: ignore SEC-AWSACCESSKEY reason="test"\nAWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n'
         )
@@ -68,7 +68,20 @@ class TestInlineSuppressionIntegration:
 
         config = VibeGuardConfig()
         result = run_scan(tmp_path, config)
-        # The suppression is on line 1 but finding is on line 2 — should NOT be suppressed
+        # Preceding-line suppression (line N-1) suppresses finding on line N
+        assert not any(f.id == "SEC-AWSACCESSKEY" for f in result.findings)
+
+    def test_suppression_two_lines_away_not_effective(self, tmp_path: Path):
+        content = (
+            '# vibeguard: ignore SEC-AWSACCESSKEY reason="test"\n'
+            "x = 1\n"
+            'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n'
+        )
+        (tmp_path / "config.py").write_text(content)
+
+        config = VibeGuardConfig()
+        result = run_scan(tmp_path, config)
+        # Suppression on line 1, finding on line 3 — too far, should NOT be suppressed
         assert any(f.id == "SEC-AWSACCESSKEY" for f in result.findings)
 
     def test_missing_reason_emits_warning(self, tmp_path: Path):

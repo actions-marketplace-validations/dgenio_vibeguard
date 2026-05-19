@@ -6,8 +6,11 @@ import re
 
 # Matches: # vibeguard: ignore ID1,ID2 reason="some reason"
 # Or:      // vibeguard: ignore ID1 reason="reason"
+# Note: only single-line comment styles (# and //) are supported.
+# Block comments (/* */) are not supported because suppression semantics
+# are strictly same-line.
 _SUPPRESSION_RE = re.compile(
-    r"(?:#|//|/\*)\s*vibeguard:\s*ignore\s+"
+    r"(?:#|//)\s*vibeguard:\s*ignore\s+"
     r"(?P<ids>[A-Z][A-Z0-9\-,]+)"
     r'(?:\s+reason\s*=\s*"(?P<reason>[^"]*)")?'
 )
