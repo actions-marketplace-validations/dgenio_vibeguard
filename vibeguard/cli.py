@@ -304,12 +304,15 @@ def publish_check(
         typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
     ] = None,
     ecosystem: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--ecosystem",
-            help="Which artifact to simulate [auto|npm|python-sdist|python-wheel]",
+            help=(
+                "Which artifact to simulate [auto|npm|python-sdist|python-wheel]. "
+                "Defaults to the value in vibeguard.yaml `publish_check.ecosystem`."
+            ),
         ),
-    ] = "auto",
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output findings + manifest as JSON"),
@@ -340,16 +343,24 @@ def publish_check(
     """Simulate a publish and gate on any findings in the published file set."""
     _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
-    threshold = _parse_severity(fail_on) if fail_on else cfg.publish_check.fail_on
-    valid_ecosystems = {"auto", "npm", "python-sdist", "python-wheel"}
-    if ecosystem not in valid_ecosystems:
+    if not cfg.publish_check.enabled:
         err_console.print(
-            f"[red]Invalid --ecosystem: {ecosystem!r}. "
+            "[yellow]publish-check is disabled in vibeguard.yaml "
+            "(publish_check.enabled = false). Skipping.[/]"
+        )
+        raise typer.Exit(0)
+
+    threshold = _parse_severity(fail_on) if fail_on else cfg.publish_check.fail_on
+    effective_ecosystem = ecosystem if ecosystem is not None else cfg.publish_check.ecosystem
+    valid_ecosystems = {"auto", "npm", "python-sdist", "python-wheel"}
+    if effective_ecosystem not in valid_ecosystems:
+        err_console.print(
+            f"[red]Invalid --ecosystem: {effective_ecosystem!r}. "
             f"Valid options: {', '.join(sorted(valid_ecosystems))}[/]"
         )
         raise typer.Exit(2)
 
-    manifest, result = run_publish_check(path, cfg, ecosystem=ecosystem)  # type: ignore[arg-type]
+    manifest, result = run_publish_check(path, cfg, ecosystem=effective_ecosystem)  # type: ignore[arg-type]
 
     if manifest_out is not None:
         manifest_out.parent.mkdir(parents=True, exist_ok=True)

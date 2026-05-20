@@ -35,12 +35,14 @@ def detect_ecosystem(package_root: Path) -> Literal["npm", "python-sdist"] | Non
 
 
 def _publish_rules(config: VibeGuardConfig) -> list[Rule]:
-    """Rules that make sense on a *publish view*.
+    """Rules that make sense on a *publish view* (the files that would ship).
 
-    The publish view is a curated file set (what would ship to npm/PyPI), so
-    full-repo rules like missing-tests or risky-diff aren't meaningful here.
-    These four are: any secret, source-map, AI footprint, or packaging-config
-    issue surfaced from the published file set is critical for users.
+    Full-repo rules like missing-tests or risky-diff aren't meaningful here,
+    and packaging-config rules (`PackagingRule`) are run separately against
+    on-disk packaging configs via `_packaging_config_findings` so they can
+    fire on files (`.npmignore`, `MANIFEST.in`) that the publish itself
+    excludes. Secrets, source-maps, and AI footprints in the *shipped* file
+    set remain the responsibility of this rule set.
     """
     rules: list[Rule] = []
     if config.secrets.enabled:
@@ -49,8 +51,6 @@ def _publish_rules(config: VibeGuardConfig) -> list[Rule]:
         rules.append(SourceMapsRule())
     if config.ai_footprints.enabled:
         rules.append(AIFootprintsRule())
-    if config.packaging.enabled:
-        rules.append(PackagingRule())
     return rules
 
 
@@ -96,6 +96,64 @@ def _scan_published_files(
                 continue
             findings.append(f)
     return findings
+
+
+_PACKAGING_CONFIG_FILES: tuple[str, ...] = (
+    "package.json",
+    ".npmignore",
+    "pyproject.toml",
+    "MANIFEST.in",
+    "setup.cfg",
+    "setup.py",
+)
+
+
+def _packaging_config_findings(package_root: Path, config: VibeGuardConfig) -> list[Finding]:
+    """Run PackagingRule against on-disk packaging configs.
+
+    The publish manifest excludes files like `.npmignore` and `MANIFEST.in`
+    (npm never publishes them; sdists may but they're not the *risk* surface),
+    yet they are exactly where misconfigurations live. This pass runs the
+    packaging rule against those configs so findings like
+    `PKG-NPMIGNORE-NEGATE` and `PKG-MANIFEST-*` still fire during a
+    publish-check.
+    """
+    if not config.packaging.enabled:
+        return []
+
+    config_files: list[Path] = []
+    for name in _PACKAGING_CONFIG_FILES:
+        p = package_root / name
+        if p.is_file():
+            config_files.append(p)
+
+    if not config_files:
+        return []
+
+    ctx = ScanContext(
+        root=package_root,
+        config=config,
+        files=config_files,
+        changed_files=[],
+        git=GitMetadata(is_available=False),
+        diff_only=False,
+    )
+    try:
+        return PackagingRule().scan(ctx)
+    except Exception as exc:  # noqa: BLE001
+        return [
+            Finding(
+                id="PUB-RULE-ERROR",
+                rule="publish",
+                title="Packaging rule failed on publish-check config scan",
+                description=f"packaging rule raised: {exc}",
+                severity=Severity.LOW,
+                path=str(package_root),
+                recommendation="Open an issue with the failing rule and the package layout.",
+                tags=["publish"],
+                confidence=Confidence.LOW,
+            )
+        ]
 
 
 def _published_file_finding(rel: str, label: str) -> Finding:
@@ -182,15 +240,33 @@ def run_publish_check(
     else:
         target = ecosystem
 
-    if target == "npm":
-        manifest = simulate_npm_pack(package_root)
-    elif target in {"python-sdist", "python-wheel"}:
-        manifest = simulate_python(package_root, target=target)
-    else:  # pragma: no cover — defensive
-        raise ValueError(f"Unsupported ecosystem: {target!r}")
+    try:
+        if target == "npm":
+            manifest = simulate_npm_pack(package_root)
+        elif target in {"python-sdist", "python-wheel"}:
+            manifest = simulate_python(package_root, target=target)
+        else:  # pragma: no cover — defensive
+            raise ValueError(f"Unsupported ecosystem: {target!r}")
+    except FileNotFoundError as exc:
+        # Explicit --ecosystem with a missing manifest file → structured error.
+        missing = exc.filename or str(exc)
+        manifest = PublishManifest(
+            ecosystem=target,
+            package_root=str(package_root),
+            warnings=[f"Required manifest file not found: {missing}"],
+        )
+        result = ScanResult(
+            scanned_files=0,
+            changed_files=0,
+            scan_path=str(package_root),
+            policy=config.policy,
+            errors=[f"Required manifest file not found: {missing}"],
+        )
+        return manifest, result
 
     findings = _scan_published_files(package_root, config, manifest)
     findings.extend(_direct_publish_findings(manifest))
+    findings.extend(_packaging_config_findings(package_root, config))
     # Drop globally-suppressed finding IDs once more (the synthesized ones).
     findings = [f for f in findings if f.id not in config.ignore.findings]
 

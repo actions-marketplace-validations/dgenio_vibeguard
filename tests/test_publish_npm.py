@@ -154,6 +154,32 @@ class TestNpmSimulator:
         # 2 src files (100 each) + package.json
         assert m.total_bytes >= 200
 
+    def test_excluded_lists_always_excluded_root_files(self, tmp_path: Path):
+        """Always-excluded files on disk must appear in the manifest's `excluded` list."""
+        _write(
+            tmp_path,
+            {
+                "package.json": json.dumps({"name": "demo", "version": "1.0.0", "files": ["src/"]}),
+                ".gitignore": "node_modules/\n",
+                ".npmignore": "tests/\n",
+                ".npmrc": "registry=https://my-registry.example.com\n",
+                "src/index.js": "console.log(1)\n",
+                "node_modules/lodash/index.js": "module.exports = 1\n",
+            },
+        )
+        m = simulate_npm_pack(tmp_path)
+        # Always-excluded root files exist on disk → must be reported as excluded.
+        assert ".gitignore" in m.excluded
+        assert ".npmignore" in m.excluded
+        assert ".npmrc" in m.excluded
+        # And the node_modules directory marker.
+        assert "node_modules/" in m.excluded
+        # They must NOT appear in the included file list.
+        paths = m.included_paths()
+        assert ".gitignore" not in paths
+        assert ".npmignore" not in paths
+        assert ".npmrc" not in paths
+
     def test_vulnerable_node_example_reproduces_known_leaks(self, tmp_path: Path):
         """Smoke test against the bundled vulnerable-node-package fixture."""
         examples = Path(__file__).parent.parent / "examples" / "vulnerable-node-package"

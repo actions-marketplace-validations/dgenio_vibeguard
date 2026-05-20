@@ -4,13 +4,17 @@ Re-implements the file selection logic that `npm publish`/`npm pack` uses,
 without shelling out to npm itself. The selection order, after the npm docs:
 
 1. If `package.json` has a `files` field, that allowlist drives inclusion
-   (combined with `.npmignore`/`.gitignore` patterns and always-included
-   files such as `package.json`, README, LICENSE).
-2. Otherwise, `.npmignore` (or `.gitignore` if absent) excludes files from
-   the directory walk.
-3. A hard-coded always-included set is added regardless of `files`/ignore
-   rules (per npm's behavior).
-4. A hard-coded always-excluded set is removed regardless of `files`/ignore
+   on its own — `.npmignore`/`.gitignore` are NOT consulted in this mode.
+   (npm itself does apply some `.npmignore` patterns even with `files`, but
+   only for files matched by the allowlist; this simulator approximates the
+   allowlist-only behavior, which is the dominant case in practice.)
+2. Otherwise, the directory is walked and `.npmignore` (or `.gitignore` if
+   `.npmignore` is absent) excludes files from the result.
+3. A hard-coded always-included set (`package.json` at root, plus root-level
+   `README*`, `LICENSE*`, `NOTICE*`, `CHANGES*`, `CHANGELOG*`, `HISTORY*`) is
+   added regardless of `files`/ignore rules — per npm's behavior.
+4. A hard-coded always-excluded set (`.git`, `node_modules`, `.npmrc`,
+   `.DS_Store`, lockfiles, etc.) is removed regardless of `files`/ignore
    rules.
 
 References:
@@ -69,10 +73,15 @@ _ALWAYS_EXCLUDED_DIR_NAMES: frozenset[str] = frozenset(
 
 
 def _is_always_included(rel_path: str) -> bool:
-    """Return True if the relative path is one of npm's always-included files."""
-    # npm only auto-includes README/LICENSE/etc at the package root, not nested.
+    """Return True if the relative path is one of npm's always-included files.
+
+    npm auto-includes `package.json` and `README*` / `LICENSE*` / `CHANGELOG*`
+    style files **at the package root only** — nested copies (e.g.
+    `src/package.json`, `docs/README.md`) are not auto-included and must
+    come in via the `files` allowlist or the directory walk.
+    """
     if "/" in rel_path:
-        return rel_path == "package.json"  # only package.json is forced even nested
+        return False
     return any(p.fullmatch(rel_path) for p in _ALWAYS_INCLUDED_BASENAMES)
 
 
@@ -161,6 +170,24 @@ def simulate_npm_pack(package_root: Path) -> PublishManifest:
     included: list[PublishedFile] = []
     excluded: list[str] = []
     total = 0
+
+    # _walk_files() filters out always-excluded paths before they reach the
+    # inclusion logic. Surface them here so the manifest's `excluded` list is
+    # a complete publish view (matches the documented field semantics).
+    # Directories are reported with a trailing "/" to disambiguate from files.
+    seen: set[str] = set()
+    for name in _ALWAYS_EXCLUDED_EXACT | _ALWAYS_EXCLUDED_DIR_NAMES:
+        candidate = package_root / name
+        if candidate.is_dir():
+            marker = name + "/"
+        elif candidate.is_file():
+            marker = name
+        else:
+            continue
+        if marker in seen:
+            continue
+        seen.add(marker)
+        excluded.append(marker)
 
     for path in _walk_files(package_root):
         try:
