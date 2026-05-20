@@ -1,4 +1,4 @@
-name: 'VibeGuard'
+name: 'VibeGuard Security Gate'
 description: 'Deterministic pre-merge safety gate for AI-generated code'
 branding:
   icon: shield
