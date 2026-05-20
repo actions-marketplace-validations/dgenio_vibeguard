@@ -86,6 +86,8 @@ class TestSarifReporter:
         loc = results[0]["locations"][0]["physicalLocation"]
         assert loc["artifactLocation"]["uri"] == "src/config.py"
         assert loc["region"]["startLine"] == 10
+        # endLine makes the single-line span explicit for SARIF consumers.
+        assert loc["region"]["endLine"] == 10
 
     def test_no_region_for_null_line(self):
         result = _make_result()
@@ -93,6 +95,50 @@ class TestSarifReporter:
         results = data["runs"][0]["results"]
         loc = results[1]["locations"][0]["physicalLocation"]
         assert "region" not in loc
+
+    def test_results_have_partial_fingerprints(self):
+        """partialFingerprints lets GitHub Code Scanning dedupe findings across runs."""
+        result = _make_result()
+        data = json.loads(render_sarif(result))
+        results = data["runs"][0]["results"]
+        for r in results:
+            assert "partialFingerprints" in r
+            fps = r["partialFingerprints"]
+            assert "vibeguard/v1" in fps
+            assert isinstance(fps["vibeguard/v1"], str)
+            assert len(fps["vibeguard/v1"]) >= 16
+
+    def test_partial_fingerprints_stable_across_line_moves(self):
+        """The fingerprint must be the same for the same logical finding even if line moves."""
+        from vibeguard.reporters.sarif import render_sarif as render
+
+        f1 = Finding(
+            id="SEC-ENV",
+            rule="secrets",
+            title="env",
+            description="d",
+            severity=Severity.HIGH,
+            path="a.env",
+            line=10,
+            evidence="X",
+            recommendation="r",
+        )
+        f2 = Finding(
+            id="SEC-ENV",
+            rule="secrets",
+            title="env",
+            description="d",
+            severity=Severity.HIGH,
+            path="a.env",
+            line=99,
+            evidence="X",
+            recommendation="r",
+        )
+        d1 = json.loads(render(ScanResult(findings=[f1], scanned_files=1)))
+        d2 = json.loads(render(ScanResult(findings=[f2], scanned_files=1)))
+        fp1 = d1["runs"][0]["results"][0]["partialFingerprints"]["vibeguard/v1"]
+        fp2 = d2["runs"][0]["results"][0]["partialFingerprints"]["vibeguard/v1"]
+        assert fp1 == fp2
 
     def test_rules_deduplicated(self):
         result = ScanResult(

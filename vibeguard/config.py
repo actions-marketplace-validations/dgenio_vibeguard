@@ -156,7 +156,15 @@ class SeverityOverride(BaseModel):
 
 
 class Suppression(BaseModel):
-    """A policy suppression with required reason and optional expiry."""
+    """A policy suppression with required reason and optional expiry.
+
+    `finding_id` is matched exactly against ``Finding.id`` (e.g. ``"SEC-ENV"``);
+    `rule_id` matches every finding produced by that rule. When **both** are
+    set on the same Suppression, the match is **OR**: a finding is suppressed
+    if either identifier matches the configured `path_pattern`. Prefer scoping
+    by `finding_id` alone for surgical suppressions and `rule_id` alone for
+    family-wide ones — setting both is rarely what you want.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

@@ -570,8 +570,6 @@ def _parse_severity(value: str) -> Severity:
 
 def _apply_policy(result: ScanResult, cfg: VibeGuardConfig) -> ScanResult:
     """Apply severity overrides and policy suppressions to a scan result."""
-    from vibeguard.models import ScanResult
-
     findings = result.findings
 
     # Apply severity overrides (#27)
@@ -583,22 +581,16 @@ def _apply_policy(result: ScanResult, cfg: VibeGuardConfig) -> ScanResult:
     if cfg.suppressions:
         findings, warnings = apply_policy_suppressions(findings, cfg.suppressions)
 
-    return ScanResult(
-        findings=findings + warnings,
-        scanned_files=result.scanned_files,
-        changed_files=result.changed_files,
-        scan_path=result.scan_path,
-        policy=result.policy,
-        errors=result.errors,
-    )
+    # Use model_copy so we inherit any future ScanResult fields rather than
+    # re-enumerating the schema each time a field is added.
+    return result.model_copy(update={"findings": findings + warnings})
 
 
 def _apply_baseline(
     result: ScanResult, baseline_path: Path | None, cfg: VibeGuardConfig
 ) -> ScanResult:
     """Apply baseline filtering to a scan result."""
-    from vibeguard.baseline import Baseline, filter_baselined
-    from vibeguard.models import ScanResult
+    from vibeguard.baseline import Baseline, BaselineLoadError, filter_baselined
 
     bp = baseline_path
     if bp is None and cfg.baseline:
@@ -607,17 +599,13 @@ def _apply_baseline(
     if bp is None or not bp.exists():
         return result
 
-    baseline = Baseline.load(bp)
+    try:
+        baseline = Baseline.load(bp)
+    except BaselineLoadError as exc:
+        err_console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(2) from exc
     filtered = filter_baselined(result.findings, baseline)
-
-    return ScanResult(
-        findings=filtered,
-        scanned_files=result.scanned_files,
-        changed_files=result.changed_files,
-        scan_path=result.scan_path,
-        policy=result.policy,
-        errors=result.errors,
-    )
+    return result.model_copy(update={"findings": filtered})
 
 
 def _should_emit_annotations(

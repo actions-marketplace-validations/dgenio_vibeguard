@@ -31,8 +31,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .vibeguard-baseline.json
-          git diff --cached --quiet || git commit -m "chore: update vibeguard baseline"
-          git push
+          if git diff --cached --quiet; then
+            echo "No baseline changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update vibeguard baseline"
+          # Race protection: another push may have landed since we cloned.
+          # Rebase onto the latest main and retry up to 3 times before giving up.
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin main
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed (likely a concurrent push). Retrying..."
+            sleep $((attempt * 2))
+          done
+          echo "::error::Failed to push baseline after 3 retries."
+          exit 1
 
   # Job 2: Use baseline in PR gate
   pr-gate-with-baseline:

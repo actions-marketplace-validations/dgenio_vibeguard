@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from vibeguard.baseline import compute_fingerprint
 from vibeguard.models import Finding, ScanResult, Severity
 
 _SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
@@ -34,9 +35,20 @@ def _build_result(finding: Finding) -> dict[str, Any]:
     }
 
     if finding.line and finding.line > 0:
-        location["physicalLocation"]["region"] = {"startLine": finding.line}
+        # SARIF 2.1.0 §3.30: a region with only `startLine` is technically
+        # valid but ambiguous; setting `endLine` to the same line makes the
+        # single-line span explicit for downstream consumers.
+        location["physicalLocation"]["region"] = {
+            "startLine": finding.line,
+            "endLine": finding.line,
+        }
 
     result["locations"] = [location]
+    # SARIF 2.1.0 §3.27.23 partialFingerprints — used by GitHub Code Scanning
+    # (and other consumers) to deduplicate the same finding across runs even
+    # when line numbers shift. Reuse the same fingerprint scheme as the
+    # baseline module so a finding's identity is stable end-to-end.
+    result["partialFingerprints"] = {"vibeguard/v1": compute_fingerprint(finding)}
     return result
 
 

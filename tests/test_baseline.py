@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vibeguard.baseline import Baseline, compute_fingerprint, create_baseline, filter_baselined
+import pytest
+
+from vibeguard.baseline import (
+    Baseline,
+    BaselineLoadError,
+    compute_fingerprint,
+    create_baseline,
+    filter_baselined,
+)
 from vibeguard.config import VibeGuardConfig
 from vibeguard.models import Confidence, Finding, Severity
 from vibeguard.scanner import run_scan
@@ -95,6 +103,20 @@ class TestBaseline:
     def test_load_nonexistent(self, tmp_path: Path):
         baseline = Baseline.load(tmp_path / "does_not_exist.json")
         assert len(baseline.entries) == 0
+
+    def test_load_malformed_json_raises(self, tmp_path: Path):
+        """A corrupted baseline file must surface a clear error, not a raw traceback."""
+        bad = tmp_path / "bad-baseline.json"
+        bad.write_text("{not valid json", encoding="utf-8")
+        with pytest.raises(BaselineLoadError, match="not valid JSON"):
+            Baseline.load(bad)
+
+    def test_load_wrong_schema_raises(self, tmp_path: Path):
+        """JSON that parses but doesn't match the schema must also raise BaselineLoadError."""
+        bad = tmp_path / "wrong-schema.json"
+        bad.write_text('{"entries": "should-be-a-mapping-not-a-string"}', encoding="utf-8")
+        with pytest.raises(BaselineLoadError, match="schema"):
+            Baseline.load(bad)
 
 
 class TestBaselineIntegration:

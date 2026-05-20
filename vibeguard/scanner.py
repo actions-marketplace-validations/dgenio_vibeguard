@@ -242,24 +242,39 @@ def _apply_inline_suppressions(
     warnings: list[Finding] = []
 
     suppression_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb", ".java", ".cs"}
+    # Cheap byte-substring filter — files without the literal `vibeguard:`
+    # marker anywhere in their bytes can have neither suppressions nor
+    # missing-reason warnings, so we skip the full text decode entirely.
+    _MARKER = b"vibeguard:"
 
     for path in all_files:
         if path.suffix.lower() not in suppression_extensions:
             continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        has_findings = rel in files_with_findings
+
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")
+            raw = path.read_bytes()
         except OSError:
             continue
 
-        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _MARKER not in raw:
+            # No suppression marker present — neither suppression parsing nor
+            # the missing-reason warning pass have anything to do for this file.
+            continue
+
+        try:
+            content = raw.decode("utf-8", errors="replace")
+        except UnicodeDecodeError:
+            continue
 
         # Parse suppressions only for files that have findings (M5 optimization)
-        if rel in files_with_findings:
+        if has_findings:
             suppressions = parse_inline_suppressions(content)
             if suppressions:
                 file_suppressions[rel] = suppressions
 
-        # Check for missing reasons on all files (user-facing warning)
+        # Check for missing reasons on files that contain the marker
         missing = find_missing_reasons(content)
         for lineno, ids in missing:
             warnings.append(

@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 from vibeguard.models import Finding
 
 
+class BaselineLoadError(Exception):
+    """Raised when a baseline file cannot be parsed or validated."""
+
+
 class BaselineEntry(BaseModel):
     """A single entry in the baseline file."""
 
@@ -29,11 +33,25 @@ class Baseline(BaseModel):
 
     @classmethod
     def load(cls, path: Path) -> Baseline:
-        """Load a baseline from a JSON file."""
+        """Load a baseline from a JSON file.
+
+        Raises ``BaselineLoadError`` if the file is malformed or fails schema
+        validation. A missing file is not an error — an empty baseline is
+        returned so callers can treat "no baseline" and "empty baseline" the
+        same way.
+        """
         if not path.exists():
             return cls()
-        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-        return cls.model_validate(data)
+        try:
+            data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise BaselineLoadError(f"Baseline file {path} is not valid JSON: {exc}") from exc
+        try:
+            return cls.model_validate(data)
+        except Exception as exc:
+            raise BaselineLoadError(
+                f"Baseline file {path} does not match the expected schema: {exc}"
+            ) from exc
 
     def save(self, path: Path) -> None:
         """Save the baseline to a JSON file."""

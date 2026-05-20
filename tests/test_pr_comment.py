@@ -87,6 +87,43 @@ class TestPrComment:
         output = render_pr_comment(result, gate_passed=True)
         assert __version__ in output
 
+    def test_truncation_cuts_at_line_boundary(self, monkeypatch):
+        """When the body exceeds the byte budget, the cut must land at a newline so
+        we never ship a half-closed `<details>` element to GitHub."""
+        from vibeguard.reporters import markdown as md
+
+        # Tighten the budget to force truncation on a small synthetic result.
+        monkeypatch.setattr(md, "_MAX_PR_COMMENT_CHARS", 600)
+        findings = [
+            Finding(
+                id=f"SEC-{i:02d}",
+                rule="secrets",
+                title=f"finding {i}",
+                description="d",
+                severity=Severity.CRITICAL,
+                path=f"src/f{i}.py",
+                line=1,
+                recommendation="r",
+            )
+            for i in range(20)
+        ]
+        output = render_pr_comment(
+            ScanResult(findings=findings, scanned_files=20), gate_passed=False
+        )
+        assert "Output truncated" in output
+        # The truncation must land at a line boundary, so the prefix never ends
+        # mid-tag (e.g. `<deta…`) — that's the structural guarantee we care
+        # about. Higher-level element balancing is out of scope.
+        notice_start = output.index("\n\n---\n⚠")
+        prefix = output[:notice_start]
+        # Last line of the prefix must be a complete line, not a partial one.
+        last_line = prefix.rsplit("\n", 1)[-1]
+        # A "complete" markdown/html line is one that doesn't end with `<` or
+        # contain an unterminated `<` opener.
+        opens = last_line.count("<")
+        closes = last_line.count(">")
+        assert opens == closes, f"truncated line has unbalanced angle brackets: {last_line!r}"
+
 
 class TestPrCommentCLI:
     def test_scan_pr_comment_flag(self, tmp_path):

@@ -131,7 +131,13 @@ def render_pr_comment(result: ScanResult, gate_passed: bool = True) -> str:
         truncation_notice = (
             f"\n\n---\n⚠️ *Output truncated — exceeded {_MAX_PR_COMMENT_CHARS} character limit.*"
         )
-        output = output[: _MAX_PR_COMMENT_CHARS - len(truncation_notice)] + truncation_notice
+        budget = _MAX_PR_COMMENT_CHARS - len(truncation_notice)
+        # Cut at the last newline within the budget so we don't slice mid-tag
+        # (e.g. half of a `<details>` element) and ship broken HTML.
+        cut_at = output.rfind("\n", 0, budget)
+        if cut_at == -1:
+            cut_at = budget
+        output = output[:cut_at] + truncation_notice
     return output
 
 
