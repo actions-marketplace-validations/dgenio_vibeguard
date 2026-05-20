@@ -7,7 +7,7 @@ from pathlib import Path
 import pathspec
 
 from vibeguard.config import VibeGuardConfig, load_ignorefile
-from vibeguard.git import get_git_metadata
+from vibeguard.git import get_diff_text, get_git_metadata, parse_changed_lines
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
 from vibeguard.rules.agent_memory import AgentMemoryRule
 from vibeguard.rules.ai_footprints import AIFootprintsRule
@@ -170,6 +170,14 @@ def run_scan(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Rule {rule.id} failed: {exc}")
 
+    # Apply diff-line filtering (#24): in diff mode, restrict line-based findings
+    # to only those on changed lines
+    if diff_only and git_meta and git_meta.is_available:
+        diff_text = get_diff_text(root, git_meta.base_branch)
+        if diff_text:
+            changed_lines = parse_changed_lines(diff_text)
+            findings = _filter_by_changed_lines(findings, changed_lines)
+
     # Apply inline suppressions (#44)
     findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)
     findings.extend(suppression_warnings)
@@ -182,6 +190,37 @@ def run_scan(
         policy=config.policy,
         errors=errors,
     )
+
+
+def _filter_by_changed_lines(
+    findings: list[Finding],
+    changed_lines: dict[str, list[tuple[int, int]]],
+) -> list[Finding]:
+    """Filter out line-based findings that are not on changed lines.
+
+    File-level findings (line=None or line=0) are kept regardless.
+    """
+    filtered: list[Finding] = []
+    for finding in findings:
+        # File-level findings always pass through
+        if not finding.line or finding.line == 0:
+            filtered.append(finding)
+            continue
+
+        rel_path = finding.path.replace("\\", "/")
+        if rel_path not in changed_lines:
+            # File not in diff at all — keep finding (shouldn't happen in diff mode,
+            # but be conservative)
+            filtered.append(finding)
+            continue
+
+        # Check if finding line falls within any changed range
+        ranges = changed_lines[rel_path]
+        in_range = any(start <= finding.line <= end for start, end in ranges)
+        if in_range:
+            filtered.append(finding)
+
+    return filtered
 
 
 def _apply_inline_suppressions(

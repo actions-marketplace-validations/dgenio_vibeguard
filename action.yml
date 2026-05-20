@@ -1,0 +1,126 @@
+name: 'VibeGuard'
+description: 'Deterministic pre-merge safety gate for AI-generated code'
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  path:
+    description: 'Directory to scan'
+    required: false
+    default: '.'
+  config:
+    description: 'Path to vibeguard.yaml'
+    required: false
+    default: ''
+  diff:
+    description: 'Scan only changed files'
+    required: false
+    default: 'false'
+  fail-on:
+    description: 'Severity threshold for gate failure (info|low|medium|high|critical)'
+    required: false
+    default: 'high'
+  output-format:
+    description: 'Output format: console, json, markdown, sarif, pr-comment'
+    required: false
+    default: 'console'
+  output-file:
+    description: 'Write output to this file path'
+    required: false
+    default: ''
+  baseline:
+    description: 'Path to baseline file'
+    required: false
+    default: ''
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+
+outputs:
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.scan.outputs.findings-count }}
+  blocking-count:
+    description: 'Number of findings at or above fail-on threshold'
+    value: ${{ steps.scan.outputs.blocking-count }}
+  report-path:
+    description: 'Path to the output file (if output-file was set)'
+    value: ${{ steps.scan.outputs.report-path }}
+  gate-passed:
+    description: 'Whether the gate passed (true or false)'
+    value: ${{ steps.scan.outputs.gate-passed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+
+    - name: Install VibeGuard
+      shell: bash
+      run: pip install vibeguard-gate
+
+    - name: Run VibeGuard gate
+      id: scan
+      shell: bash
+      run: |
+        set +e
+
+        # Build command
+        CMD="vibeguard gate --path ${{ inputs.path }} --fail-on ${{ inputs.fail-on }}"
+
+        if [ "${{ inputs.diff }}" = "true" ]; then
+          CMD="$CMD --diff"
+        fi
+
+        if [ -n "${{ inputs.config }}" ]; then
+          CMD="$CMD --config ${{ inputs.config }}"
+        fi
+
+        if [ -n "${{ inputs.baseline }}" ]; then
+          CMD="$CMD --baseline ${{ inputs.baseline }}"
+        fi
+
+        # Output format
+        FORMAT="${{ inputs.output-format }}"
+        case "$FORMAT" in
+          json)      CMD="$CMD --json" ;;
+          markdown)  CMD="$CMD --markdown" ;;
+          sarif)     CMD="$CMD --sarif" ;;
+          pr-comment) CMD="$CMD --pr-comment" ;;
+        esac
+
+        # Run and capture output
+        OUTPUT_FILE="${{ inputs.output-file }}"
+        if [ -n "$OUTPUT_FILE" ]; then
+          $CMD > "$OUTPUT_FILE" 2>&1
+          EXIT_CODE=$?
+          echo "report-path=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
+        else
+          OUTPUT=$($CMD 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+        fi
+
+        # Parse findings count from JSON output
+        if [ "$FORMAT" = "json" ] && [ -n "$OUTPUT_FILE" ] && [ -f "$OUTPUT_FILE" ]; then
+          FINDINGS=$(python -c "import json; d=json.load(open('$OUTPUT_FILE')); print(len(d.get('findings',[])))" 2>/dev/null || echo "0")
+          echo "findings-count=$FINDINGS" >> "$GITHUB_OUTPUT"
+        else
+          echo "findings-count=0" >> "$GITHUB_OUTPUT"
+        fi
+
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "gate-passed=true" >> "$GITHUB_OUTPUT"
+          echo "blocking-count=0" >> "$GITHUB_OUTPUT"
+        else
+          echo "gate-passed=false" >> "$GITHUB_OUTPUT"
+          echo "blocking-count=1" >> "$GITHUB_OUTPUT"
+        fi
+
+        exit $EXIT_CODE

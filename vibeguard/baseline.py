@@ -1,0 +1,80 @@
+"""Baseline file support for suppressing existing findings."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from vibeguard.models import Finding
+
+
+class BaselineEntry(BaseModel):
+    """A single entry in the baseline file."""
+
+    rule_id: str
+    path: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class Baseline(BaseModel):
+    """The complete baseline: a mapping of fingerprint -> entry metadata."""
+
+    version: int = 1
+    entries: dict[str, BaselineEntry] = Field(default_factory=dict)
+
+    @classmethod
+    def load(cls, path: Path) -> Baseline:
+        """Load a baseline from a JSON file."""
+        if not path.exists():
+            return cls()
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return cls.model_validate(data)
+
+    def save(self, path: Path) -> None:
+        """Save the baseline to a JSON file."""
+        path.write_text(
+            json.dumps(self.model_dump(mode="json"), indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+
+    def contains(self, fingerprint: str) -> bool:
+        """Check if a fingerprint is in the baseline."""
+        return fingerprint in self.entries
+
+
+def compute_fingerprint(finding: Finding) -> str:
+    """Compute a stable fingerprint for a finding.
+
+    Fingerprint = sha256(rule_id + ":" + relative_path + ":" + evidence_hash[:16]).
+    Line numbers are intentionally excluded (code moves).
+    """
+    evidence_part = ""
+    if finding.evidence:
+        evidence_hash = hashlib.sha256(finding.evidence.encode("utf-8")).hexdigest()[:16]
+        evidence_part = evidence_hash
+
+    raw = f"{finding.id}:{finding.path.replace(chr(92), '/')}:{evidence_part}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def create_baseline(findings: list[Finding]) -> Baseline:
+    """Create a baseline from a list of findings."""
+    entries: dict[str, BaselineEntry] = {}
+    for finding in findings:
+        fp = compute_fingerprint(finding)
+        if fp not in entries:
+            entries[fp] = BaselineEntry(
+                rule_id=finding.id,
+                path=finding.path.replace("\\", "/"),
+            )
+    return Baseline(entries=entries)
+
+
+def filter_baselined(findings: list[Finding], baseline: Baseline) -> list[Finding]:
+    """Remove findings that are present in the baseline."""
+    return [f for f in findings if not baseline.contains(compute_fingerprint(f))]

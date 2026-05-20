@@ -1,0 +1,40 @@
+name: VibeGuard Publish Check
+on:
+  workflow_dispatch:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  vibeguard-publish-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install VibeGuard
+        run: pip install vibeguard-gate
+
+      - name: Run packaging checks
+        run: vibeguard gate --path . --fail-on high
+
+      - name: Verify no secrets or source maps in package
+        run: |
+          vibeguard scan --path . --json > publish-report.json
+          python -c "
+          import json, sys
+          data = json.load(open('publish-report.json'))
+          blocking = [f for f in data['findings'] if f['severity'] in ('critical', 'high')]
+          if blocking:
+              print(f'ERROR: {len(blocking)} blocking finding(s) detected')
+              for f in blocking:
+                  print(f\"  - {f['id']}: {f['title']} ({f['path']})\")
+              sys.exit(1)
+          print('OK: No blocking findings for publish')
+          "

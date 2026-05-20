@@ -1,0 +1,33 @@
+name: VibeGuard Basic Scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  vibeguard-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install VibeGuard
+        run: pip install vibeguard-gate
+
+      - name: Run scan
+        run: vibeguard scan --json > vibeguard-report.json
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeguard-report
+          path: vibeguard-report.json

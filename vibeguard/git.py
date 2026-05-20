@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 from vibeguard.models import GitMetadata
+
+# Matches unified diff hunk headers: @@ -old_start,old_count +new_start,new_count @@
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
 def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
@@ -75,3 +79,42 @@ def _detect_base_branch(root: Path) -> str | None:
         if raw:
             return candidate
     return None
+
+
+def get_diff_text(root: Path, base_branch: str | None = None) -> str:
+    """Get the unified diff text for changed files."""
+    resolved_base = base_branch or _detect_base_branch(root)
+    if resolved_base:
+        return _run_git(root, ["git", "diff", f"{resolved_base}...HEAD"])
+    # Fallback to uncommitted changes
+    return _run_git(root, ["git", "diff", "HEAD"])
+
+
+def parse_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
+    """Parse unified diff to extract per-file changed line ranges.
+
+    Returns a dict mapping relative file paths to lists of (start_line, end_line)
+    tuples representing ranges of added/modified lines in the new file.
+    """
+    result: dict[str, list[tuple[int, int]]] = {}
+    current_file: str | None = None
+
+    for line in diff_text.splitlines():
+        # Detect file header: +++ b/path/to/file
+        if line.startswith("+++ b/"):
+            current_file = line[6:]
+            if current_file not in result:
+                result[current_file] = []
+            continue
+
+        # Parse hunk header
+        if current_file and line.startswith("@@"):
+            match = _HUNK_RE.match(line)
+            if match:
+                start = int(match.group(1))
+                count = int(match.group(2)) if match.group(2) else 1
+                if count > 0:
+                    end = start + count - 1
+                    result[current_file].append((start, end))
+
+    return result

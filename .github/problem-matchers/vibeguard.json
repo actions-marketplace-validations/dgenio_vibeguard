@@ -1,0 +1,43 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "vibeguard",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^│\\s*(☠ CRIT|✗ HIGH)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 3,
+          "line": 4,
+          "message": 5,
+          "severity": 1
+        }
+      ]
+    },
+    {
+      "owner": "vibeguard-warning",
+      "severity": "warning",
+      "pattern": [
+        {
+          "regexp": "^│\\s*(⚠ MEDIUM)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 3,
+          "line": 4,
+          "message": 5,
+          "severity": 1
+        }
+      ]
+    },
+    {
+      "owner": "vibeguard-notice",
+      "severity": "notice",
+      "pattern": [
+        {
+          "regexp": "^│\\s*(↓ LOW|ℹ INFO)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 3,
+          "line": 4,
+          "message": 5,
+          "severity": 1
+        }
+      ]
+    }
+  ]
+}

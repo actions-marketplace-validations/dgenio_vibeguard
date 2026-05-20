@@ -1,0 +1,57 @@
+name: VibeGuard Baseline Management
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  # Job 1: Update baseline on main branch merges
+  update-baseline:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install VibeGuard
+        run: pip install vibeguard-gate
+
+      - name: Create/update baseline
+        run: vibeguard baseline create --output .vibeguard-baseline.json
+
+      - name: Commit baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .vibeguard-baseline.json
+          git diff --cached --quiet || git commit -m "chore: update vibeguard baseline"
+          git push
+
+  # Job 2: Use baseline in PR gate
+  pr-gate-with-baseline:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install VibeGuard
+        run: pip install vibeguard-gate
+
+      - name: Run gate with baseline
+        run: vibeguard gate --diff --fail-on high --baseline .vibeguard-baseline.json
