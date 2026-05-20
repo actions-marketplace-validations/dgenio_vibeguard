@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from vibeguard import __version__
 from vibeguard.models import Finding, ScanResult, Severity
 
 _SEV_EMOJI = {
@@ -64,4 +65,96 @@ def _finding_detail(finding: Finding) -> list[str]:
     if finding.evidence:
         lines += ["```", finding.evidence, "```", ""]
     lines += [f"**Recommendation:** {finding.recommendation}", ""]
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# PR-comment mode (#21)
+# ---------------------------------------------------------------------------
+
+_MAX_PR_COMMENT_CHARS = 65536
+
+
+def render_pr_comment(result: ScanResult, gate_passed: bool = True) -> str:
+    """Return a PR-optimized Markdown comment with collapsible sections."""
+    lines: list[str] = []
+
+    # Header with pass/fail
+    status_emoji = "🟢" if gate_passed else "🔴"
+    status_text = "PASS" if gate_passed else "FAIL"
+    lines.append(f"## {status_emoji} VibeGuard Scan Results — {status_text}\n")
+
+    counts = result.counts()
+    total = len(result.findings)
+
+    # Summary table
+    lines.append("| Severity | Count |")
+    lines.append("| --- | --- |")
+    for sev in reversed(list(Severity)):
+        count = counts.get(sev.value, 0)
+        if count > 0:
+            emoji = _SEV_EMOJI.get(sev, "")
+            lines.append(f"| {emoji} {sev.value.capitalize()} | {count} |")
+    lines.append(f"| **Total** | **{total}** |")
+    lines.append("")
+
+    if total == 0:
+        lines.append("✅ No findings — all clear.\n")
+    else:
+        # Separate blocking from non-blocking
+        blocking = [f for f in result.findings if f.severity in (Severity.CRITICAL, Severity.HIGH)]
+        non_blocking = [
+            f for f in result.findings if f.severity not in (Severity.CRITICAL, Severity.HIGH)
+        ]
+
+        if blocking:
+            lines.append("### Blocking Findings\n")
+            for finding in sorted(blocking, key=lambda f: f.severity, reverse=True):
+                lines.extend(_pr_finding_detail(finding))
+
+        if non_blocking:
+            lines.append(
+                f"\n<details>\n<summary>{len(non_blocking)} additional findings "
+                f"(medium/low/info)...</summary>\n"
+            )
+            for finding in sorted(non_blocking, key=lambda f: f.severity, reverse=True):
+                lines.extend(_pr_finding_detail(finding))
+            lines.append("</details>\n")
+
+    lines.append(
+        f"\n---\n*Scanned {result.scanned_files} file(s) · "
+        f"policy: {result.policy} · vibeguard {__version__}*"
+    )
+
+    output = "\n".join(lines)
+    if len(output) > _MAX_PR_COMMENT_CHARS:
+        truncation_notice = (
+            f"\n\n---\n⚠️ *Output truncated — exceeded {_MAX_PR_COMMENT_CHARS} character limit.*"
+        )
+        budget = _MAX_PR_COMMENT_CHARS - len(truncation_notice)
+        # Cut at the last newline within the budget so we don't slice mid-tag
+        # (e.g. half of a `<details>` element) and ship broken HTML.
+        cut_at = output.rfind("\n", 0, budget)
+        if cut_at == -1:
+            cut_at = budget
+        output = output[:cut_at] + truncation_notice
+    return output
+
+
+def _pr_finding_detail(finding: Finding) -> list[str]:
+    emoji = _SEV_EMOJI.get(finding.severity, "")
+    loc = finding.path + (f":{finding.line}" if finding.line else "")
+    lines = [
+        "<details>",
+        f"<summary>{emoji} <code>{finding.id}</code> — {finding.title} "
+        f"(<code>{loc}</code>)</summary>",
+        "",
+        finding.description,
+        "",
+    ]
+    if finding.evidence:
+        lines += ["```", finding.evidence, "```", ""]
+    if finding.recommendation:
+        lines.append(f"**Recommendation:** {finding.recommendation}")
+    lines += ["", "</details>", ""]
     return lines

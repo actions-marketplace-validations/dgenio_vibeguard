@@ -5,20 +5,30 @@ from __future__ import annotations
 import platform
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from pydantic import ValidationError
 from rich.console import Console
 
 from vibeguard import __version__
-from vibeguard.config import DEFAULT_CONFIG_YAML, VibeGuardConfig
+from vibeguard.config import (
+    DEFAULT_CONFIG_YAML,
+    VibeGuardConfig,
+    apply_policy_suppressions,
+    apply_severity_overrides,
+)
 from vibeguard.git import get_git_metadata
 from vibeguard.models import Severity
+from vibeguard.reporters.annotations import emit_annotations, is_github_actions
 from vibeguard.reporters.console import render_findings
 from vibeguard.reporters.json_reporter import print_json
-from vibeguard.reporters.markdown import render_markdown
+from vibeguard.reporters.markdown import render_markdown, render_pr_comment
+from vibeguard.reporters.sarif import print_sarif
 from vibeguard.scanner import run_scan
+
+if TYPE_CHECKING:
+    from vibeguard.models import Finding, ScanResult
 
 app = typer.Typer(
     name="vibeguard",
@@ -132,11 +142,30 @@ def validate(
 # ---------------------------------------------------------------------------
 
 
-def _validate_output_options(json_output: bool, markdown_output: bool) -> None:
-    """Fail fast if mutually exclusive output options are both set."""
-    if json_output and markdown_output:
+def _validate_output_options(
+    json_output: bool,
+    markdown_output: bool,
+    sarif_output: bool = False,
+    pr_comment_output: bool = False,
+    annotations_explicit: bool = False,
+) -> None:
+    """Fail fast if mutually exclusive output options are set together."""
+    selected = sum([json_output, markdown_output, sarif_output, pr_comment_output])
+    if selected > 1:
         err_console.print(
-            "[red]Error: --json and --markdown are mutually exclusive. Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, and --pr-comment are mutually exclusive."
+            " Choose one.[/]"
+        )
+        raise typer.Exit(2)
+    if annotations_explicit and selected >= 1:
+        # Annotations are workflow commands printed to stdout. Combining them
+        # with structured output (JSON/SARIF/Markdown) interleaves them into
+        # the report and breaks downstream parsers. Annotations still
+        # auto-enable in GitHub Actions when no structured output is selected.
+        err_console.print(
+            "[red]Error: --annotations cannot be combined with --json, --markdown,"
+            " --sarif, or --pr-comment (annotations would corrupt the structured"
+            " output).[/]"
         )
         raise typer.Exit(2)
 
@@ -163,6 +192,25 @@ def scan(
         bool,
         typer.Option("--markdown", help="Output findings as Markdown"),
     ] = False,
+    sarif_output: Annotated[
+        bool,
+        typer.Option("--sarif", help="Output findings as SARIF 2.1.0 JSON"),
+    ] = False,
+    pr_comment_output: Annotated[
+        bool,
+        typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
+    ] = False,
+    annotations: Annotated[
+        bool | None,
+        typer.Option(
+            "--annotations/--no-annotations",
+            help="Emit GitHub Actions annotations (auto-enabled in CI)",
+        ),
+    ] = None,
+    baseline_path: Annotated[
+        Path | None,
+        typer.Option("--baseline", help="Path to baseline file for suppressing known findings"),
+    ] = None,
     fail_on: Annotated[
         str | None,
         typer.Option(
@@ -176,7 +224,13 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
-    _validate_output_options(json_output, markdown_output)
+    _validate_output_options(
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        annotations_explicit=(annotations is True),
+    )
     cfg = _load_config(config, path)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
@@ -192,12 +246,30 @@ def scan(
 
     result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
 
+    # Apply severity overrides and policy suppressions
+    result = _apply_policy(result, cfg)
+
+    # Apply baseline filtering
+    result = _apply_baseline(result, baseline_path, cfg)
+
+    # Determine annotation mode
+    emit_annot = _should_emit_annotations(
+        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+    )
+
     if json_output:
         print_json(result)
+    elif sarif_output:
+        print_sarif(result)
+    elif pr_comment_output:
+        typer.echo(render_pr_comment(result, gate_passed=True))
     elif markdown_output:
         typer.echo(render_markdown(result))
     else:
         render_findings(result, verbose=verbose)
+
+    if emit_annot:
+        emit_annotations(result)
 
     if result.errors:
         for err in result.errors:
@@ -233,6 +305,25 @@ def gate(
         bool,
         typer.Option("--markdown", help="Output findings as Markdown"),
     ] = False,
+    sarif_output: Annotated[
+        bool,
+        typer.Option("--sarif", help="Output findings as SARIF 2.1.0 JSON"),
+    ] = False,
+    pr_comment_output: Annotated[
+        bool,
+        typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
+    ] = False,
+    annotations: Annotated[
+        bool | None,
+        typer.Option(
+            "--annotations/--no-annotations",
+            help="Emit GitHub Actions annotations (auto-enabled in CI)",
+        ),
+    ] = None,
+    baseline_path: Annotated[
+        Path | None,
+        typer.Option("--baseline", help="Path to baseline file for suppressing known findings"),
+    ] = None,
     fail_on: Annotated[
         str | None,
         typer.Option(
@@ -246,7 +337,13 @@ def gate(
     ] = False,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
-    _validate_output_options(json_output, markdown_output)
+    _validate_output_options(
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        annotations_explicit=(annotations is True),
+    )
     cfg = _load_config(config, path)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
@@ -262,19 +359,39 @@ def gate(
 
     result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
 
+    # Apply severity overrides and policy suppressions
+    result = _apply_policy(result, cfg)
+
+    # Apply baseline filtering
+    result = _apply_baseline(result, baseline_path, cfg)
+
+    threshold = cfg.fail_on
+    gate_passed = not result.has_blocking(threshold)
+
+    # Determine annotation mode
+    emit_annot = _should_emit_annotations(
+        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+    )
+
     if json_output:
         print_json(result)
+    elif sarif_output:
+        print_sarif(result)
+    elif pr_comment_output:
+        typer.echo(render_pr_comment(result, gate_passed=gate_passed))
     elif markdown_output:
         typer.echo(render_markdown(result))
     else:
         render_findings(result, verbose=verbose)
 
+    if emit_annot:
+        emit_annotations(result)
+
     if result.errors:
         for err in result.errors:
             err_console.print(f"[yellow]⚠ {err}[/]")
 
-    threshold = cfg.fail_on
-    if result.has_blocking(threshold):
+    if not gate_passed:
         err_console.print(
             f"\n[bold red]✗ Gate failed:[/] findings at or above "
             f"[bold]{threshold.value}[/] severity detected.\n"
@@ -449,3 +566,130 @@ def _parse_severity(value: str) -> Severity:
     except ValueError:
         err_console.print(f"[red]Invalid severity: {value!r}. Valid options: {', '.join(valid)}[/]")
         raise typer.Exit(2) from None
+
+
+def _apply_policy(result: ScanResult, cfg: VibeGuardConfig) -> ScanResult:
+    """Apply severity overrides and policy suppressions to a scan result."""
+    findings = result.findings
+
+    # Apply severity overrides (#27)
+    if cfg.severity_overrides:
+        findings = apply_severity_overrides(findings, cfg.severity_overrides)
+
+    # Apply policy suppressions (#28)
+    warnings: list[Finding] = []
+    if cfg.suppressions:
+        findings, warnings = apply_policy_suppressions(findings, cfg.suppressions)
+
+    # Use model_copy so we inherit any future ScanResult fields rather than
+    # re-enumerating the schema each time a field is added.
+    return result.model_copy(update={"findings": findings + warnings})
+
+
+def _apply_baseline(
+    result: ScanResult, baseline_path: Path | None, cfg: VibeGuardConfig
+) -> ScanResult:
+    """Apply baseline filtering to a scan result."""
+    from vibeguard.baseline import Baseline, BaselineLoadError, filter_baselined
+
+    bp = baseline_path
+    if bp is None and cfg.baseline:
+        bp = Path(cfg.baseline)
+
+    if bp is None or not bp.exists():
+        return result
+
+    try:
+        baseline = Baseline.load(bp)
+    except BaselineLoadError as exc:
+        err_console.print(f"[red]Error: {exc}[/]")
+        raise typer.Exit(2) from exc
+    filtered = filter_baselined(result.findings, baseline)
+    return result.model_copy(update={"findings": filtered})
+
+
+def _should_emit_annotations(
+    annotations_flag: bool | None,
+    json_output: bool,
+    markdown_output: bool,
+    sarif_output: bool,
+    pr_comment_output: bool,
+) -> bool:
+    """Determine whether to emit GitHub Actions annotations."""
+    # Explicit flag takes precedence
+    if annotations_flag is True:
+        return True
+    if annotations_flag is False:
+        return False
+    # Auto-enable in GitHub Actions unless another structured output is selected
+    return is_github_actions() and not any(
+        [json_output, markdown_output, sarif_output, pr_comment_output]
+    )
+
+
+# ---------------------------------------------------------------------------
+# baseline
+# ---------------------------------------------------------------------------
+
+baseline_app = typer.Typer(name="baseline", help="Manage baseline files.", no_args_is_help=True)
+app.add_typer(baseline_app)
+
+
+@baseline_app.command("create")
+def baseline_create(
+    path: Annotated[
+        Path,
+        typer.Option("--path", "-p", help="Repository or directory to scan"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
+    ] = None,
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output baseline file path"),
+    ] = Path(".vibeguard-baseline.json"),
+) -> None:
+    """Create a baseline file from a full scan of the repository."""
+    from vibeguard.baseline import create_baseline
+
+    cfg = _load_config(config, path)
+    result = run_scan(path, cfg, diff_only=False)
+
+    baseline = create_baseline(result.findings)
+    baseline.save(output)
+
+    err_console.print(
+        f"[green]✓[/] Baseline created: [bold]{output}[/] "
+        f"({len(baseline.entries)} finding(s) fingerprinted)"
+    )
+
+
+@baseline_app.command("update")
+def baseline_update(
+    path: Annotated[
+        Path,
+        typer.Option("--path", "-p", help="Repository or directory to scan"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
+    ] = None,
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Baseline file path to update"),
+    ] = Path(".vibeguard-baseline.json"),
+) -> None:
+    """Re-scan and update an existing baseline file."""
+    from vibeguard.baseline import create_baseline
+
+    cfg = _load_config(config, path)
+    result = run_scan(path, cfg, diff_only=False)
+
+    baseline = create_baseline(result.findings)
+    baseline.save(output)
+
+    err_console.print(
+        f"[green]✓[/] Baseline updated: [bold]{output}[/] "
+        f"({len(baseline.entries)} finding(s) fingerprinted)"
+    )
