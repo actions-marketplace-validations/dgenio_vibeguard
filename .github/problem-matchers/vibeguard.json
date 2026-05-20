@@ -5,11 +5,10 @@
       "severity": "error",
       "pattern": [
         {
-          "regexp": "^│\\s*(☠ CRIT|✗ HIGH)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
-          "file": 3,
-          "line": 4,
-          "message": 5,
-          "severity": 1
+          "regexp": "^│\\s*(?:☠ CRITICAL|✗ HIGH)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 2,
+          "line": 3,
+          "message": 4
         }
       ]
     },
@@ -18,11 +17,10 @@
       "severity": "warning",
       "pattern": [
         {
-          "regexp": "^│\\s*(⚠ MEDIUM)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
-          "file": 3,
-          "line": 4,
-          "message": 5,
-          "severity": 1
+          "regexp": "^│\\s*(?:⚠ MEDIUM)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 2,
+          "line": 3,
+          "message": 4
         }
       ]
     },
@@ -31,11 +29,10 @@
       "severity": "notice",
       "pattern": [
         {
-          "regexp": "^│\\s*(↓ LOW|ℹ INFO)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
-          "file": 3,
-          "line": 4,
-          "message": 5,
-          "severity": 1
+          "regexp": "^│\\s*(?:↓ LOW|ℹ INFO)\\s*│\\s*(\\S+)\\s*│\\s*([^:│]+?)(?::(\\d+))?\\s*│\\s*(.+?)\\s*│$",
+          "file": 2,
+          "line": 3,
+          "message": 4
         }
       ]
     }

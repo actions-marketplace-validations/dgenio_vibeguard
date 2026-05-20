@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -133,7 +134,13 @@ class AgentMemoryConfig(BaseModel):
 
 
 class SeverityOverride(BaseModel):
-    """A severity override for a specific rule or finding ID."""
+    """A severity override for a specific rule or finding ID.
+
+    `finding_id` is matched exactly against ``Finding.id`` (e.g. ``"SEC-ENV"``).
+    To override a whole family of findings, scope by `rule_id` instead — every
+    finding produced by that rule will be remapped. `finding_id` always wins
+    over `rule_id` when both apply.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -169,6 +176,18 @@ class Suppression(BaseModel):
     def _reason_not_empty(self) -> Suppression:
         if not self.reason.strip():
             raise ValueError("'reason' must not be empty")
+        return self
+
+    @model_validator(mode="after")
+    def _expires_is_iso_date(self) -> Suppression:
+        if self.expires is None:
+            return self
+        try:
+            date.fromisoformat(self.expires)
+        except ValueError as exc:
+            raise ValueError(
+                f"'expires' must be an ISO date (YYYY-MM-DD), got {self.expires!r}"
+            ) from exc
         return self
 
 
@@ -353,7 +372,6 @@ def apply_policy_suppressions(
     Expired suppressions emit a SUPPRESSION-EXPIRED warning instead of suppressing.
     """
     import fnmatch
-    from datetime import date
 
     from vibeguard.models import Confidence, Finding, Severity
 
@@ -363,33 +381,33 @@ def apply_policy_suppressions(
     active: list[Finding] = []
     warnings: list[Finding] = []
 
-    # Pre-check for expired suppressions
+    # Pre-check for expired suppressions. `expires` is validated as an ISO
+    # date at config load (see Suppression._expires_is_iso_date), so we can
+    # parse it directly without a defensive try/except — a malformed value
+    # would have failed at load time rather than silently never expiring.
     today = date.today()
     expired_suppressions: set[int] = set()
     for idx, supp in enumerate(suppressions):
         if supp.expires:
-            try:
-                expiry = date.fromisoformat(supp.expires)
-                if expiry < today:
-                    expired_suppressions.add(idx)
-                    warnings.append(
-                        Finding(
-                            id="SUPPRESSION-EXPIRED",
-                            rule="suppressions",
-                            title="Policy suppression expired",
-                            description=(
-                                f"Suppression for {supp.finding_id or supp.rule_id} "
-                                f"(path: {supp.path_pattern}) expired on {supp.expires}."
-                            ),
-                            severity=Severity.LOW,
-                            path="vibeguard.yaml",
-                            recommendation="Remove or renew the expired suppression.",
-                            tags=["suppressions"],
-                            confidence=Confidence.HIGH,
-                        )
+            expiry = date.fromisoformat(supp.expires)
+            if expiry < today:
+                expired_suppressions.add(idx)
+                warnings.append(
+                    Finding(
+                        id="SUPPRESSION-EXPIRED",
+                        rule="suppressions",
+                        title="Policy suppression expired",
+                        description=(
+                            f"Suppression for {supp.finding_id or supp.rule_id} "
+                            f"(path: {supp.path_pattern}) expired on {supp.expires}."
+                        ),
+                        severity=Severity.LOW,
+                        path="vibeguard.yaml",
+                        recommendation="Remove or renew the expired suppression.",
+                        tags=["suppressions"],
+                        confidence=Confidence.HIGH,
                     )
-            except ValueError:
-                pass
+                )
 
     for finding in findings:
         suppressed = False
@@ -399,7 +417,12 @@ def apply_policy_suppressions(
 
             # Check if rule_id or finding_id matches
             id_match = False
-            if supp.finding_id and finding.id == supp.finding_id or supp.rule_id and finding.rule == supp.rule_id:
+            if (
+                supp.finding_id
+                and finding.id == supp.finding_id
+                or supp.rule_id
+                and finding.rule == supp.rule_id
+            ):
                 id_match = True
 
             if not id_match:

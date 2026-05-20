@@ -195,7 +195,7 @@ Speed up runs by caching pip installs:
 
 ## Problem Matcher
 
-VibeGuard ships a [problem matcher](.github/problem-matchers/vibeguard.json) for console output.
+VibeGuard ships a [problem matcher](../.github/problem-matchers/vibeguard.json) for console output.
 Enable it to get annotations even without `--sarif`:
 
 ```yaml

@@ -36,7 +36,9 @@ index abc..def 100644
 """
         result = parse_changed_lines(diff)
         assert "src/app.py" in result
-        assert (5, 8) in result["src/app.py"]
+        # Only the single added line ("+    y = 2" at new-file line 6) — not
+        # the surrounding context lines from the hunk range.
+        assert result["src/app.py"] == [(6, 6)]
 
     def test_multiple_hunks(self):
         diff = """\
@@ -56,8 +58,40 @@ diff --git a/src/app.py b/src/app.py
         result = parse_changed_lines(diff)
         assert "src/app.py" in result
         ranges = result["src/app.py"]
-        assert (1, 4) in ranges
-        assert (11, 15) in ranges
+        # Hunk 1: "+import os" at new-file line 1.
+        # Hunk 2: "+    b = 2" and "+    c = 3" at new-file lines 12-13
+        # (context "a = 1" at 11, "d = 4" at 14).
+        assert ranges == [(1, 1), (12, 13)]
+
+    def test_context_only_lines_excluded(self):
+        """A hunk with no '+' lines (pure deletions/context) produces no ranges."""
+        diff = """\
+diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,4 +1,3 @@
+ x = 1
+-y = 2
+ z = 3
+ w = 4
+"""
+        result = parse_changed_lines(diff)
+        assert result == {"src/app.py": []}
+
+    def test_adjacent_hunks_coalesce(self):
+        """Added lines that are contiguous across hunks coalesce into one range."""
+        diff = """\
+diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,1 +1,2 @@
+ x = 1
++y = 2
+@@ -2,0 +3,1 @@
++z = 3
+"""
+        result = parse_changed_lines(diff)
+        assert result == {"src/app.py": [(2, 3)]}
 
     def test_multiple_files(self):
         diff = """\

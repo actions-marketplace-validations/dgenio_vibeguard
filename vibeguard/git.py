@@ -91,30 +91,64 @@ def get_diff_text(root: Path, base_branch: str | None = None) -> str:
 
 
 def parse_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
-    """Parse unified diff to extract per-file changed line ranges.
+    """Parse unified diff to extract per-file added/modified line ranges.
 
     Returns a dict mapping relative file paths to lists of (start_line, end_line)
-    tuples representing ranges of added/modified lines in the new file.
+    tuples covering the added (``+``) lines in the new file. Context lines and
+    deletions are excluded so that ``--diff`` mode filters findings down to the
+    lines this change actually introduced.
     """
-    result: dict[str, list[tuple[int, int]]] = {}
+    added: dict[str, list[int]] = {}
     current_file: str | None = None
+    new_line: int | None = None
 
     for line in diff_text.splitlines():
-        # Detect file header: +++ b/path/to/file
         if line.startswith("+++ b/"):
             current_file = line[6:]
-            if current_file not in result:
-                result[current_file] = []
+            added.setdefault(current_file, [])
+            new_line = None
             continue
 
-        # Parse hunk header
-        if current_file and line.startswith("@@"):
+        if line.startswith("@@") and current_file is not None:
             match = _HUNK_RE.match(line)
-            if match:
-                start = int(match.group(1))
-                count = int(match.group(2)) if match.group(2) else 1
-                if count > 0:
-                    end = start + count - 1
-                    result[current_file].append((start, end))
+            new_line = int(match.group(1)) if match else None
+            continue
 
-    return result
+        if current_file is None or new_line is None:
+            continue
+
+        # Skip stray file headers inside multi-file diffs
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+
+        if line.startswith("+"):
+            added[current_file].append(new_line)
+            new_line += 1
+        elif line.startswith("-"):
+            # Removed line — does not advance the new-file counter.
+            pass
+        elif line.startswith("\\"):
+            # "\ No newline at end of file" — metadata, skip.
+            pass
+        else:
+            # Context line — advances the new-file counter but is not "changed".
+            new_line += 1
+
+    return {path: _coalesce_lines(lines) for path, lines in added.items()}
+
+
+def _coalesce_lines(lines: list[int]) -> list[tuple[int, int]]:
+    """Collapse a list of line numbers into contiguous (start, end) ranges."""
+    if not lines:
+        return []
+    ordered = sorted(set(lines))
+    ranges: list[tuple[int, int]] = []
+    start = end = ordered[0]
+    for n in ordered[1:]:
+        if n == end + 1:
+            end = n
+        else:
+            ranges.append((start, end))
+            start = end = n
+    ranges.append((start, end))
+    return ranges

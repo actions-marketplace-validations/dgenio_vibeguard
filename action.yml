@@ -40,10 +40,15 @@ inputs:
 
 outputs:
   findings-count:
-    description: 'Total number of findings'
+    description: >-
+      Total number of findings. Accurate when output-format is json (parsed from
+      the JSON payload); otherwise the literal string "unknown".
     value: ${{ steps.scan.outputs.findings-count }}
   blocking-count:
-    description: 'Number of findings at or above fail-on threshold'
+    description: >-
+      Number of findings at or above the fail-on threshold. Accurate when
+      output-format is json; otherwise "unknown". The boolean gate-passed
+      output is always accurate.
     value: ${{ steps.scan.outputs.blocking-count }}
   report-path:
     description: 'Path to the output file (if output-file was set)'
@@ -63,7 +68,11 @@ runs:
 
     - name: Install VibeGuard
       shell: bash
-      run: pip install vibeguard-gate
+      # Install from the checked-out action source so the CLI version matches
+      # the action ref (e.g. `uses: dgenio/vibeguard@v0.2`). Installing from
+      # PyPI here would let the CLI float independently of the action tag,
+      # which defeats the point of pinning.
+      run: pip install "${{ github.action_path }}"
 
     - name: Run VibeGuard gate
       id: scan
@@ -95,32 +104,45 @@ runs:
           pr-comment) CMD="$CMD --pr-comment" ;;
         esac
 
-        # Run and capture output
+        # Run and capture output. Redirect only stdout to OUTPUT_FILE so that
+        # warnings on stderr (Git missing, config notices, rich formatting)
+        # don't corrupt JSON/SARIF/Markdown reports; stderr flows to the job
+        # log instead.
         OUTPUT_FILE="${{ inputs.output-file }}"
         if [ -n "$OUTPUT_FILE" ]; then
-          $CMD > "$OUTPUT_FILE" 2>&1
+          $CMD > "$OUTPUT_FILE"
           EXIT_CODE=$?
           echo "report-path=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
         else
-          OUTPUT=$($CMD 2>&1)
+          $CMD
           EXIT_CODE=$?
-          echo "$OUTPUT"
         fi
 
-        # Parse findings count from JSON output
-        if [ "$FORMAT" = "json" ] && [ -n "$OUTPUT_FILE" ] && [ -f "$OUTPUT_FILE" ]; then
-          FINDINGS=$(python -c "import json; d=json.load(open('$OUTPUT_FILE')); print(len(d.get('findings',[])))" 2>/dev/null || echo "0")
-          echo "findings-count=$FINDINGS" >> "$GITHUB_OUTPUT"
-        else
-          echo "findings-count=0" >> "$GITHUB_OUTPUT"
+        # Parse counts from JSON output. We only know real counts when the user
+        # asked for json + output-file; for any other format we emit "unknown"
+        # rather than lying with a hardcoded zero. gate-passed below remains
+        # authoritative regardless. jq is preinstalled on GitHub-hosted runners.
+        FINDINGS_COUNT="unknown"
+        BLOCKING_COUNT="unknown"
+        if [ "$FORMAT" = "json" ] && [ -n "$OUTPUT_FILE" ] && [ -f "$OUTPUT_FILE" ] && command -v jq >/dev/null 2>&1; then
+          THRESHOLD="${{ inputs.fail-on }}"
+          FC=$(jq '.findings | length' "$OUTPUT_FILE" 2>/dev/null)
+          BC=$(jq --arg t "$THRESHOLD" '
+            ({info:0,low:1,medium:2,high:3,critical:4}) as $o
+            | ($o[$t] // 3) as $thresh
+            | [.findings[] | select(($o[(.severity // "info") | ascii_downcase] // 0) >= $thresh)]
+            | length
+          ' "$OUTPUT_FILE" 2>/dev/null)
+          if [ -n "$FC" ]; then FINDINGS_COUNT="$FC"; fi
+          if [ -n "$BC" ]; then BLOCKING_COUNT="$BC"; fi
         fi
+        echo "findings-count=$FINDINGS_COUNT" >> "$GITHUB_OUTPUT"
+        echo "blocking-count=$BLOCKING_COUNT" >> "$GITHUB_OUTPUT"
 
         if [ $EXIT_CODE -eq 0 ]; then
           echo "gate-passed=true" >> "$GITHUB_OUTPUT"
-          echo "blocking-count=0" >> "$GITHUB_OUTPUT"
         else
           echo "gate-passed=false" >> "$GITHUB_OUTPUT"
-          echo "blocking-count=1" >> "$GITHUB_OUTPUT"
         fi
 
         exit $EXIT_CODE

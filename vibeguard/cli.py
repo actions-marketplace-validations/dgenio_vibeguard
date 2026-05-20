@@ -147,6 +147,7 @@ def _validate_output_options(
     markdown_output: bool,
     sarif_output: bool = False,
     pr_comment_output: bool = False,
+    annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
     selected = sum([json_output, markdown_output, sarif_output, pr_comment_output])
@@ -154,6 +155,17 @@ def _validate_output_options(
         err_console.print(
             "[red]Error: --json, --markdown, --sarif, and --pr-comment are mutually exclusive."
             " Choose one.[/]"
+        )
+        raise typer.Exit(2)
+    if annotations_explicit and selected >= 1:
+        # Annotations are workflow commands printed to stdout. Combining them
+        # with structured output (JSON/SARIF/Markdown) interleaves them into
+        # the report and breaks downstream parsers. Annotations still
+        # auto-enable in GitHub Actions when no structured output is selected.
+        err_console.print(
+            "[red]Error: --annotations cannot be combined with --json, --markdown,"
+            " --sarif, or --pr-comment (annotations would corrupt the structured"
+            " output).[/]"
         )
         raise typer.Exit(2)
 
@@ -212,7 +224,13 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
-    _validate_output_options(json_output, markdown_output, sarif_output, pr_comment_output)
+    _validate_output_options(
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        annotations_explicit=(annotations is True),
+    )
     cfg = _load_config(config, path)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
@@ -319,7 +337,13 @@ def gate(
     ] = False,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
-    _validate_output_options(json_output, markdown_output, sarif_output, pr_comment_output)
+    _validate_output_options(
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        annotations_explicit=(annotations is True),
+    )
     cfg = _load_config(config, path)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
