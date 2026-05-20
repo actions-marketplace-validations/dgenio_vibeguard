@@ -133,6 +133,14 @@ class AgentMemoryConfig(BaseModel):
     enabled: bool = True
 
 
+class PublishCheckConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    ecosystem: Literal["auto", "npm", "python-sdist", "python-wheel"] = "auto"
+    fail_on: Severity = Severity.HIGH
+
+
 class SeverityOverride(BaseModel):
     """A severity override for a specific rule or finding ID.
 
@@ -230,6 +238,7 @@ class VibeGuardConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     sql: SqlConfig = Field(default_factory=SqlConfig)
     agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
+    publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
 
     @classmethod
@@ -331,6 +340,11 @@ tests:
 
 ai_footprints:
   enabled: true
+
+publish_check:
+  enabled: true
+  ecosystem: auto     # auto | npm | python-sdist | python-wheel
+  fail_on: high       # severity threshold when used as a gate
 
 # severity_overrides:
 #   - rule_id: "AI-FOOTPRINT"

@@ -71,6 +71,9 @@ class PackagingRule(Rule):
             elif path.name == "setup.cfg":
                 findings.extend(self._check_setup_cfg(path, rel))
 
+            elif path.name == ".npmignore":
+                findings.extend(self._check_npmignore(path, rel))
+
         return findings
 
     # ------------------------------------------------------------------
@@ -262,6 +265,90 @@ class PackagingRule(Rule):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            parts = line.split()
+            cmd = parts[0].lower() if parts else ""
+            args = parts[1:]
+
+            # `graft <dir>` recursively includes everything under <dir>; flag overly broad grafts.
+            if cmd == "graft" and args:
+                for arg in args:
+                    if arg in {".", "./", "*", "**"}:
+                        findings.append(
+                            Finding(
+                                id="PKG-MANIFEST-GRAFT",
+                                rule=self.id,
+                                title=f"Overly broad `graft` in MANIFEST.in: {arg!r}",
+                                description=(
+                                    f"`{rel}` line {lineno}: `graft {arg}` will include the "
+                                    "entire repository in the sdist, including dotfiles, "
+                                    "tests, secrets, and CI configuration."
+                                ),
+                                severity=Severity.HIGH,
+                                path=rel,
+                                line=lineno,
+                                evidence=line,
+                                recommendation=(
+                                    "Restrict the graft to specific package directories."
+                                ),
+                                tags=["packaging", "python", "leak"],
+                                confidence=Confidence.HIGH,
+                            )
+                        )
+
+            # `recursive-include <dir> <glob>` with `*` is fine; with no constraint it sweeps everything.
+            if cmd == "recursive-include" and len(args) >= 2:
+                base = args[0]
+                globs = args[1:]
+                if base in {".", "./"} and any(g in {"*", "**", "*.*"} for g in globs):
+                    findings.append(
+                        Finding(
+                            id="PKG-MANIFEST-RECURSIVE",
+                            rule=self.id,
+                            title=(
+                                f"Overly broad `recursive-include` in MANIFEST.in: "
+                                f"{base} {' '.join(globs)}"
+                            ),
+                            description=(
+                                f"`{rel}` line {lineno}: `recursive-include {base} {' '.join(globs)}` "
+                                "matches every file in the repository — including dotfiles, "
+                                "tests, and credentials."
+                            ),
+                            severity=Severity.HIGH,
+                            path=rel,
+                            line=lineno,
+                            evidence=line,
+                            recommendation=(
+                                "Restrict the recursive-include to a specific subdirectory and "
+                                "pattern, e.g. `recursive-include src/your_pkg *.py`."
+                            ),
+                            tags=["packaging", "python", "leak"],
+                            confidence=Confidence.HIGH,
+                        )
+                    )
+
+            # `global-include` of unbounded patterns reaches every directory.
+            if cmd == "global-include" and args and any(g in {"*", "**", "*.*"} for g in args):
+                findings.append(
+                    Finding(
+                        id="PKG-MANIFEST-RECURSIVE",
+                        rule=self.id,
+                        title=f"Overly broad `global-include` in MANIFEST.in: {' '.join(args)}",
+                        description=(
+                            f"`{rel}` line {lineno}: `global-include {' '.join(args)}` "
+                            "matches every file in every directory of the sdist."
+                        ),
+                        severity=Severity.HIGH,
+                        path=rel,
+                        line=lineno,
+                        evidence=line,
+                        recommendation=(
+                            "Replace with `global-include <specific>.py` or remove the directive."
+                        ),
+                        tags=["packaging", "python", "leak"],
+                        confidence=Confidence.HIGH,
+                    )
+                )
+
             for danger_re, label in _DANGEROUS_INCLUDE_PATTERNS:
                 if re.search(danger_re, line, re.IGNORECASE):
                     findings.append(
@@ -280,6 +367,52 @@ class PackagingRule(Rule):
                             recommendation=f"Remove or restrict the pattern `{line}` in MANIFEST.in.",
                             tags=["packaging", "python", "leak"],
                             confidence=Confidence.MEDIUM,
+                        )
+                    )
+                    break
+
+        return findings
+
+    # ------------------------------------------------------------------
+    # .npmignore
+    # ------------------------------------------------------------------
+
+    def _check_npmignore(self, path: Path, rel: str) -> list[Finding]:
+        """Flag .npmignore patterns that *negate* protective ignores."""
+        findings: list[Finding] = []
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return findings
+
+        # Lines starting with `!` re-include files that would otherwise be ignored.
+        # Re-including sensitive paths is a classic AI footprint pattern.
+        for lineno, raw in enumerate(content.splitlines(), start=1):
+            line = raw.strip()
+            if not line.startswith("!"):
+                continue
+            negate = line[1:].strip()
+            for danger_re, label in _DANGEROUS_INCLUDE_PATTERNS:
+                if re.search(danger_re, negate, re.IGNORECASE):
+                    findings.append(
+                        Finding(
+                            id="PKG-NPMIGNORE-NEGATE",
+                            rule=self.id,
+                            title=f".npmignore re-includes {label}: {line!r}",
+                            description=(
+                                f"`{rel}` line {lineno}: the negation pattern `{line}` "
+                                f"re-includes {label} into the npm package, undoing a "
+                                "protective ignore rule."
+                            ),
+                            severity=Severity.HIGH,
+                            path=rel,
+                            line=lineno,
+                            evidence=line,
+                            recommendation=(
+                                f"Remove the `{line}` line so the protective ignore stays in effect."
+                            ),
+                            tags=["packaging", "npm", "leak"],
+                            confidence=Confidence.HIGH,
                         )
                     )
                     break
@@ -342,10 +475,14 @@ register_rule(
             "PKG-PYBROAD",
             "PKG-PYLEAK",
             "PKG-MANIFESTLEAK",
+            "PKG-MANIFEST-GRAFT",
+            "PKG-MANIFEST-RECURSIVE",
+            "PKG-NPMIGNORE-NEGATE",
+            "PKG-SETUPPYLEAK",
         ],
         default_severity="medium",
         confidence="high",
         tags=["packaging", "supply-chain"],
-        applies_to=["package.json", "pyproject.toml", "MANIFEST.in", "setup.cfg"],
+        applies_to=["package.json", "pyproject.toml", "MANIFEST.in", "setup.cfg", ".npmignore"],
     )
 )

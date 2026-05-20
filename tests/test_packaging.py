@@ -68,3 +68,38 @@ class TestPackagingRule:
         findings = self.rule.scan(ctx)
         # No dangerous patterns in the files list
         assert not any(f.id in ("PKG-NPMBROAD", "PKG-NPMLEAK") for f in findings)
+
+    def test_manifest_in_graft_dot_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"MANIFEST.in": "graft .\n"})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "PKG-MANIFEST-GRAFT" for f in findings)
+
+    def test_manifest_in_graft_star_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"MANIFEST.in": "graft *\n"})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "PKG-MANIFEST-GRAFT" for f in findings)
+
+    def test_manifest_in_recursive_include_dot_star_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"MANIFEST.in": "recursive-include . *\n"})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "PKG-MANIFEST-RECURSIVE" for f in findings)
+
+    def test_manifest_in_global_include_star_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"MANIFEST.in": "global-include *\n"})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "PKG-MANIFEST-RECURSIVE" for f in findings)
+
+    def test_manifest_in_targeted_recursive_include_clean(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"MANIFEST.in": "recursive-include src/mypkg *.py\n"})
+        findings = self.rule.scan(ctx)
+        assert not any(f.id in ("PKG-MANIFEST-GRAFT", "PKG-MANIFEST-RECURSIVE") for f in findings)
+
+    def test_npmignore_negate_env_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {".npmignore": "*.env\n!.env\n"})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "PKG-NPMIGNORE-NEGATE" for f in findings)
+
+    def test_npmignore_normal_lines_clean(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {".npmignore": "tests/\n*.log\n# comment\n"})
+        findings = self.rule.scan(ctx)
+        assert not any(f.id == "PKG-NPMIGNORE-NEGATE" for f in findings)
