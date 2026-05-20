@@ -15,6 +15,7 @@ from vibeguard import __version__
 from vibeguard.config import DEFAULT_CONFIG_YAML, VibeGuardConfig
 from vibeguard.git import get_git_metadata
 from vibeguard.models import Severity
+from vibeguard.publish import run_publish_check
 from vibeguard.reporters.console import render_findings
 from vibeguard.reporters.json_reporter import print_json
 from vibeguard.reporters.markdown import render_markdown
@@ -285,6 +286,108 @@ def gate(
             f"\n[bold green]✓ Gate passed:[/] no findings at or above "
             f"[bold]{threshold.value}[/] severity.\n"
         )
+
+
+# ---------------------------------------------------------------------------
+# publish-check
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="publish-check")
+def publish_check(
+    path: Annotated[
+        Path,
+        typer.Option("--path", "-p", help="Package root containing package.json or pyproject.toml"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
+    ] = None,
+    ecosystem: Annotated[
+        str,
+        typer.Option(
+            "--ecosystem",
+            help="Which artifact to simulate [auto|npm|python-sdist|python-wheel]",
+        ),
+    ] = "auto",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output findings + manifest as JSON"),
+    ] = False,
+    markdown_output: Annotated[
+        bool,
+        typer.Option("--markdown", help="Output findings as Markdown"),
+    ] = False,
+    manifest_out: Annotated[
+        Path | None,
+        typer.Option(
+            "--manifest-out",
+            help="Write the publish manifest JSON to this path",
+        ),
+    ] = None,
+    fail_on: Annotated[
+        str | None,
+        typer.Option(
+            "--fail-on",
+            help="Severity threshold for non-zero exit [info|low|medium|high|critical]",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show detailed finding descriptions"),
+    ] = False,
+) -> None:
+    """Simulate a publish and gate on any findings in the published file set."""
+    _validate_output_options(json_output, markdown_output)
+    cfg = _load_config(config, path)
+    threshold = _parse_severity(fail_on) if fail_on else cfg.publish_check.fail_on
+    valid_ecosystems = {"auto", "npm", "python-sdist", "python-wheel"}
+    if ecosystem not in valid_ecosystems:
+        err_console.print(
+            f"[red]Invalid --ecosystem: {ecosystem!r}. "
+            f"Valid options: {', '.join(sorted(valid_ecosystems))}[/]"
+        )
+        raise typer.Exit(2)
+
+    manifest, result = run_publish_check(path, cfg, ecosystem=ecosystem)  # type: ignore[arg-type]
+
+    if manifest_out is not None:
+        manifest_out.parent.mkdir(parents=True, exist_ok=True)
+        manifest_out.write_text(manifest.to_json(), encoding="utf-8")
+        err_console.print(f"[green]✓[/] Wrote manifest to [bold]{manifest_out}[/]")
+
+    if json_output:
+        import json as _json
+
+        payload = {
+            "manifest": _json.loads(manifest.to_json()),
+            "result": result.model_dump(mode="json"),
+        }
+        typer.echo(_json.dumps(payload, indent=2, sort_keys=True))
+    elif markdown_output:
+        typer.echo(render_markdown(result))
+    else:
+        err_console.print(
+            f"[bold]publish-check[/] ecosystem=[cyan]{manifest.ecosystem}[/] "
+            f"files=[bold]{len(manifest.files)}[/] "
+            f"size=[bold]{manifest.total_bytes}[/]B"
+        )
+        render_findings(result, verbose=verbose)
+
+    if result.errors:
+        for err in result.errors:
+            err_console.print(f"[yellow]⚠ {err}[/]")
+
+    if result.has_blocking(threshold):
+        err_console.print(
+            f"\n[bold red]✗ publish-check failed:[/] findings at or above "
+            f"[bold]{threshold.value}[/] severity detected.\n"
+        )
+        raise typer.Exit(1)
+    err_console.print(
+        f"\n[bold green]✓ publish-check passed:[/] no findings at or above "
+        f"[bold]{threshold.value}[/] severity in the published file set.\n"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -111,6 +111,20 @@ vibeguard gate --path . --fail-on high
 vibeguard gate --diff --fail-on medium
 ```
 
+### `vibeguard publish-check`
+
+Simulate `npm publish` or `python -m build` and gate on findings in the
+published file set, before anything reaches the registry.
+
+```bash
+vibeguard publish-check --path .
+vibeguard publish-check --ecosystem npm --manifest-out publish-manifest.json
+vibeguard publish-check --ecosystem python-sdist --fail-on medium
+```
+
+See [docs/pre-publish.md](docs/pre-publish.md) for the full guide,
+finding IDs, and a GitHub Actions release-gate template.
+
 ### `vibeguard explain <finding-id>`
 
 Print a detailed explanation and remediation guide for a finding.
