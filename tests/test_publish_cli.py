@@ -202,3 +202,26 @@ class TestPublishCheckCLI:
         payload = json.loads(result.stdout)
         ids = {f["id"] for f in payload["result"]["findings"]}
         assert "PKG-NPMIGNORE-NEGATE" in ids
+
+    def test_publish_check_respects_suppressions(self, tmp_path: Path):
+        """Suppressions from config must apply to publish-check findings."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "demo", "version": "1.0.0", "files": ["src/"]})
+        )
+        (tmp_path / ".npmignore").write_text("*.env\n!.env\n")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "demo.js").write_text("export const x = 1\n")
+        # Config that suppresses the npmignore negate finding
+        (tmp_path / "vibeguard.yaml").write_text(
+            "suppressions:\n"
+            '  - finding_id: "PKG-NPMIGNORE-NEGATE"\n'
+            '    reason: "Intentional for testing"\n'
+        )
+        result = runner.invoke(
+            app,
+            ["publish-check", "--path", str(tmp_path), "--config", str(tmp_path / "vibeguard.yaml"), "--json"],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        ids = {f["id"] for f in payload["result"]["findings"]}
+        assert "PKG-NPMIGNORE-NEGATE" not in ids

@@ -479,6 +479,9 @@ def publish_check(
 
     manifest, result = run_publish_check(path, cfg, ecosystem=effective_ecosystem)  # type: ignore[arg-type]
 
+    # Apply severity overrides and policy suppressions (consistent with scan/gate)
+    result = _apply_policy(result, cfg)
+
     if manifest_out is not None:
         manifest_out.parent.mkdir(parents=True, exist_ok=True)
         manifest_out.write_text(manifest.to_json(), encoding="utf-8")
