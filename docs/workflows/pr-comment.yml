@@ -1,0 +1,32 @@
+name: VibeGuard PR Comment
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vibeguard-comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install VibeGuard
+        run: pip install vibeguard-gate
+
+      - name: Generate PR comment
+        run: vibeguard gate --diff --fail-on high --pr-comment > vibeguard-comment.md
+        continue-on-error: true
+
+      - name: Post comment to PR
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file vibeguard-comment.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

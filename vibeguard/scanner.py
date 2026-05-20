@@ -7,7 +7,7 @@ from pathlib import Path
 import pathspec
 
 from vibeguard.config import VibeGuardConfig, load_ignorefile
-from vibeguard.git import get_git_metadata
+from vibeguard.git import get_diff_text, get_git_metadata, parse_changed_lines
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
 from vibeguard.rules.agent_memory import AgentMemoryRule
 from vibeguard.rules.ai_footprints import AIFootprintsRule
@@ -170,6 +170,14 @@ def run_scan(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Rule {rule.id} failed: {exc}")
 
+    # Apply diff-line filtering (#24): in diff mode, restrict line-based findings
+    # to only those on changed lines
+    if diff_only and git_meta and git_meta.is_available:
+        diff_text = get_diff_text(root, git_meta.base_branch)
+        if diff_text:
+            changed_lines = parse_changed_lines(diff_text)
+            findings = _filter_by_changed_lines(findings, changed_lines)
+
     # Apply inline suppressions (#44)
     findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)
     findings.extend(suppression_warnings)
@@ -182,6 +190,37 @@ def run_scan(
         policy=config.policy,
         errors=errors,
     )
+
+
+def _filter_by_changed_lines(
+    findings: list[Finding],
+    changed_lines: dict[str, list[tuple[int, int]]],
+) -> list[Finding]:
+    """Filter out line-based findings that are not on changed lines.
+
+    File-level findings (line=None or line=0) are kept regardless.
+    """
+    filtered: list[Finding] = []
+    for finding in findings:
+        # File-level findings always pass through
+        if not finding.line or finding.line == 0:
+            filtered.append(finding)
+            continue
+
+        rel_path = finding.path.replace("\\", "/")
+        if rel_path not in changed_lines:
+            # File not in diff at all — keep finding (shouldn't happen in diff mode,
+            # but be conservative)
+            filtered.append(finding)
+            continue
+
+        # Check if finding line falls within any changed range
+        ranges = changed_lines[rel_path]
+        in_range = any(start <= finding.line <= end for start, end in ranges)
+        if in_range:
+            filtered.append(finding)
+
+    return filtered
 
 
 def _apply_inline_suppressions(
@@ -203,24 +242,39 @@ def _apply_inline_suppressions(
     warnings: list[Finding] = []
 
     suppression_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb", ".java", ".cs"}
+    # Cheap byte-substring filter — files without the literal `vibeguard:`
+    # marker anywhere in their bytes can have neither suppressions nor
+    # missing-reason warnings, so we skip the full text decode entirely.
+    _MARKER = b"vibeguard:"
 
     for path in all_files:
         if path.suffix.lower() not in suppression_extensions:
             continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        has_findings = rel in files_with_findings
+
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")
+            raw = path.read_bytes()
         except OSError:
             continue
 
-        rel = str(path.relative_to(root)).replace("\\", "/")
+        if _MARKER not in raw:
+            # No suppression marker present — neither suppression parsing nor
+            # the missing-reason warning pass have anything to do for this file.
+            continue
+
+        try:
+            content = raw.decode("utf-8", errors="replace")
+        except UnicodeDecodeError:
+            continue
 
         # Parse suppressions only for files that have findings (M5 optimization)
-        if rel in files_with_findings:
+        if has_findings:
             suppressions = parse_inline_suppressions(content)
             if suppressions:
                 file_suppressions[rel] = suppressions
 
-        # Check for missing reasons on all files (user-facing warning)
+        # Check for missing reasons on files that contain the marker
         missing = find_missing_reasons(content)
         for lineno, ids in missing:
             warnings.append(
