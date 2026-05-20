@@ -219,7 +219,14 @@ class TestPublishCheckCLI:
         )
         result = runner.invoke(
             app,
-            ["publish-check", "--path", str(tmp_path), "--config", str(tmp_path / "vibeguard.yaml"), "--json"],
+            [
+                "publish-check",
+                "--path",
+                str(tmp_path),
+                "--config",
+                str(tmp_path / "vibeguard.yaml"),
+                "--json",
+            ],
         )
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
