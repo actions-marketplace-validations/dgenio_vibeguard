@@ -69,6 +69,8 @@ Maintainers should aim to:
 4. Prepare a fix, regression test, and release/advisory notes where appropriate.
 5. Credit the reporter if they want attribution and the report is valid.
 
+Maintainers will aim to acknowledge valid-looking reports within five business days and provide an initial triage assessment within ten business days. Timelines may vary based on severity, exploitability, and maintainer availability.
+
 Suggested severity guide:
 
 | Severity | Examples |
