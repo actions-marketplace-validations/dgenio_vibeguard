@@ -810,3 +810,208 @@ def baseline_update(
         f"[green]✓[/] Baseline updated: [bold]{output}[/] "
         f"({len(baseline.entries)} finding(s) fingerprinted)"
     )
+
+
+# ---------------------------------------------------------------------------
+# rules
+# ---------------------------------------------------------------------------
+
+rules_app = typer.Typer(
+    name="rules",
+    help="Inspect available rules and their finding IDs.",
+    no_args_is_help=True,
+)
+app.add_typer(rules_app)
+
+
+def _ensure_rules_loaded() -> None:
+    """Import every rule module so ``RULE_REGISTRY`` is populated.
+
+    ``RULE_REGISTRY`` is populated at module import time. The scanner pulls
+    every built-in rule in, but the bare ``vibeguard.cli`` import does not —
+    so ``rules list`` needs to force the import explicitly. We re-use the
+    same module list the scanner does to keep the two sources in sync.
+    """
+    import vibeguard.rules.agent_memory  # noqa: F401
+    import vibeguard.rules.ai_footprints  # noqa: F401
+    import vibeguard.rules.auth  # noqa: F401
+    import vibeguard.rules.ci_docker  # noqa: F401
+    import vibeguard.rules.dependencies  # noqa: F401
+    import vibeguard.rules.go_rules  # noqa: F401
+    import vibeguard.rules.iac  # noqa: F401
+    import vibeguard.rules.packaging  # noqa: F401
+    import vibeguard.rules.risky_diff  # noqa: F401
+    import vibeguard.rules.secrets  # noqa: F401
+    import vibeguard.rules.sourcemaps  # noqa: F401
+    import vibeguard.rules.sql  # noqa: F401
+    import vibeguard.rules.tests  # noqa: F401
+
+
+@rules_app.command("list")
+def rules_list(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON instead of a table"),
+    ] = False,
+    tag: Annotated[
+        str | None,
+        typer.Option("--tag", help="Filter by tag (case-insensitive)"),
+    ] = None,
+    list_plugins: Annotated[
+        bool,
+        typer.Option(
+            "--list-plugins",
+            help="Run plugin discovery and include loaded/failed plugins in the output",
+        ),
+    ] = False,
+) -> None:
+    """List all registered rules and their finding IDs."""
+    import json as _json
+
+    from rich.table import Table
+
+    from vibeguard import __version__
+    from vibeguard.rules.plugins import discover_plugin_rules
+    from vibeguard.rules.registry import RULE_REGISTRY
+
+    _ensure_rules_loaded()
+
+    # Force-discover plugins so their rules are registered and listed.
+    # We intentionally pass an empty disabled list here: ``rules list`` is a
+    # discovery tool — users who want to hide a plugin can rely on
+    # ``plugins.disabled`` for runtime behaviour, but the listing should
+    # surface everything installed.
+    plugin_summary: tuple[list, list] = ([], [])
+    if list_plugins:
+        plugin_summary = discover_plugin_rules()
+        # Instantiating plugin rules already runs the rule's module import,
+        # which (for well-behaved plugins) registers metadata. Nothing more
+        # needed here.
+
+    tag_filter = tag.lower() if tag else None
+
+    rows: list[dict[str, object]] = []
+    for rule_id in sorted(RULE_REGISTRY.keys()):
+        meta = RULE_REGISTRY[rule_id]
+        if tag_filter and tag_filter not in {t.lower() for t in meta.tags}:
+            continue
+        rows.append(
+            {
+                "rule_id": meta.rule_id,
+                "title": meta.title,
+                "default_severity": meta.default_severity,
+                "confidence": meta.confidence,
+                "tags": list(meta.tags),
+                "finding_ids": list(meta.finding_ids),
+                "applies_to": list(meta.applies_to),
+            }
+        )
+
+    if json_output:
+        payload: dict[str, object] = {"version": __version__, "rules": rows}
+        if list_plugins:
+            loaded, failures = plugin_summary
+            payload["plugins"] = {
+                "loaded": [
+                    {"name": p.name, "distribution": p.distribution, "rule_id": p.rule.id}
+                    for p in loaded
+                ],
+                "failed": [
+                    {"name": f.name, "distribution": f.distribution, "reason": f.reason}
+                    for f in failures
+                ],
+            }
+        typer.echo(_json.dumps(payload, indent=2, sort_keys=False))
+        return
+
+    c = Console()
+    table = Table(title=f"Rules available in vibeguard {__version__}")
+    table.add_column("Rule", style="cyan", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("Severity", no_wrap=True)
+    table.add_column("Confidence", no_wrap=True)
+    table.add_column("Tags")
+    for row in rows:
+        table.add_row(
+            str(row["rule_id"]),
+            str(row["title"]),
+            str(row["default_severity"]),
+            str(row["confidence"]),
+            ", ".join(row["tags"]),  # type: ignore[arg-type]
+        )
+    c.print(table)
+    if not rows:
+        err_console.print("[yellow]No rules matched the filter.[/]")
+
+    if list_plugins:
+        loaded, failures = plugin_summary
+        plug_table = Table(title="Discovered plugins")
+        plug_table.add_column("Status", style="cyan", no_wrap=True)
+        plug_table.add_column("Name")
+        plug_table.add_column("Distribution")
+        plug_table.add_column("Detail")
+        for p in loaded:
+            plug_table.add_row(
+                "[green]loaded[/]", p.name, p.distribution or "—", f"rule_id={p.rule.id}"
+            )
+        for f in failures:
+            plug_table.add_row("[red]failed[/]", f.name, f.distribution or "—", f.reason)
+        if not loaded and not failures:
+            plug_table.add_row("—", "(none)", "—", "no entry points in 'vibeguard.rules'")
+        c.print(plug_table)
+
+
+@rules_app.command("explain")
+def rules_explain(
+    identifier: Annotated[
+        str,
+        typer.Argument(help="Rule ID (e.g. 'secrets') or finding ID (e.g. 'SEC-ENV')"),
+    ],
+) -> None:
+    """Explain a rule or finding ID using metadata from the rule registry."""
+    from rich.panel import Panel
+
+    from vibeguard.rules.registry import RULE_REGISTRY
+
+    _ensure_rules_loaded()
+
+    c = Console()
+    needle = identifier.strip()
+
+    # Try exact rule_id first.
+    meta = RULE_REGISTRY.get(needle) or RULE_REGISTRY.get(needle.lower())
+    if meta is None:
+        # Otherwise, treat as a finding ID and resolve to its rule.
+        upper = needle.upper()
+        for candidate in RULE_REGISTRY.values():
+            if upper in {fid.upper() for fid in candidate.finding_ids}:
+                meta = candidate
+                # Print a thin header pointing at the finding ID's parent rule
+                # before falling through to the full rule explanation below.
+                c.print(f"[bold]{upper}[/] is produced by rule [cyan]{meta.rule_id}[/]\n")
+                break
+
+    if meta is None:
+        err_console.print(
+            f"[red]Unknown rule or finding ID: {identifier!r}.[/] "
+            f"Run 'vibeguard rules list' to see available rules."
+        )
+        raise typer.Exit(2)
+
+    finding_lines = [f"  • {fid}" for fid in meta.finding_ids] or ["  (none registered)"]
+    body_lines = [
+        f"[bold]{meta.title}[/] ({meta.rule_id})",
+        "",
+        meta.description,
+        "",
+        f"[dim]Default severity:[/] {meta.default_severity}",
+        f"[dim]Confidence:[/]       {meta.confidence}",
+        f"[dim]Tags:[/]             {', '.join(meta.tags) or '—'}",
+        f"[dim]Applies to:[/]       {', '.join(meta.applies_to) or '*'}",
+        "",
+        "[bold]Finding IDs[/]",
+        *finding_lines,
+    ]
+    if meta.docs_url:
+        body_lines += ["", f"[dim]Docs:[/] {meta.docs_url}"]
+    c.print(Panel.fit("\n".join(body_lines), title=meta.rule_id))
