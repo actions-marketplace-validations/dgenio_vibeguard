@@ -1,0 +1,5 @@
+{
+  "name": "fp-clean",
+  "version": "0.1.0",
+  "files": ["lib/", "dist/index.js", "README.md"]
+}

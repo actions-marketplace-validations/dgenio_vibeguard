@@ -1,0 +1,5 @@
+{
+  "name": "tp-no-files",
+  "version": "0.1.0",
+  "description": "Missing 'files' field and no .npmignore — would publish everything."
+}
