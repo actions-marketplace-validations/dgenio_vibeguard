@@ -1,4 +1,4 @@
-.PHONY: help install-dev test lint format-check typecheck ci clean demo
+.PHONY: help install-dev test lint format-check typecheck ci clean demo docs docs-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -19,7 +19,13 @@ format-check: ## Check code formatting with ruff
 typecheck: ## Run mypy type checking
 	mypy vibeguard/
 
-ci: lint format-check typecheck test ## Run full CI pipeline locally
+docs: ## Regenerate docs/rules.md from the rule registry
+	python scripts/generate_rule_docs.py
+
+docs-check: ## Fail if docs/rules.md is out of date
+	python scripts/generate_rule_docs.py --check
+
+ci: lint format-check typecheck docs-check test ## Run full CI pipeline locally
 
 clean: ## Remove build artifacts
 	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .coverage htmlcov/ .ruff_cache/ coverage.xml
