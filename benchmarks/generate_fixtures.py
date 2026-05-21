@@ -114,9 +114,28 @@ def _bait_for(kind: str) -> str:
 
 
 def generate(out_dir: Path, cfg: GenConfig, *, overwrite: bool = True) -> Path:
-    """Generate a deterministic synthetic repo under ``out_dir``."""
+    """Generate a deterministic synthetic repo under ``out_dir``.
+
+    When ``overwrite=False`` and ``out_dir`` exists, checks a stored manifest
+    to ensure the directory was generated with the same config. Raises
+    ``ValueError`` on mismatch so the benchmark runner doesn't silently scan
+    stale data.
+    """
+    manifest_path = out_dir / ".bench_manifest.json"
     if out_dir.exists():
         if not overwrite:
+            # Validate manifest matches requested config
+            if manifest_path.exists():
+                import json as _json
+
+                stored = _json.loads(manifest_path.read_text(encoding="utf-8"))
+                if stored.get("n_files") != cfg.n_files or stored.get("seed") != cfg.seed:
+                    raise ValueError(
+                        f"Cached benchmark directory {out_dir} was generated with "
+                        f"n_files={stored.get('n_files')}, seed={stored.get('seed')} "
+                        f"but requested n_files={cfg.n_files}, seed={cfg.seed}. "
+                        f"Delete the directory or use a different --out path."
+                    )
             return out_dir
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
@@ -139,6 +158,14 @@ def generate(out_dir: Path, cfg: GenConfig, *, overwrite: bool = True) -> Path:
             body_parts.append(_bait_for(kind))
         body_parts.append(_filler(kind, target_bytes - sum(len(p) for p in body_parts), rng))
         path.write_text("".join(body_parts), encoding="utf-8")
+
+    # Write manifest for cache-reuse validation
+    import json as _json
+
+    manifest_path.write_text(
+        _json.dumps({"n_files": cfg.n_files, "seed": cfg.seed}, indent=2),
+        encoding="utf-8",
+    )
 
     return out_dir
 

@@ -9,6 +9,7 @@ not crash the scanner.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
@@ -18,8 +19,9 @@ from vibeguard.config import VibeGuardConfig
 from vibeguard.models import Finding, ScanContext
 from vibeguard.rules.secrets import SecretsRule
 
+# Override with HYPOTHESIS_MAX_EXAMPLES for deeper local exploration.
 _DEFAULT_SETTINGS = settings(
-    max_examples=75,
+    max_examples=int(os.environ.get("HYPOTHESIS_MAX_EXAMPLES", "75")),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
 )

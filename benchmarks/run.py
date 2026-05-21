@@ -43,10 +43,7 @@ def benchmark(
     n_files = SIZES[size]
     cfg = VibeGuardConfig()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(out_dir) if out_dir else Path(tmp) / f"bench-{size}"
-        generate(repo, GenConfig(n_files=n_files, seed=seed), overwrite=out_dir is None)
-
+    def _run(repo: Path) -> dict[str, Any]:
         timings: list[float] = []
         last_count = 0
         last_per_rule: dict[str, int] = {}
@@ -71,6 +68,16 @@ def benchmark(
             "findings_per_second": last_count / median if median > 0 else 0.0,
             "findings_per_rule": last_per_rule,
         }
+
+    if out_dir:
+        repo = Path(out_dir)
+        generate(repo, GenConfig(n_files=n_files, seed=seed), overwrite=False)
+        return _run(repo)
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / f"bench-{size}"
+            generate(repo, GenConfig(n_files=n_files, seed=seed))
+            return _run(repo)
 
 
 def _format_text(report: dict[str, Any]) -> str:

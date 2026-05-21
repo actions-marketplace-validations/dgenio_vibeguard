@@ -53,13 +53,8 @@ def _iter_cases() -> list[tuple[str, str, Path]]:
     for category_dir in sorted(CORPUS_DIR.iterdir()):
         if not category_dir.is_dir() or category_dir.name.startswith("__"):
             continue
-        for entry in sorted(category_dir.rglob("*")):
+        for entry in sorted(category_dir.iterdir()):
             name = entry.name
-            # We only care about the top-level case (file or first-level
-            # directory) under the category. Skip files nested inside a
-            # directory-style case so we don't double-count them.
-            if entry.parent != category_dir:
-                continue
             if not (name.startswith("tp_") or name.startswith("fp_")):
                 continue
             cases.append((category_dir.name, name, entry))

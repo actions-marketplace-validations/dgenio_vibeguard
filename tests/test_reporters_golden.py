@@ -101,3 +101,20 @@ class TestGoldenReporters:
         for r in data["runs"][0]["results"]:
             assert "partialFingerprints" in r
             assert "vibeguard/v1" in r["partialFingerprints"]
+
+    def test_markdown_golden_has_expected_structure(self) -> None:
+        """Defence-in-depth: the Markdown golden must contain expected sections."""
+        path = GOLDEN_DIR / "scan_result.md"
+        if not path.exists():
+            pytest.skip("Run with PYTEST_UPDATE_GOLDENS=1 first to materialize the golden.")
+        content = path.read_text(encoding="utf-8")
+        # The canonical result has 5 findings — verify the Markdown reflects this
+        lines = content.splitlines()
+        assert any("finding" in line.lower() or "##" in line for line in lines), (
+            "Markdown golden lacks expected heading structure"
+        )
+        # Count table rows or finding entries (pipe-delimited rows excluding header)
+        finding_indicators = [l for l in lines if "|" in l and "severity" not in l.lower() and "---" not in l]
+        assert len(finding_indicators) >= 5, (
+            f"Expected at least 5 finding rows in Markdown golden, got {len(finding_indicators)}"
+        )

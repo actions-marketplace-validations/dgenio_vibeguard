@@ -16,6 +16,7 @@ Anything else (``AttributeError``, ``KeyError``, ``IndexError``,
 from __future__ import annotations
 
 import contextlib
+import os
 from pathlib import Path
 
 import pytest
@@ -28,8 +29,9 @@ from vibeguard.config import VibeGuardConfig
 
 # Hypothesis can be slow under coverage; bound runtime explicitly so CI
 # stays predictable across Py 3.10/3.11/3.12.
+# Override with HYPOTHESIS_MAX_EXAMPLES for deeper local exploration.
 _DEFAULT_SETTINGS = settings(
-    max_examples=50,
+    max_examples=int(os.environ.get("HYPOTHESIS_MAX_EXAMPLES", "50")),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
 )
