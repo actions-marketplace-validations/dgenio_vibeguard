@@ -1,0 +1,72 @@
+"""Machine-readable diagnostics reporter for editor / IDE integrations.
+
+Emits a stable, documented JSON array shaped like the VS Code
+``DiagnosticSeverity`` model so editor extensions and AI coding agents can
+consume VibeGuard findings without reverse-engineering the rest of the JSON
+report. The schema is versioned via ``data.schema`` on every record and is
+documented in ``docs/output-schemas.md``.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from vibeguard.models import Finding, ScanResult, Severity
+
+DIAGNOSTICS_SCHEMA = "vibeguard/diagnostics/v1"
+
+# VS Code DiagnosticSeverity numeric codes. Documented so IDE plugins can rely
+# on them without consulting the ``Severity`` enum.
+SEVERITY_TO_CODE: dict[Severity, int] = {
+    Severity.CRITICAL: 0,  # Error
+    Severity.HIGH: 0,  # Error
+    Severity.MEDIUM: 1,  # Warning
+    Severity.LOW: 2,  # Information
+    Severity.INFO: 3,  # Hint
+}
+
+_SOURCE = "vibeguard"
+
+
+def _build_record(finding: Finding) -> dict[str, Any]:
+    line = finding.line if finding.line and finding.line > 0 else 1
+    # IDE diagnostics use 0-based line/character offsets (LSP). Findings carry
+    # 1-based line numbers; convert here once, in the reporter, so the rest
+    # of the codebase keeps the 1-based convention used elsewhere.
+    line_zero = line - 1
+    record: dict[str, Any] = {
+        "severity": SEVERITY_TO_CODE[finding.severity],
+        "code": finding.id,
+        "source": _SOURCE,
+        "message": finding.title,
+        "file": finding.path.replace("\\", "/"),
+        "range": {
+            "start": {"line": line_zero, "character": 0},
+            "end": {"line": line_zero, "character": 0},
+        },
+        "tags": list(finding.tags),
+        "data": {
+            "schema": DIAGNOSTICS_SCHEMA,
+            "fingerprint": finding.fingerprint,
+            "rule": finding.rule,
+            "confidence": finding.confidence.value,
+            "severity_label": finding.severity.value,
+            "description": finding.description,
+            "recommendation": finding.recommendation,
+        },
+    }
+    if finding.evidence:
+        record["data"]["evidence"] = finding.evidence
+    return record
+
+
+def render_diagnostics(result: ScanResult) -> str:
+    """Return a JSON string with the diagnostics array."""
+    records = [_build_record(f) for f in result.findings]
+    return json.dumps(records, indent=2, default=str)
+
+
+def print_diagnostics(result: ScanResult) -> None:
+    """Print diagnostics JSON to stdout."""
+    print(render_diagnostics(result))

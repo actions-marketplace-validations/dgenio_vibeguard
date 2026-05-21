@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class Severity(str, Enum):
@@ -67,6 +68,46 @@ class Finding(BaseModel):
             return v[:200] + "…"
         return v
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def fingerprint(self) -> str:
+        """Deterministic identity for this finding across runs.
+
+        Algorithm (``vibeguard/v1``):
+        ``sha256(finding_id + ":" + normalized_path + ":" + sha256(evidence)[:16])``
+
+        Line numbers are intentionally excluded so a finding's identity is
+        stable when surrounding code shifts. See ``docs/output-schemas.md``.
+        """
+        evidence_part = ""
+        if self.evidence:
+            evidence_part = hashlib.sha256(self.evidence.encode("utf-8")).hexdigest()[:16]
+        raw = f"{self.id}:{self.path.replace(chr(92), '/')}:{evidence_part}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+class HealthScore(BaseModel):
+    """Deterministic repository health score derived from scan findings.
+
+    The score starts at ``100`` and is reduced by a fixed integer penalty per
+    finding based on its severity. The formula and weights are intentionally
+    simple and documented in ``docs/output-schemas.md`` so consumers can
+    explain the number to their teams without inspecting code.
+    """
+
+    total: int = Field(description="Score from 0 (worst) to 100 (best)", ge=0, le=100)
+    grade: Literal["A", "B", "C", "D", "F"] = Field(description="Letter grade derived from total")
+    penalty: int = Field(description="Sum of severity weights subtracted from 100", ge=0)
+    by_severity: dict[str, int] = Field(
+        default_factory=dict, description="Finding count per severity level"
+    )
+    by_category: dict[str, int] = Field(
+        default_factory=dict, description="Finding count per rule (category)"
+    )
+    weights: dict[str, int] = Field(
+        default_factory=dict, description="Severity → penalty weight used for this score"
+    )
+
 
 class ScanResult(BaseModel):
     """Aggregated results from a full scan."""
@@ -86,6 +127,15 @@ class ScanResult(BaseModel):
 
     def counts(self) -> dict[str, int]:
         return {s.value: len(self.by_severity(s)) for s in Severity}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def health_score(self) -> HealthScore:
+        """Repo health score derived from the current findings list."""
+        # Imported here to avoid a circular import via the reporters/scoring chain.
+        from vibeguard.scoring import compute_health_score
+
+        return compute_health_score(self.findings)
 
 
 class GitMetadata(BaseModel):
