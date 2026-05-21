@@ -143,6 +143,22 @@ class TestDiagnosticsData:
         assert with_ev["data"]["evidence"] == "AKIAIOSFODNN7EXAMPLE"
         assert "evidence" not in without_ev["data"]
 
+    def test_top_level_tags_is_empty_lsp_array(self):
+        """Top-level ``tags`` follows LSP DiagnosticTag[] semantics — never
+        VibeGuard category strings. Category tags live under ``data.tags``."""
+        parsed = json.loads(render_diagnostics(_result()))
+        for record in parsed:
+            assert record["tags"] == [], (
+                f"top-level tags must be empty (LSP DiagnosticTag[]); got {record['tags']!r}"
+            )
+
+    def test_data_tags_carry_finding_tags(self):
+        parsed = json.loads(render_diagnostics(_result()))
+        by_code = {r["code"]: r for r in parsed}
+        assert by_code["SEC-AWSACCESSKEY"]["data"]["tags"] == ["secrets", "supply-chain"]
+        assert by_code["RISK-EVALEXEC"]["data"]["tags"] == ["risky"]
+        assert by_code["TEST-MISSING"]["data"]["tags"] == []
+
     def test_path_separator_normalized(self):
         result = ScanResult(
             findings=[

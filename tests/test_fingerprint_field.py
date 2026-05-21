@@ -79,6 +79,27 @@ class TestFingerprintProperty:
         posix = _make_finding(path="src/windows/file.py")
         assert win.fingerprint == posix.fingerprint
 
+    def test_long_evidence_collision_resistance(self):
+        """Findings differing only past byte 200 still get distinct fingerprints.
+
+        The evidence field validator truncates stored evidence to the first
+        200 characters; the fingerprint must hash the *raw* evidence so two
+        long snippets that share a 200-char prefix remain distinguishable.
+        """
+        shared = "X" * 200
+        a = _make_finding(evidence=shared + "alpha")
+        b = _make_finding(evidence=shared + "bravo")
+        # Stored evidence is identical (truncated to first 200 + "…")
+        assert a.evidence == b.evidence
+        # But the fingerprints must differ because the hash is taken pre-truncation
+        assert a.fingerprint != b.fingerprint
+
+    def test_evidence_hash_excluded_from_serialized_output(self):
+        """Internal evidence_hash never appears in JSON / model_dump output."""
+        f = _make_finding(evidence="X" * 300)
+        assert "evidence_hash" not in f.model_dump(mode="json")
+        assert "evidence_hash" not in json.loads(f.model_dump_json())
+
     def test_algorithm_is_documented_v1(self):
         """Recompute the exact documented formula and assert equality.
 

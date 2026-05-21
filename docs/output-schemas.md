@@ -24,14 +24,16 @@ so a finding's identity is the same end-to-end.
 fingerprint = sha256(
     finding_id + ":" +
     normalized_path + ":" +
-    sha256(evidence)[:16]
+    sha256(raw_evidence)[:16]
 )
 ```
 
 * `finding_id` is the finding's stable identifier (e.g. `SEC-AWSACCESSKEY`).
 * `normalized_path` is the relative file path with `\\` replaced by `/`.
-* `evidence` is the raw evidence string; if `null`, the evidence segment is the
-  empty string.
+* `raw_evidence` is the evidence string as discovered by the rule, hashed
+  **before** the 200-character snippet truncation that VibeGuard applies for
+  storage. Two findings that differ only past byte 200 still produce distinct
+  fingerprints. If evidence is `null`, the inner segment is the empty string.
 * **Line numbers are deliberately excluded.** A finding stays identifiable
   when surrounding code shifts.
 
@@ -126,11 +128,12 @@ unknown versions.
       "start": { "line": 9, "character": 0 },   // 0-based, LSP convention
       "end":   { "line": 9, "character": 0 }
     },
-    "tags": ["secrets"],
+    "tags": [],                              // LSP DiagnosticTag[] (1=Unnecessary, 2=Deprecated); see note
     "data": {
       "schema": "vibeguard/diagnostics/v1",
       "fingerprint": "<sha256 hex>",
       "rule": "secrets",
+      "tags": ["secrets"],                   // VibeGuard category tags
       "confidence": "high",
       "severity_label": "critical",
       "description": "An AWS access key was found in source code.",
@@ -150,6 +153,17 @@ unknown versions.
 | `medium`           | Warning            | `1`     |
 | `low`              | Information        | `2`     |
 | `info`             | Hint               | `3`     |
+
+### Tags
+
+* **Top-level `tags`** follows LSP semantics — a list of `DiagnosticTag`
+  integers (1 = `Unnecessary`, 2 = `Deprecated`). VibeGuard's rule families
+  don't currently map onto that enum, so the top-level field is emitted as an
+  empty array. Strict consumers that type the JSON against the LSP
+  `Diagnostic` shape see a spec-compliant value.
+* **`data.tags`** carries VibeGuard's category tag strings (e.g. `"secrets"`,
+  `"supply-chain"`). Consumers that want to filter or group findings by rule
+  family should read this field.
 
 ### Stability
 

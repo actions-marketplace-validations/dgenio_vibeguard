@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class Severity(str, Enum):
@@ -59,14 +59,28 @@ class Finding(BaseModel):
     recommendation: str = Field(description="How to fix or address this finding")
     tags: list[str] = Field(default_factory=list)
     confidence: Confidence = Confidence.MEDIUM
+    # Hash of the raw evidence captured *before* the 200-char snippet
+    # truncation in ``_hash_then_truncate_evidence`` runs. The fingerprint
+    # consumes this so two findings that differ only past byte 200 still
+    # produce distinct identities. Excluded from every serialized output —
+    # the fingerprint is the public identity surface, this is internal book-
+    # keeping.
+    evidence_hash: str | None = Field(default=None, exclude=True, repr=False)
 
-    @field_validator("evidence", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _truncate_evidence(cls, v: Any) -> Any:
-        # Limit evidence length to avoid inadvertently storing long secrets
-        if isinstance(v, str) and len(v) > 200:
-            return v[:200] + "…"
-        return v
+    def _hash_then_truncate_evidence(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        ev = data.get("evidence")
+        if isinstance(ev, str):
+            # Hash full evidence before truncating so the fingerprint stays
+            # collision-resistant for snippets that share the same first
+            # 200 chars (e.g. minified lines with multiple secrets).
+            data["evidence_hash"] = hashlib.sha256(ev.encode("utf-8")).hexdigest()
+            if len(ev) > 200:
+                data["evidence"] = ev[:200] + "…"
+        return data
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -74,14 +88,22 @@ class Finding(BaseModel):
         """Deterministic identity for this finding across runs.
 
         Algorithm (``vibeguard/v1``):
-        ``sha256(finding_id + ":" + normalized_path + ":" + sha256(evidence)[:16])``
+        ``sha256(finding_id + ":" + normalized_path + ":" + sha256(raw_evidence)[:16])``
 
-        Line numbers are intentionally excluded so a finding's identity is
-        stable when surrounding code shifts. See ``docs/output-schemas.md``.
+        ``raw_evidence`` is the evidence string as discovered by the rule,
+        hashed **before** the 200-char snippet truncation that ``evidence``
+        undergoes for storage. Line numbers are intentionally excluded so a
+        finding's identity is stable when surrounding code shifts. See
+        ``docs/output-schemas.md``.
         """
-        evidence_part = ""
-        if self.evidence:
+        if self.evidence_hash:
+            evidence_part = self.evidence_hash[:16]
+        elif self.evidence:
+            # Fallback for instances constructed without going through the
+            # model validator (e.g. direct field assignment in tests).
             evidence_part = hashlib.sha256(self.evidence.encode("utf-8")).hexdigest()[:16]
+        else:
+            evidence_part = ""
         raw = f"{self.id}:{self.path.replace(chr(92), '/')}:{evidence_part}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 

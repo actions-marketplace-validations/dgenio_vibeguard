@@ -45,11 +45,17 @@ def _build_record(finding: Finding) -> dict[str, Any]:
             "start": {"line": line_zero, "character": 0},
             "end": {"line": line_zero, "character": 0},
         },
-        "tags": list(finding.tags),
+        # Top-level ``tags`` follows LSP semantics: a list of DiagnosticTag
+        # integers (1=Unnecessary, 2=Deprecated). VibeGuard's category tags
+        # (rule families like "secrets", "supply-chain") don't map onto that
+        # enum, so they're emitted under ``data.tags`` and the top-level
+        # field stays empty for strict consumers.
+        "tags": [],
         "data": {
             "schema": DIAGNOSTICS_SCHEMA,
             "fingerprint": finding.fingerprint,
             "rule": finding.rule,
+            "tags": list(finding.tags),
             "confidence": finding.confidence.value,
             "severity_label": finding.severity.value,
             "description": finding.description,
