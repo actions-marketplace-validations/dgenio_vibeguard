@@ -1,6 +1,6 @@
 """VibeGuard — Guardrails for vibe-coded software."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 # Public plugin API version. Increment the major component on any
 # backwards-incompatible change to vibeguard.api or vibeguard.rules.base.

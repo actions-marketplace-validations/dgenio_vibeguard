@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibeguard-gate"
-version = "0.6.0"
+version = "0.7.0"
 description = "Guardrails for vibe-coded software — a pre-merge safety gate for AI-generated changes"
 readme = "README.md"
 license = { file = "LICENSE" }
