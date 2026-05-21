@@ -1,0 +1,106 @@
+name: Rule request
+description: Propose a new detection rule (or a new finding within an existing rule).
+title: "[rule] "
+labels: ["type:rule"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Detection rules are the heart of VibeGuard. The clearer your pattern and your **benign counter-examples**, the faster a maintainer or AI agent can implement it without shipping a noisy rule.
+
+  - type: textarea
+    id: pattern
+    attributes:
+      label: What pattern should be detected?
+      description: Describe the risky pattern in plain language.
+    validations:
+      required: true
+
+  - type: textarea
+    id: triggering
+    attributes:
+      label: Example code that SHOULD trigger the rule
+      description: One or more minimal snippets. Include the file extension/language.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: benign
+    attributes:
+      label: Example code that should NOT trigger (benign)
+      description: This is the most important section — it prevents false positives. At least one example, please.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: related-rule
+    attributes:
+      label: Most related existing rule (if any)
+      description: Pick the closest existing rule, or "new rule" if this is a brand-new category. The full rule list lives in [docs/rules.md](https://github.com/dgenio/vibeguard/blob/main/docs/rules.md) once generated.
+      options:
+        - agent_memory
+        - ai_footprints
+        - auth
+        - ci_docker
+        - dependencies
+        - go_rules
+        - iac
+        - packaging
+        - risky_diff
+        - secrets
+        - sourcemaps
+        - sql
+        - tests
+        - new rule (none of the above)
+    validations:
+      required: true
+
+  - type: input
+    id: suggested-id
+    attributes:
+      label: Suggested finding ID
+      description: 'Follow the existing convention: `<RULE-PREFIX>-<SHORT-NAME>` in upper-kebab (e.g. `SEC-GITHUBTOKEN`, `PKG-MANIFEST-RECURSIVE`, `AUTH-JWT-NONE`).'
+      placeholder: "SEC-NEWTOKEN"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Suggested default severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+        - info
+    validations:
+      required: true
+
+  - type: textarea
+    id: false-positive-risk
+    attributes:
+      label: False-positive risk
+      description: What benign code might look similar? How can the rule disambiguate (file path, surrounding context, entropy threshold, etc.)?
+    validations:
+      required: true
+
+  - type: textarea
+    id: remediation
+    attributes:
+      label: Recommended remediation
+      description: What should a developer do to fix the finding? This becomes the `recommendation` field on the finding.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched [existing issues](https://github.com/dgenio/vibeguard/issues?q=is%3Aissue) and did not find a duplicate.
+          required: true
+        - label: I provided at least one triggering example AND at least one benign counter-example.
+          required: true
+        - label: This rule can be detected deterministically (no LLM, no network call).
+          required: true
