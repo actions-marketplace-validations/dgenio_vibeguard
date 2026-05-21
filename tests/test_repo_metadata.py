@@ -126,6 +126,32 @@ class TestRuleDropdownsReferenceRealRules:
             f"{sorted(extra_in_form)}"
         )
 
+    def test_false_positive_finding_id_placeholder_is_real(self):
+        """The example finding-id placeholder must correspond to a real rule.
+
+        If a finding ID is renamed in the registry, the issue-form placeholder
+        will mislead reporters until updated. This test catches that drift.
+        """
+        data = yaml.safe_load(
+            (ISSUE_TEMPLATE_DIR / "false_positive_report.yml").read_text(encoding="utf-8")
+        )
+        finding_id_inputs = [
+            item
+            for item in data["body"]
+            if item.get("type") == "input" and item.get("id") == "finding-id"
+        ]
+        assert len(finding_id_inputs) == 1, (
+            "false_positive_report.yml should have exactly one input id=finding-id"
+        )
+        placeholder = finding_id_inputs[0]["attributes"].get("placeholder", "").strip()
+        assert placeholder, "finding-id input must have a non-empty placeholder"
+
+        all_finding_ids = {fid for rule in RULE_REGISTRY.values() for fid in rule.finding_ids}
+        assert placeholder in all_finding_ids, (
+            f"false_positive_report.yml placeholder {placeholder!r} is not a real finding ID; "
+            f"either update the placeholder or update the renamed rule"
+        )
+
 
 class TestPullRequestTemplate:
     def test_exists_and_non_empty(self):
@@ -184,9 +210,11 @@ class TestReadmeQuickReference:
         assert "pip install vibeguard-gate" in body
         # The bare `pip install vibeguard` form (i.e. not followed by `-gate`)
         # silently installs the wrong package — guard against it reappearing.
-        # The negative lookahead permits `vibeguard-gate` with any suffix
+        # The pattern catches the most common installer invocations
+        # (pip, pip3, `python -m pip`, `python3 -m pip`); the negative
+        # lookahead permits `vibeguard-gate` with any suffix
         # (e.g. `==0.6.0`, `[extra]`, trailing whitespace).
-        bare_form = re.compile(r"\bpip install vibeguard\b(?!-gate)")
+        bare_form = re.compile(r"\b(?:pip3?|python3?\s+-m\s+pip)\s+install\s+vibeguard\b(?!-gate)")
         for line in body.splitlines():
             stripped = line.strip()
             if bare_form.search(stripped):

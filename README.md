@@ -86,7 +86,7 @@ pointing VibeGuard at anything sensitive:
 ```bash
 git clone https://github.com/dgenio/vibeguard
 cd vibeguard
-pip install -e ".[dev]"
+pip install -e .
 vibeguard scan --path examples/vulnerable-node-package
 ```
 
