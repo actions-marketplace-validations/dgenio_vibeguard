@@ -89,10 +89,13 @@ def _stage_case(case_path: Path, dest: Path) -> None:
         shutil.copy(case_path, out)
 
 
+_CASES = _iter_cases()
+
+
 @pytest.mark.parametrize(
     "category,case_name,case_path",
-    _iter_cases(),
-    ids=[f"{c}/{n}" for c, n, _p in _iter_cases()],
+    _CASES,
+    ids=[f"{c}/{n}" for c, n, _p in _CASES],
 )
 def test_corpus_case(
     category: str,
@@ -105,7 +108,12 @@ def test_corpus_case(
     cfg = VibeGuardConfig(policy="strict")  # strict surfaces broader-version dep findings
     result = run_scan(tmp_path / "repo", cfg)
 
-    family = _RULE_FAMILIES[category]
+    family = _RULE_FAMILIES.get(category)
+    if family is None:
+        pytest.fail(
+            f"Unknown corpus category '{category}'. "
+            f"Add it to _RULE_FAMILIES or remove the directory."
+        )
     family_findings = [f for f in result.findings if f.rule in family]
 
     if case_name.startswith("tp_"):

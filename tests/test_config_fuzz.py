@@ -5,7 +5,9 @@ malformed input. Acceptable failure modes are limited to:
 
 * ``yaml.YAMLError`` — YAML parser detected a syntax error
 * ``pydantic.ValidationError`` — schema validation rejected the document
+* ``TypeError`` — YAML parsed to a non-mapping root (scalar, list, None)
 * ``OSError`` — the filesystem could not be read
+* ``RecursionError`` — deeply nested YAML exceeded Python's recursion limit
 
 Anything else (``AttributeError``, ``KeyError``, ``IndexError``,
 ``UnicodeError``, …) indicates a defensive-coding gap inside the loader.

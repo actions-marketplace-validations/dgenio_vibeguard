@@ -45,7 +45,7 @@ def benchmark(
 
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(out_dir) if out_dir else Path(tmp) / f"bench-{size}"
-        generate(repo, GenConfig(n_files=n_files, seed=seed))
+        generate(repo, GenConfig(n_files=n_files, seed=seed), overwrite=out_dir is None)
 
         timings: list[float] = []
         last_count = 0
