@@ -81,8 +81,8 @@ class Rule(ABC):
         The default implementation returns ``True`` for every path — most
         rules iterate over the full file set in :meth:`scan` and filter
         internally. Override this when a rule is strictly scoped to a file
-        family (e.g. Dockerfiles, Terraform) and you want the scanner to
-        short-circuit applicability cheaply.
+        family (e.g. Dockerfiles, Terraform). Currently not called by
+        the scanner; reserved for future per-file filtering optimisation.
         """
         del path  # unused in default implementation
         return True

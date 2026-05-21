@@ -218,8 +218,10 @@ Backwards-incompatible changes to any symbol exported from
 `vibeguard.api` bump the **major** component of `PLUGIN_API_VERSION`.
 Backwards-compatible additions bump the minor.
 
-* Major bumps (e.g. `1.0` → `2.0`): a plugin pinned to `<2` will be
-  flagged as incompatible and skipped at discovery time with a warning.
+* Major bumps (e.g. `1.0` → `2.0`): plugins pinned to `<2` will need
+  updating. A future version of the discovery system will flag
+  incompatible plugins and skip them at discovery time with a warning.
+  Until that check is implemented, plugins must self-verify compatibility.
 * Minor bumps (e.g. `1.0` → `1.1`): no plugin action required — new
   symbols become available; existing symbols keep their behaviour.
 

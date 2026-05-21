@@ -55,9 +55,10 @@ def _slug(rule_id: str) -> str:
 def _md_escape(text: str) -> str:
     """Escape Markdown special characters in inline text.
 
-    We are conservative — only pipe and backtick are escaped because the
-    other special characters (``*``, ``_``, etc.) are vanishingly rare in
-    rule descriptions and quoting them would harm readability.
+    Only the pipe character is escaped — it is the only special character
+    that breaks markdown table cell boundaries. Backticks are intentionally
+    left alone because they render as inline code within cells (desired
+    behaviour for rule descriptions that reference identifiers).
     """
     return text.replace("|", "\\|")
 
@@ -79,6 +80,7 @@ def _render_summary_row(meta: RuleMetadata) -> str:
 
 def _render_rule_section(meta: RuleMetadata) -> str:
     out = io.StringIO()
+    out.write(f'<a id="{_slug(meta.rule_id)}"></a>\n\n')
     out.write(f"### `{meta.rule_id}` — {meta.title}\n\n")
     out.write(meta.description.rstrip())
     out.write("\n\n")

@@ -25,6 +25,8 @@ This page is generated from the rule metadata registry (`vibeguard/rules/registr
 
 ## Rules
 
+<a id="agent-memory"></a>
+
 ### `agent_memory` — Agent Memory Artifacts
 
 Detects accidentally committed agent memory artifacts: SQLite databases, JSONL logs, transcripts, tool traces, and hidden memory directories.
@@ -41,6 +43,8 @@ Detects accidentally committed agent memory artifacts: SQLite databases, JSONL l
 - `AGENT-TRANSCRIPT`
 - `AGENT-TOOL-TRACE`
 - `AGENT-MEMORY-DIR`
+
+<a id="ai-footprints"></a>
 
 ### `ai_footprints` — AI Footprint Detection
 
@@ -62,6 +66,8 @@ Detects AI-generated artifacts, placeholders, security bypasses, trust-all certi
 - `AI-SKIPVALIDATION`
 - `AI-HALLUCINATEDTODO`
 
+<a id="auth"></a>
+
 ### `auth` — Auth/Authz Bypass Detection
 
 Detects patterns indicating authentication or authorization bypasses: commented-out auth, JWT none algorithm, hardcoded admin passwords, disabled verification, auth functions returning nil/True.
@@ -81,6 +87,8 @@ Detects patterns indicating authentication or authorization bypasses: commented-
 - `AUTH-HARDCODED-ADMIN`
 - `AUTH-RETURN-NIL-AUTH`
 - `AUTH-COMMENTED-AUTH`
+
+<a id="ci-docker"></a>
 
 ### `ci_docker` — Docker/CI Security
 
@@ -105,6 +113,8 @@ Detects risky patterns in Dockerfiles and GitHub Actions workflows: privileged c
 - `GHA-DISABLE-CHECK`
 - `GHA-UNVERSIONED-ACTION`
 
+<a id="dependencies"></a>
+
 ### `dependencies` — Dependency Risk
 
 Detects risky dependency changes: typosquatting, git/URL deps, broad versions, lockfile drift, and registry changes.
@@ -126,6 +136,8 @@ Detects risky dependency changes: typosquatting, git/URL deps, broad versions, l
 - `DEP-MANIFEST-NO-LOCK`
 - `DEP-REGISTRY-CHANGE`
 
+<a id="go-rules"></a>
+
 ### `go_rules` — Go Risky Patterns
 
 Detects Go-specific security risks including TLS bypass, shell injection, CORS wildcards, SQL via Sprintf, hardcoded tokens, auth bypass comments, and unsafe file deletion.
@@ -144,6 +156,8 @@ Detects Go-specific security risks including TLS bypass, shell injection, CORS w
 - `GO-HARDCODED-TOKEN`
 - `GO-AUTH-BYPASS`
 - `GO-UNSAFE-DELETE`
+
+<a id="iac"></a>
 
 ### `iac` — Infrastructure-as-Code Security
 
@@ -167,6 +181,8 @@ Detects risky patterns in Terraform (IAM wildcards, open security groups, public
 - `K8S-ALLOW-ALL`
 - `K8S-ROOT-CONTAINER`
 
+<a id="packaging"></a>
+
 ### `packaging` — Packaging Hygiene
 
 Detects files that should not be published in npm/PyPI packages: secrets, test data, build configs, source maps.
@@ -188,6 +204,8 @@ Detects files that should not be published in npm/PyPI packages: secrets, test d
 - `PKG-MANIFEST-RECURSIVE`
 - `PKG-NPMIGNORE-NEGATE`
 - `PKG-SETUPPYLEAK`
+
+<a id="risky-diff"></a>
 
 ### `risky_diff` — Risky Code Pattern
 
@@ -219,6 +237,8 @@ Flags changes to risk-sensitive areas (auth, crypto, shell, network, etc.) and d
 - `DIFF-SIZE`
 - `DIFF-RISK-FILES`
 
+<a id="secrets"></a>
+
 ### `secrets` — Secrets Detection
 
 Detects likely committed secrets using regex patterns and entropy heuristics. Includes AWS keys, GitHub tokens, OpenAI keys, private keys, and more.
@@ -243,6 +263,8 @@ Detects likely committed secrets using regex patterns and entropy heuristics. In
 - `SEC-GENERICAPIKEY`
 - `SEC-ENV`
 
+<a id="sourcemaps"></a>
+
 ### `sourcemaps` — Source Map Exposure
 
 Detects source maps that may expose original source code in published packages.
@@ -258,6 +280,8 @@ Detects source maps that may expose original source code in published packages.
 - `MAP-FILE`
 - `MAP-URL`
 - `MAP-PKG`
+
+<a id="sql"></a>
 
 ### `sql` — SQL Construction Risk
 
@@ -276,6 +300,8 @@ Detects risk-sensitive SQL construction patterns (f-strings, concatenation, temp
 - `SQL-JS-TEMPLATE`
 - `SQL-JS-CONCAT`
 - `SQL-GO-SPRINTF`
+
+<a id="tests"></a>
 
 ### `tests` — Missing Tests
 

@@ -15,7 +15,7 @@ The end-to-end checklist for any new rule:
 6. [Regenerate docs and run CI](#6-regenerate-docs-and-run-ci)
 
 We'll use a worked example throughout: a hypothetical
-**`js-proto-pollution`** rule that flags `Object.assign({}, …)` calls
+**`js_proto_pollution`** rule that flags `Object.assign({}, …)` calls
 into a freshly created object — a common JavaScript prototype-pollution
 sink AI agents introduce when refactoring "merge defaults" helpers.
 
@@ -25,9 +25,9 @@ sink AI agents introduce when refactoring "merge defaults" helpers.
 
 Three things to settle before writing code:
 
-- **Rule ID** — kebab-cased, unique across `RULE_REGISTRY`. Match the
+- **Rule ID** — snake_cased, unique across `RULE_REGISTRY`. Match the
   module file name (`vibeguard/rules/<rule_id>.py`). Examples in tree:
-  `secrets`, `risky_diff`, `ci_docker`. For our example: `js-proto-pollution`.
+  `secrets`, `risky_diff`, `ci_docker`. For our example: `js_proto_pollution`.
 - **Finding IDs** — uppercase, prefixed with the rule family.
   Existing examples: `SEC-ENV`, `MAP-DIST`, `AUTH-JWT-NONE`. Pick
   IDs that explain the *failure mode*, not just the rule. We'll use
@@ -44,7 +44,7 @@ Three things to settle before writing code:
 | Test gap / hygiene              | `low`                                                      |
 | Informational, never blocking   | `info`                                                     |
 
-For `js-proto-pollution` we'll pick `medium` — the pattern is suspicious
+For `js_proto_pollution` we'll pick `medium` — the pattern is suspicious
 but legitimate codebases use it intentionally.
 
 ## 2. Implement the rule file
@@ -75,7 +75,7 @@ _OBJECT_ASSIGN_NEW = re.compile(
 
 
 class JsProtoPollutionRule(Rule):
-    id = "js-proto-pollution"
+    id = "js_proto_pollution"
     name = "JS Prototype Pollution Sink"
     description = (
         "Flags Object.assign({}, ...) patterns that may copy attacker-"
@@ -141,7 +141,7 @@ generated `docs/rules.md`.
 ```python
 register_rule(
     RuleMetadata(
-        rule_id="js-proto-pollution",
+        rule_id="js_proto_pollution",
         title="JS Prototype Pollution Sink",
         description=(
             "Flags Object.assign({}, ...) patterns that may copy "
@@ -184,7 +184,7 @@ style — class-based grouping, pytest `tmp_path`, direct rule
 instantiation. `tests/test_sourcemaps.py` is a good template.
 
 ```python
-"""Tests for the js-proto-pollution rule."""
+"""Tests for the js_proto_pollution rule."""
 
 from __future__ import annotations
 

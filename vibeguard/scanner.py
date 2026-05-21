@@ -32,14 +32,14 @@ from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressio
 _last_plugin_discovery: tuple[list[LoadedPlugin], list[PluginLoadFailure]] = ([], [])
 
 
-def get_last_plugin_discovery() -> tuple[list[LoadedPlugin], list[PluginLoadFailure]]:
+def get_last_plugin_discovery() -> tuple[tuple[LoadedPlugin, ...], tuple[PluginLoadFailure, ...]]:
     """Return the plugin discovery result from the most recent :func:`run_scan`.
 
-    The CLI uses this for ``rules list --list-plugins``; tests use it to
-    assert isolation behaviour. Callers that want fresh data should invoke
+    Currently reserved for future CLI integration and test assertions.
+    Callers that want fresh data should invoke
     :func:`vibeguard.rules.plugins.discover_plugin_rules` directly.
     """
-    return _last_plugin_discovery
+    return (tuple(_last_plugin_discovery[0]), tuple(_last_plugin_discovery[1]))
 
 
 _BINARY_SNIFF_SIZE = 8192
