@@ -8,6 +8,7 @@ dropdown option, or a CONTRIBUTING file whose `pip install` line drifts from
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -181,14 +182,15 @@ class TestReadmeQuickReference:
         """The PyPI distribution name is `vibeguard-gate`, not `vibeguard`."""
         body = README.read_text(encoding="utf-8")
         assert "pip install vibeguard-gate" in body
-        # The bare `pip install vibeguard` form would silently install the
-        # wrong package or fail — guard against it reappearing.
+        # The bare `pip install vibeguard` form (i.e. not followed by `-gate`)
+        # silently installs the wrong package — guard against it reappearing.
+        # The negative lookahead permits `vibeguard-gate` with any suffix
+        # (e.g. `==0.6.0`, `[extra]`, trailing whitespace).
+        bare_form = re.compile(r"\bpip install vibeguard\b(?!-gate)")
         for line in body.splitlines():
             stripped = line.strip()
-            if stripped.startswith("pip install vibeguard") and stripped not in {
-                "pip install vibeguard-gate",
-            }:
-                # Allow `pip install -e ".[dev]"` from-source form.
+            if bare_form.search(stripped):
+                # Allow editable from-source install: `pip install -e ".[dev]"`.
                 assert "-e" in stripped, (
                     f"README has a literal `pip install vibeguard` line "
                     f"(should be `vibeguard-gate`): {line!r}"

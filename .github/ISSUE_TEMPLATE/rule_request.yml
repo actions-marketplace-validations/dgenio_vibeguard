@@ -38,7 +38,7 @@ body:
     id: related-rule
     attributes:
       label: Most related existing rule (if any)
-      description: Pick the closest existing rule, or "new rule" if this is a brand-new category. The full rule list lives in [docs/rules.md](https://github.com/dgenio/vibeguard/blob/main/docs/rules.md) once generated.
+      description: Pick the closest existing rule, or "new rule" if this is a brand-new category. See the [rule quick reference](https://github.com/dgenio/vibeguard/blob/main/README.md#rule-quick-reference) in the README, or run `vibeguard explain <ID>` locally for per-finding detail.
       options:
         - agent_memory
         - ai_footprints
