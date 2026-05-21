@@ -372,6 +372,7 @@ ruff check vibeguard/ tests/
 - **[docs/rules.md](docs/rules.md)** — auto-generated rule reference (`make docs` to regenerate).
 - **[docs/how-to-add-a-rule.md](docs/how-to-add-a-rule.md)** — step-by-step guide for adding a built-in rule.
 - **[docs/plugin-api.md](docs/plugin-api.md)** — public plugin API for shipping rules in your own package.
+- **[docs/policy-packs.md](docs/policy-packs.md)** — built-in policy packs (`oss-library`, `web-app`, `strict-ci`) and source-test mapping for monorepos.
 
 ---
 

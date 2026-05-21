@@ -15,12 +15,14 @@ def test_defaults():
     cfg = VibeGuardConfig()
     assert cfg.policy == "balanced"
     assert cfg.fail_on == "high"
+    assert cfg.policy_pack is None
     assert cfg.secrets.enabled is True
     assert cfg.sourcemaps.enabled is True
     assert cfg.packaging.enabled is True
     assert cfg.dependencies.enabled is True
     assert cfg.risky_patterns.enabled is True
     assert cfg.tests.enabled is True
+    assert cfg.tests.mapping == []
     assert cfg.ai_footprints.enabled is True
     assert cfg.go_rules.enabled is True
     assert cfg.ci_docker.enabled is True

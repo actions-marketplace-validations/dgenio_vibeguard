@@ -1,0 +1,46 @@
+# Policy pack: web-app
+#
+# Profile for full-stack web applications. All rules enabled; tighter gate
+# (medium); extra weight on auth bypass, SQL, and CORS-style risky diffs.
+#
+# Applied as defaults; user-supplied keys always win.
+
+policy: balanced
+fail_on: medium
+
+secrets:
+  enabled: true
+sourcemaps:
+  enabled: true
+packaging:
+  enabled: true
+dependencies:
+  enabled: true
+risky_patterns:
+  enabled: true
+tests:
+  enabled: true
+ai_footprints:
+  enabled: true
+go_rules:
+  enabled: true
+ci_docker:
+  enabled: true
+iac:
+  enabled: true
+auth:
+  enabled: true
+sql:
+  enabled: true
+agent_memory:
+  enabled: true
+
+# Promote auth, SQL injection, and CORS-style risky diffs to high so they
+# trip the medium gate immediately.
+severity_overrides:
+  - rule_id: auth
+    severity: high
+  - rule_id: sql
+    severity: high
+  - rule_id: risky_diff
+    severity: high

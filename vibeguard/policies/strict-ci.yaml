@@ -1,0 +1,80 @@
+# Policy pack: strict-ci
+#
+# Profile for CI enforcement. All rules enabled, lowest gate (low), no
+# ignores beyond VCS/build noise, and every rule family promoted to its
+# maximum severity so any finding blocks.
+#
+# Applied as defaults; user-supplied keys always win.
+
+policy: strict
+fail_on: low
+
+ignore:
+  paths:
+    - .git/
+    - node_modules/
+    - .venv/
+    - venv/
+    - dist/
+    - build/
+    - "*.egg-info/"
+    - .tox/
+    - __pycache__/
+
+secrets:
+  enabled: true
+sourcemaps:
+  enabled: true
+packaging:
+  enabled: true
+dependencies:
+  enabled: true
+risky_patterns:
+  enabled: true
+tests:
+  enabled: true
+ai_footprints:
+  enabled: true
+go_rules:
+  enabled: true
+ci_docker:
+  enabled: true
+iac:
+  enabled: true
+auth:
+  enabled: true
+sql:
+  enabled: true
+agent_memory:
+  enabled: true
+
+# Promote every rule family to critical — strict CI treats any finding as
+# blocking. finding_id-level overrides in user config still win because
+# user keys take precedence at merge time.
+severity_overrides:
+  - rule_id: secrets
+    severity: critical
+  - rule_id: sourcemaps
+    severity: critical
+  - rule_id: packaging
+    severity: critical
+  - rule_id: dependencies
+    severity: critical
+  - rule_id: risky_diff
+    severity: critical
+  - rule_id: tests
+    severity: critical
+  - rule_id: ai_footprints
+    severity: critical
+  - rule_id: go_rules
+    severity: critical
+  - rule_id: ci_docker
+    severity: critical
+  - rule_id: iac
+    severity: critical
+  - rule_id: auth
+    severity: critical
+  - rule_id: sql
+    severity: critical
+  - rule_id: agent_memory
+    severity: critical
