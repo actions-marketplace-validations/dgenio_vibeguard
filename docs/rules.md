@@ -16,7 +16,7 @@ This page is generated from the rule metadata registry (`vibeguard/rules/registr
 | [`dependencies`](#dependencies) | Dependency Risk | high | medium | 9 | security, supply-chain, dependencies | package.json, pyproject.toml, .npmrc, pip.conf |
 | [`go_rules`](#go-rules) | Go Risky Patterns | high | medium | 7 | security, go | *.go |
 | [`iac`](#iac) | Infrastructure-as-Code Security | high | high | 10 | security, iac, terraform, kubernetes | *.tf, *.yaml, *.yml |
-| [`packaging`](#packaging) | Packaging Hygiene | medium | high | 10 | packaging, supply-chain | package.json, pyproject.toml, MANIFEST.in, setup.cfg, .npmignore |
+| [`packaging`](#packaging) | Packaging Hygiene | medium | high | 14 | packaging, supply-chain | package.json, pyproject.toml, MANIFEST.in, setup.cfg, .npmignore |
 | [`risky_diff`](#risky-diff) | Risky Code Pattern | medium | medium | 18 | security, risky-diff | *.py, *.js, *.ts, *.go, *.java, *.rb |
 | [`secrets`](#secrets) | Secrets Detection | high | high | 12 | security, secrets | * |
 | [`sourcemaps`](#sourcemaps) | Source Map Exposure | high | high | 4 | security, sourcemaps, packaging | *.map, *.js, package.json |
@@ -203,6 +203,10 @@ Detects files that should not be published in npm/PyPI packages: secrets, test d
 - `PKG-MANIFEST-GRAFT`
 - `PKG-MANIFEST-RECURSIVE`
 - `PKG-NPMIGNORE-NEGATE`
+- `PKG-NPMIGNORE-BROAD`
+- `PKG-COVERAGE-LEAK`
+- `PKG-CI-LEAK`
+- `PKG-PREPARE-SCRIPT`
 - `PKG-SETUPPYLEAK`
 
 <a id="risky-diff"></a>
