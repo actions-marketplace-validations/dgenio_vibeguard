@@ -1,0 +1,215 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "VibeGuard",
+          "informationUri": "https://github.com/dgenio/vibeguard",
+          "rules": [
+            {
+              "id": "SEC-AWSACCESSKEY",
+              "shortDescription": {
+                "text": "AWS Access Key ID detected"
+              },
+              "fullDescription": {
+                "text": "A likely AWS Access Key ID was found in `src/config.py` at line 9. Committed secrets can be exploited by anyone with repo access."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "secrets",
+                  "aws-access-key"
+                ]
+              }
+            },
+            {
+              "id": "MAP-DIST",
+              "shortDescription": {
+                "text": "Source map file in publish directory"
+              },
+              "fullDescription": {
+                "text": "Source map `dist/app.js.map` is in a publish directory. Source maps reveal original source code if shipped to production."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "sourcemaps",
+                  "publish-leak"
+                ]
+              }
+            },
+            {
+              "id": "RISK-EVALEXEC",
+              "shortDescription": {
+                "text": "Risk-sensitive area changed: eval() or exec() usage"
+              },
+              "fullDescription": {
+                "text": "`src/server.js` line 24 touches a risk-sensitive area (eval/exec). This is not a confirmed vulnerability \u2014 human review is recommended."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "risky_diff",
+                  "eval-exec"
+                ]
+              }
+            },
+            {
+              "id": "TEST-MISSING",
+              "shortDescription": {
+                "text": "Source changes without test changes"
+              },
+              "fullDescription": {
+                "text": "3 source file(s) changed but no test files were modified. Changed files include: `src/auth.py`, `src/server.py`, `src/db.py`"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "tests",
+                  "coverage"
+                ]
+              }
+            },
+            {
+              "id": "AI-AIGENERATED",
+              "shortDescription": {
+                "text": "AI-generated code comment"
+              },
+              "fullDescription": {
+                "text": "`src/utils.js` line 1 contains a comment marking the file as AI-generated. Useful as provenance; informational only."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "ai-footprint",
+                  "ai-generated"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "SEC-AWSACCESSKEY",
+          "level": "error",
+          "message": {
+            "text": "AWS Access Key ID detected: A likely AWS Access Key ID was found in `src/config.py` at line 9. Committed secrets can be exploited by anyone with repo access."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/config.py"
+                },
+                "region": {
+                  "startLine": 9,
+                  "endLine": 9
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vibeguard/v1": "d1b5d6bf08a413854d43793d6a98ebdb96d880761b349a6fb0c08a5d61960e9a"
+          }
+        },
+        {
+          "ruleId": "MAP-DIST",
+          "level": "error",
+          "message": {
+            "text": "Source map file in publish directory: Source map `dist/app.js.map` is in a publish directory. Source maps reveal original source code if shipped to production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "dist/app.js.map"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vibeguard/v1": "e377a5a0489abd8b8c869e9f66a56620f34542c97551401638606194ebecf7e4"
+          }
+        },
+        {
+          "ruleId": "RISK-EVALEXEC",
+          "level": "warning",
+          "message": {
+            "text": "Risk-sensitive area changed: eval() or exec() usage: `src/server.js` line 24 touches a risk-sensitive area (eval/exec). This is not a confirmed vulnerability \u2014 human review is recommended."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/server.js"
+                },
+                "region": {
+                  "startLine": 24,
+                  "endLine": 24
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vibeguard/v1": "57797c66d592508df66d4f459b5a618d990fd8747b78ba044c8b81c1b6bb7868"
+          }
+        },
+        {
+          "ruleId": "TEST-MISSING",
+          "level": "note",
+          "message": {
+            "text": "Source changes without test changes: 3 source file(s) changed but no test files were modified. Changed files include: `src/auth.py`, `src/server.py`, `src/db.py`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/auth.py"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vibeguard/v1": "1d12aa99b83f4046f11ef40a5bc4f77fead0510d5ba9ccecf47c0f219845f304"
+          }
+        },
+        {
+          "ruleId": "AI-AIGENERATED",
+          "level": "note",
+          "message": {
+            "text": "AI-generated code comment: `src/utils.js` line 1 contains a comment marking the file as AI-generated. Useful as provenance; informational only."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/utils.js"
+                },
+                "region": {
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vibeguard/v1": "410d4d6b1101e2bcae7aa863af26098b88a09bf83dd00efbda934b260c272b61"
+          }
+        }
+      ]
+    }
+  ]
+}

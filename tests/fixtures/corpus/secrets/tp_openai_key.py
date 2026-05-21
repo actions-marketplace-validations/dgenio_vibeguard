@@ -1,0 +1,2 @@
+# True positive: OpenAI API key (sk- prefix, >= 32 chars).
+OPENAI_API_KEY = "sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
