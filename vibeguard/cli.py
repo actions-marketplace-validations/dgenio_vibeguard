@@ -525,80 +525,6 @@ def publish_check(
 # explain
 # ---------------------------------------------------------------------------
 
-_FINDING_EXPLANATIONS: dict[str, str] = {
-    "SEC-AWSACCESSKEY": """
-[bold]AWS Access Key (SEC-AWSACCESSKEY)[/]
-
-AWS Access Key IDs (beginning AKIA…) are credentials for AWS services.
-Committing them exposes your account to unauthorized access, data theft,
-cryptomining charges, and data exfiltration.
-
-[bold]Why it matters:[/]
-Bots scan GitHub/GitLab continuously for leaked AWS keys. Exposure time can
-be seconds before a key is exploited.
-
-[bold]How to fix:[/]
-1. Rotate the key immediately in the AWS IAM console.
-2. Audit CloudTrail for unauthorized usage.
-3. Remove the key from git history (git filter-repo or BFG).
-4. Use IAM roles, environment variables, or AWS Secrets Manager instead.
-""",
-    "SEC-ENV": """
-[bold]Sensitive .env file committed (SEC-ENV)[/]
-
-.env files typically contain database passwords, API keys, JWT secrets, and
-other credentials. They should never be committed.
-
-[bold]How to fix:[/]
-1. Add .env to .gitignore immediately.
-2. Remove it from git history.
-3. Rotate all credentials contained in the file.
-4. Use environment variables in CI/CD instead.
-""",
-    "MAP-DIST": """
-[bold]Source map in distribution directory (MAP-DIST)[/]
-
-Source maps (.map files) reverse-engineer your minified/compiled code back to
-the original source. Publishing them exposes your source code to anyone who
-downloads your package or opens DevTools.
-
-[bold]How to fix:[/]
-Add *.map to .npmignore or remove .map patterns from your package.json `files`.
-""",
-    "TEST-MISSING": """
-[bold]Source changes without tests (TEST-MISSING)[/]
-
-AI coding tools generate code quickly but often skip tests. Untested
-AI-generated code is a common source of regressions, edge-case bugs, and
-security gaps that only show up in production.
-
-[bold]How to fix:[/]
-Write unit tests covering the changed logic before merging. Even basic
-happy-path tests catch a large percentage of AI hallucination bugs.
-""",
-    "RISK-EVALEXEC": """
-[bold]eval() / exec() usage (RISK-EVALEXEC)[/]
-
-Dynamic code execution functions can run arbitrary code. If user input
-reaches eval/exec, this is a critical Remote Code Execution (RCE) vulnerability.
-
-[bold]How to fix:[/]
-Eliminate eval/exec if possible. If not, ensure inputs are strictly validated
-and whitelisted before execution.
-""",
-    "AI-DISABLESECURITY": """
-[bold]Security disabled (AI-DISABLESECURITY)[/]
-
-AI coding assistants sometimes comment out or disable security controls to
-make code "work" without understanding the implications. This is a very
-common source of vulnerabilities in AI-generated code.
-
-[bold]How to fix:[/]
-Re-enable the security control. If the bypass is intentional, document the
-reason and get a security review.
-""",
-}
-
 _DEFAULT_EXPLANATION = """
 [bold]{finding_id}[/]
 
@@ -610,30 +536,86 @@ https://github.com/dgenio/vibeguard
 """
 
 
+def _resolve_explain_adapter(name: str):
+    """Construct the explain adapter named ``name`` or exit 2.
+
+    Centralised so both ``explain`` and any future commands wanting an
+    adapter (e.g. an ``explain`` JSON exporter) share the same error UX.
+    """
+    from vibeguard.explain import get_explain_adapter
+
+    try:
+        return get_explain_adapter(name)
+    except ValueError as exc:
+        err_console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+
 @app.command()
 def explain(
     finding_id: Annotated[str, typer.Argument(help="Finding ID to explain, e.g. SEC-ENV")],
+    path: Annotated[
+        Path,
+        typer.Option("--path", "-p", help="Directory to load vibeguard.yaml from"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to vibeguard.yaml"),
+    ] = None,
+    adapter: Annotated[
+        str | None,
+        typer.Option(
+            "--adapter",
+            "--explain-adapter",
+            help=(
+                "Override the configured explain adapter. The built-in 'static' "
+                "adapter is always available; install plugins for richer adapters."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Print an explanation of a finding type and how to fix it."""
+    from vibeguard.explain import StaticExplainAdapter
+    from vibeguard.models import Confidence, Finding, Severity
     from vibeguard.rules.registry import RULE_REGISTRY
+
+    _ensure_rules_loaded()
 
     c = Console()
     upper_id = finding_id.upper()
 
-    # First try hardcoded explanations for rich output
-    text = _FINDING_EXPLANATIONS.get(upper_id)
-    if text:
-        c.print(text)
-        return
+    # Resolve the adapter: CLI flag > config > "static". The legacy code path
+    # printed the hand-written curated text directly without going through any
+    # registry lookup, so we preserve that exact behaviour: when the chosen
+    # adapter is the static one *and* a curated explanation exists for the
+    # upper-cased ID, render the curated text verbatim.
+    cfg = _load_config(config, path)
+    adapter_name = adapter or cfg.explain.adapter
+    explainer = _resolve_explain_adapter(adapter_name)
 
-    # Then try the registry
+    if isinstance(explainer, StaticExplainAdapter):
+        curated = StaticExplainAdapter.explain_by_id(upper_id)
+        if curated:
+            c.print(curated)
+            return
+
+    # Find the parent rule so we can synthesise a Finding for the adapter.
+    # We do this even for the static adapter so that non-curated IDs go
+    # through one canonical code path.
     for metadata in RULE_REGISTRY.values():
-        if upper_id in metadata.finding_ids:
-            c.print(f"[bold]{upper_id}[/] — from rule [cyan]{metadata.title}[/]\n")
-            c.print(f"{metadata.description}\n")
-            c.print(f"[dim]Rule ID:[/] {metadata.rule_id}")
-            c.print(f"[dim]Applies to:[/] {', '.join(metadata.applies_to)}")
-            c.print(f"[dim]Tags:[/] {', '.join(metadata.tags)}")
+        if upper_id in {fid.upper() for fid in metadata.finding_ids}:
+            synthetic = Finding(
+                id=upper_id,
+                rule=metadata.rule_id,
+                title=metadata.title,
+                description=metadata.description,
+                severity=Severity(metadata.default_severity),
+                path="(explain)",
+                recommendation="",
+                tags=list(metadata.tags),
+                confidence=Confidence(metadata.confidence),
+            )
+            c.print(explainer.explain(synthetic))
             return
 
     c.print(_DEFAULT_EXPLANATION.format(finding_id=finding_id))
