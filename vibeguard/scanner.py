@@ -18,29 +18,13 @@ from vibeguard.rules.dependencies import DependenciesRule
 from vibeguard.rules.go_rules import GoRulesRule
 from vibeguard.rules.iac import IaCRule
 from vibeguard.rules.packaging import PackagingRule
-from vibeguard.rules.plugins import LoadedPlugin, PluginLoadFailure, discover_plugin_rules
+from vibeguard.rules.plugins import discover_plugin_rules
 from vibeguard.rules.risky_diff import RiskyDiffRule
 from vibeguard.rules.secrets import SecretsRule
 from vibeguard.rules.sourcemaps import SourceMapsRule
 from vibeguard.rules.sql import SqlRule
 from vibeguard.rules.tests import MissingTestsRule
 from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressions
-
-# Cache the most recent plugin-discovery result so ``vibeguard rules list
-# --list-plugins`` can show what the last scan saw. The cache is populated
-# every time :func:`run_scan` runs and read-only otherwise.
-_last_plugin_discovery: tuple[list[LoadedPlugin], list[PluginLoadFailure]] = ([], [])
-
-
-def get_last_plugin_discovery() -> tuple[tuple[LoadedPlugin, ...], tuple[PluginLoadFailure, ...]]:
-    """Return the plugin discovery result from the most recent :func:`run_scan`.
-
-    Currently reserved for future CLI integration and test assertions.
-    Callers that want fresh data should invoke
-    :func:`vibeguard.rules.plugins.discover_plugin_rules` directly.
-    """
-    return (tuple(_last_plugin_discovery[0]), tuple(_last_plugin_discovery[1]))
-
 
 _BINARY_SNIFF_SIZE = 8192
 
@@ -172,8 +156,6 @@ def run_scan(
     # entry-point group (#58). Failed plugins are recorded but do not
     # interrupt the scan — see vibeguard/rules/plugins.py for the contract.
     loaded_plugins, plugin_failures = discover_plugin_rules(disabled=config.plugins.disabled)
-    global _last_plugin_discovery
-    _last_plugin_discovery = (loaded_plugins, plugin_failures)
     for plugin in loaded_plugins:
         rules.append(plugin.rule)
 

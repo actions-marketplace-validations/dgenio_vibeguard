@@ -54,11 +54,19 @@ class _FakeEntryPoint:
     installable package.
     """
 
-    def __init__(self, name: str, value: object, dist_name: str | None = "test-dist") -> None:
+    def __init__(
+        self,
+        name: str,
+        value: object,
+        dist_name: str | None = "test-dist",
+        *,
+        load_error: Exception | None = None,
+    ) -> None:
         self.name = name
         self.group = ENTRY_POINT_GROUP
         self.value = value
         self._payload = value
+        self._load_error = load_error
 
         class _Dist:
             name = dist_name
@@ -66,6 +74,8 @@ class _FakeEntryPoint:
         self.dist = _Dist() if dist_name else None
 
     def load(self):  # mirrors EntryPoint.load
+        if self._load_error is not None:
+            raise self._load_error
         return self._payload
 
 
@@ -148,7 +158,108 @@ class TestDiscoverPluginRules:
         loaded, _failures = discover_plugin_rules(disabled=["ok"])
         assert [p.name for p in loaded] == ["other"]
 
+    def test_import_error_during_load_is_isolated(self, monkeypatch: pytest.MonkeyPatch, capsys):
+        """The most common real-world failure: broken import chain at load time."""
+        _install_entry_points(
+            monkeypatch,
+            [
+                _FakeEntryPoint(
+                    "broken-import",
+                    _OkRule,  # value is irrelevant — load raises before using it
+                    load_error=ImportError("No module named 'nonexistent'"),
+                ),
+                _FakeEntryPoint("ok", _OkRule),
+            ],
+        )
+        loaded, failures = discover_plugin_rules()
+        assert [p.name for p in loaded] == ["ok"]
+        assert len(failures) == 1
+        assert failures[0].name == "broken-import"
+        assert "ImportError" in failures[0].reason
+        assert "nonexistent" in failures[0].reason
+        err = capsys.readouterr().err
+        assert "[vibeguard] plugin warning" in err
+        assert "'broken-import'" in err
+
 
 class TestPluginsModuleSanity:
     def test_entry_point_group_constant(self):
         assert plugins_module.ENTRY_POINT_GROUP == "vibeguard.rules"
+
+
+class TestScannerPluginIntegration:
+    """Verify that the scanner wires plugin discovery into run_scan correctly."""
+
+    def test_plugin_findings_appear_in_scan_result(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        """A loaded plugin's findings should appear in the ScanResult."""
+        from vibeguard.config import VibeGuardConfig
+        from vibeguard.models import Confidence, Finding, Severity
+        from vibeguard.rules import plugins as scanner_plugins_ref
+        from vibeguard.scanner import run_scan
+
+        # Create a minimal file so the scanner has something to scan
+        (tmp_path / "dummy.py").write_text("# hello\n")
+
+        expected_finding = Finding(
+            id="PLUG-TEST",
+            rule="test-scanner-plugin",
+            title="Plugin finding",
+            description="Found by plugin",
+            severity=Severity.LOW,
+            confidence=Confidence.HIGH,
+            path="dummy.py",
+            recommendation="No action needed.",
+        )
+
+        class _PluginRule(BaseRule):
+            id = "test-scanner-plugin"
+            name = "Test Scanner Plugin"
+            description = "Plugin for scanner integration test."
+
+            def scan(self, context: ScanContext) -> list[Finding]:
+                return [expected_finding]
+
+        fake_loaded = [
+            LoadedPlugin(name="test-plugin", distribution="test-dist", rule=_PluginRule())
+        ]
+
+        monkeypatch.setattr(
+            scanner_plugins_ref,
+            "discover_plugin_rules",
+            lambda disabled=(): (fake_loaded, []),
+        )
+        # Also monkeypatch at the scanner module level since it imports directly
+        import vibeguard.scanner as scanner_mod
+
+        monkeypatch.setattr(
+            scanner_mod, "discover_plugin_rules", lambda disabled=(): (fake_loaded, [])
+        )
+
+        config = VibeGuardConfig()
+        result = run_scan(tmp_path, config)
+        plugin_findings = [f for f in result.findings if f.rule == "test-scanner-plugin"]
+        assert len(plugin_findings) == 1
+        assert plugin_findings[0].id == "PLUG-TEST"
+
+    def test_plugin_failures_surface_as_errors(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        """A plugin load failure should appear in scan errors."""
+        from vibeguard.config import VibeGuardConfig
+        from vibeguard.scanner import run_scan
+
+        (tmp_path / "dummy.py").write_text("# hello\n")
+
+        fake_failure = PluginLoadFailure(
+            name="broken-plugin", distribution="broken-dist", reason="ImportError: no module"
+        )
+
+        import vibeguard.scanner as scanner_mod
+
+        monkeypatch.setattr(
+            scanner_mod, "discover_plugin_rules", lambda disabled=(): ([], [fake_failure])
+        )
+
+        config = VibeGuardConfig()
+        result = run_scan(tmp_path, config)
+        error_msgs = [e for e in result.errors if "broken-plugin" in e]
+        assert len(error_msgs) == 1
+        assert "failed to load" in error_msgs[0]

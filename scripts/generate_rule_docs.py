@@ -32,19 +32,9 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "rules.md"
 
 def _ensure_rules_loaded() -> None:
     """Import every built-in rule module so ``RULE_REGISTRY`` is populated."""
-    import vibeguard.rules.agent_memory  # noqa: F401
-    import vibeguard.rules.ai_footprints  # noqa: F401
-    import vibeguard.rules.auth  # noqa: F401
-    import vibeguard.rules.ci_docker  # noqa: F401
-    import vibeguard.rules.dependencies  # noqa: F401
-    import vibeguard.rules.go_rules  # noqa: F401
-    import vibeguard.rules.iac  # noqa: F401
-    import vibeguard.rules.packaging  # noqa: F401
-    import vibeguard.rules.risky_diff  # noqa: F401
-    import vibeguard.rules.secrets  # noqa: F401
-    import vibeguard.rules.sourcemaps  # noqa: F401
-    import vibeguard.rules.sql  # noqa: F401
-    import vibeguard.rules.tests  # noqa: F401
+    from vibeguard.rules import load_all_builtin_rules
+
+    load_all_builtin_rules()
 
 
 def _slug(rule_id: str) -> str:
@@ -168,14 +158,15 @@ def main(argv: list[str] | None = None) -> int:
     body = render_rules_markdown()
 
     if args.check:
-        if not args.output.exists():
+        try:
+            committed = _normalize(args.output.read_text(encoding="utf-8"))
+        except FileNotFoundError:
             print(
                 f"[generate_rule_docs] {args.output} is missing. "
                 f"Run `make docs` to generate it.",
                 file=sys.stderr,
             )
             return 1
-        committed = _normalize(args.output.read_text(encoding="utf-8"))
         generated = _normalize(body)
         if committed != generated:
             print(

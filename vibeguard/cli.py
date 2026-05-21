@@ -827,24 +827,12 @@ app.add_typer(rules_app)
 def _ensure_rules_loaded() -> None:
     """Import every rule module so ``RULE_REGISTRY`` is populated.
 
-    ``RULE_REGISTRY`` is populated at module import time. The scanner pulls
-    every built-in rule in, but the bare ``vibeguard.cli`` import does not —
-    so ``rules list`` needs to force the import explicitly. We re-use the
-    same module list the scanner does to keep the two sources in sync.
+    Delegates to the canonical ``vibeguard.rules.load_all_builtin_rules``
+    so the module list is maintained in exactly one place.
     """
-    import vibeguard.rules.agent_memory  # noqa: F401
-    import vibeguard.rules.ai_footprints  # noqa: F401
-    import vibeguard.rules.auth  # noqa: F401
-    import vibeguard.rules.ci_docker  # noqa: F401
-    import vibeguard.rules.dependencies  # noqa: F401
-    import vibeguard.rules.go_rules  # noqa: F401
-    import vibeguard.rules.iac  # noqa: F401
-    import vibeguard.rules.packaging  # noqa: F401
-    import vibeguard.rules.risky_diff  # noqa: F401
-    import vibeguard.rules.secrets  # noqa: F401
-    import vibeguard.rules.sourcemaps  # noqa: F401
-    import vibeguard.rules.sql  # noqa: F401
-    import vibeguard.rules.tests  # noqa: F401
+    from vibeguard.rules import load_all_builtin_rules
+
+    load_all_builtin_rules()
 
 
 @rules_app.command("list")
