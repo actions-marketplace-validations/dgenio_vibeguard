@@ -372,6 +372,8 @@ ruff check vibeguard/ tests/
 - **[docs/rules.md](docs/rules.md)** — auto-generated rule reference (`make docs` to regenerate).
 - **[docs/how-to-add-a-rule.md](docs/how-to-add-a-rule.md)** — step-by-step guide for adding a built-in rule.
 - **[docs/plugin-api.md](docs/plugin-api.md)** — public plugin API for shipping rules in your own package.
+- **[docs/pre-commit.md](docs/pre-commit.md)** — run VibeGuard locally via the [pre-commit](https://pre-commit.com) framework.
+- **[docs/docker.md](docs/docker.md)** — run VibeGuard as a container in any CI environment.
 
 ---
 

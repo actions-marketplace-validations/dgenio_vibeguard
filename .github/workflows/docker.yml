@@ -1,0 +1,63 @@
+name: Docker
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "vibeguard/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "vibeguard/**"
+      - ".github/workflows/docker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & smoke-test image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: vibeguard:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — version
+        run: docker run --rm vibeguard:ci version
+
+      - name: Smoke test — scan vulnerable-node-package (JSON)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/examples:/scan:ro" \
+            vibeguard:ci scan \
+              --path /scan/vulnerable-node-package \
+              --json \
+            > /tmp/findings.json
+          test -s /tmp/findings.json
+          jq -e '.findings | length > 0' /tmp/findings.json
+
+      - name: Smoke test — non-root user
+        run: |
+          UID_RUN=$(docker run --rm --entrypoint id vibeguard:ci -u)
+          test "$UID_RUN" -ne 0

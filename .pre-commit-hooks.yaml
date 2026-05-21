@@ -1,0 +1,43 @@
+# pre-commit hooks for VibeGuard.
+#
+# Add to .pre-commit-config.yaml:
+#
+#     repos:
+#       - repo: https://github.com/dgenio/vibeguard
+#         rev: v0.6.0
+#         hooks:
+#           - id: vibeguard-gate
+#
+# See docs/pre-commit.md for the full guide.
+- id: vibeguard-gate
+  name: VibeGuard security gate
+  description: >-
+    Deterministic pre-merge safety gate for AI-generated code. Exits non-zero
+    if findings at or above --fail-on are present.
+  entry: vibeguard gate
+  language: python
+  types: [text]
+  args: [--fail-on, high]
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+
+- id: vibeguard-scan
+  name: VibeGuard scan (informational)
+  description: >-
+    Run a full VibeGuard scan and print findings. Always exits 0 — use for
+    visibility without blocking commits.
+  entry: vibeguard scan
+  language: python
+  types: [text]
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+
+- id: vibeguard-validate-config
+  name: Validate vibeguard.yaml
+  description: Validate vibeguard.yaml against the config schema.
+  entry: vibeguard validate
+  language: python
+  files: ^vibeguard\.yaml$
+  pass_filenames: false
