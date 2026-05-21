@@ -114,7 +114,7 @@ class TestGoldenReporters:
             "Markdown golden lacks expected heading structure"
         )
         # Count table rows or finding entries (pipe-delimited rows excluding header)
-        finding_indicators = [l for l in lines if "|" in l and "severity" not in l.lower() and "---" not in l]
+        finding_indicators = [line for line in lines if "|" in line and "severity" not in line.lower() and "---" not in line]
         assert len(finding_indicators) >= 5, (
             f"Expected at least 5 finding rows in Markdown golden, got {len(finding_indicators)}"
         )
