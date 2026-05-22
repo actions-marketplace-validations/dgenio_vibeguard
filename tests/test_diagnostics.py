@@ -187,6 +187,50 @@ class TestDiagnosticsEmpty:
         assert json.loads(out) == []
 
 
+class TestDiagnosticsJsonSchemaFile:
+    """The Draft-7 schema in ``docs/diagnostics-schema.json`` is part of the
+    public contract for editor extensions. Pin its structure here so a careless
+    edit to either the schema or the reporter is caught."""
+
+    def _schema(self) -> dict:
+        path = Path(__file__).resolve().parent.parent / "docs" / "diagnostics-schema.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_schema_file_is_valid_json_draft_7(self):
+        schema = self._schema()
+        assert schema.get("$schema") == "http://json-schema.org/draft-07/schema#"
+        assert schema["type"] == "array"
+        # Per-record shape lives under definitions/DiagnosticRecord
+        assert schema["items"] == {"$ref": "#/definitions/DiagnosticRecord"}
+        assert "DiagnosticRecord" in schema["definitions"]
+
+    def test_schema_required_keys_match_emitted_record(self):
+        schema = self._schema()
+        record_required = set(schema["definitions"]["DiagnosticRecord"]["required"])
+        data_required = set(schema["definitions"]["VibeGuardData"]["required"])
+
+        parsed = json.loads(render_diagnostics(_result()))
+        for rec in parsed:
+            missing_top = record_required - set(rec.keys())
+            assert not missing_top, f"schema claims required but not emitted: {missing_top}"
+            missing_data = data_required - set(rec["data"].keys())
+            assert not missing_data, f"data required but not emitted: {missing_data}"
+
+    def test_schema_source_const_matches_reporter(self):
+        schema = self._schema()
+        assert schema["definitions"]["DiagnosticRecord"]["properties"]["source"]["const"] == (
+            "vibeguard"
+        )
+
+    def test_schema_version_const_matches_reporter(self):
+        schema = self._schema()
+        from vibeguard.reporters.diagnostics import DIAGNOSTICS_SCHEMA
+
+        assert schema["definitions"]["VibeGuardData"]["properties"]["schema"]["const"] == (
+            DIAGNOSTICS_SCHEMA
+        )
+
+
 class TestDiagnosticsCliIntegration:
     def test_scan_diagnostics_flag_emits_array(self, tmp_path: Path):
         (tmp_path / "secret.py").write_text('key = "AKIAIOSFODNN7EXAMPLE"\n')

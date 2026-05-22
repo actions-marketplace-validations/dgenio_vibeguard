@@ -157,16 +157,34 @@ unknown versions.
 | `low`              | Information        | `2`     |
 | `info`             | Hint               | `3`     |
 
-### Tags
+### Tags and rule family
 
 * **Top-level `tags`** follows LSP semantics — a list of `DiagnosticTag`
   integers (1 = `Unnecessary`, 2 = `Deprecated`). VibeGuard's rule families
   don't currently map onto that enum, so the top-level field is emitted as an
   empty array. Strict consumers that type the JSON against the LSP
   `Diagnostic` shape see a spec-compliant value.
-* **`data.tags`** carries VibeGuard's category tag strings (e.g. `"secrets"`,
-  `"supply-chain"`). Consumers that want to filter or group findings by rule
-  family should read this field.
+* **`data.rule`** carries the singular rule family that produced the finding
+  (`"secrets"`, `"risky_diff"`, `"sourcemaps"`, …). One value per finding.
+* **`data.tags`** carries VibeGuard's per-finding category tag list. It can
+  include the same string as `data.rule` plus cross-cutting tags like
+  `"supply-chain"` that aren't the rule family itself. Consumers that want to
+  group by rule family should read `data.rule`; consumers that want to filter
+  by any tag (rule family or cross-cutting) should read `data.tags`.
+
+### Field naming vs. issue #51
+
+The shape above renames two fields from the original issue's example: what
+issue #51 called `data.rule_id` is shipped as `data.rule`, and what it called
+`data.vibeguard_severity` is shipped as `data.severity_label`. Same semantics,
+shorter and more consistent with the rest of the `Finding` model.
+
+### Schema file
+
+A machine-readable JSON Schema (Draft 7) for the per-record shape lives at
+[`docs/diagnostics-schema.json`](diagnostics-schema.json). Editor extension
+authors should validate diagnostics output against that file rather than
+hand-parsing this document.
 
 ### Stability
 

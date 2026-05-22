@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/dgenio/vibeguard/blob/main/docs/diagnostics-schema.json",
+  "title": "VibeGuard diagnostics output (v1)",
+  "description": "Machine-readable diagnostics array emitted by `vibeguard scan --diagnostics` (and `gate --diagnostics`). Each record is shaped to be consumable as a VS Code / LSP `Diagnostic`. Stable contract for editor extensions and AI coding agents. Schema identifier: `vibeguard/diagnostics/v1`.",
+  "type": "array",
+  "items": { "$ref": "#/definitions/DiagnosticRecord" },
+  "definitions": {
+    "DiagnosticRecord": {
+      "type": "object",
+      "required": [
+        "severity",
+        "code",
+        "source",
+        "message",
+        "file",
+        "range",
+        "tags",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "description": "VS Code `DiagnosticSeverity`. 0=Error, 1=Warning, 2=Information, 3=Hint. VibeGuard mapping: critical/high → 0, medium → 1, low → 2, info → 3."
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable finding identifier (e.g. `SEC-AWSACCESSKEY`). Mirrors `Finding.id` and is used as the LSP `Diagnostic.code`."
+        },
+        "source": {
+          "type": "string",
+          "const": "vibeguard",
+          "description": "Always the string `vibeguard`. Lets multi-source diagnostics consumers attribute the finding."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short human-readable title (the `Finding.title`). For the long-form description and recommendation, see `data.description` and `data.recommendation`."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative file path with forward slashes (Windows paths are normalised here)."
+        },
+        "range": { "$ref": "#/definitions/Range" },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "enum": [1, 2]
+          },
+          "description": "LSP `DiagnosticTag` integers (1=Unnecessary, 2=Deprecated). VibeGuard's rule families don't currently map onto this enum, so the field is emitted as `[]`. VibeGuard category tags live under `data.tags`."
+        },
+        "data": { "$ref": "#/definitions/VibeGuardData" }
+      }
+    },
+    "Range": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "#/definitions/Position" },
+        "end": { "$ref": "#/definitions/Position" }
+      },
+      "description": "LSP range. VibeGuard emits a zero-width range at the finding's line (start == end) because findings are line-scoped, not column-scoped."
+    },
+    "Position": {
+      "type": "object",
+      "required": ["line", "character"],
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based line number (LSP convention). VibeGuard's 1-based `Finding.line` is decremented by 1 here. Findings without a line number (or with line<=0) collapse to 0."
+        },
+        "character": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based character offset within the line. Always 0 in v1 — VibeGuard findings are line-scoped."
+        }
+      }
+    },
+    "VibeGuardData": {
+      "type": "object",
+      "required": [
+        "schema",
+        "fingerprint",
+        "rule",
+        "tags",
+        "confidence",
+        "severity_label",
+        "description",
+        "recommendation"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "vibeguard/diagnostics/v1",
+          "description": "Per-record schema identifier. Bumped only on a breaking change to the shape. Consumers should refuse unknown versions rather than degrade silently."
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Deterministic finding identity — same SHA-256 hex emitted in JSON output, SARIF `partialFingerprints`, and the baseline file. Algorithm: `sha256(id + ':' + normalized_path + ':' + sha256(stored_evidence)[:16])`. See `docs/output-schemas.md` §1."
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Singular rule family that produced the finding (e.g. `secrets`, `risky_diff`, `sourcemaps`). Issue #51 called this field `rule_id`; renamed to `rule` for consistency with `Finding.rule`."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Per-finding category tag list. Can include the same string as `rule` plus cross-cutting tags like `supply-chain`. Note: this is *not* the LSP `DiagnosticTag[]` — that field lives at the record's top level."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Rule's confidence in the match. Mirrors `Finding.confidence`."
+        },
+        "severity_label": {
+          "type": "string",
+          "enum": ["info", "low", "medium", "high", "critical"],
+          "description": "VibeGuard's native severity string. The numeric top-level `severity` is the LSP/VS Code mapping; this preserves the original 5-level scale. Issue #51 called this field `vibeguard_severity`; renamed to `severity_label`."
+        },
+        "description": {
+          "type": "string",
+          "description": "Long-form explanation of the finding (`Finding.description`)."
+        },
+        "recommendation": {
+          "type": "string",
+          "description": "How to remediate the finding (`Finding.recommendation`)."
+        },
+        "evidence": {
+          "type": "string",
+          "maxLength": 201,
+          "description": "Optional snippet of the offending content, truncated to 200 characters + a `…` marker if the original was longer. Omitted entirely when the rule didn't capture evidence."
+        }
+      }
+    }
+  }
+}

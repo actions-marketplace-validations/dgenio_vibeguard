@@ -34,12 +34,11 @@ SEVERITY_WEIGHTS: dict[Severity, int] = {
     Severity.INFO: 0,
 }
 
-_GRADE_THRESHOLDS: list[tuple[int, Literal["A", "B", "C", "D", "F"]]] = [
+_GRADE_THRESHOLDS: list[tuple[int, Literal["A", "B", "C", "D"]]] = [
     (90, "A"),
     (75, "B"),
     (50, "C"),
     (25, "D"),
-    (0, "F"),
 ]
 
 
