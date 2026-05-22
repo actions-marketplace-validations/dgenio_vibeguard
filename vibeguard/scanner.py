@@ -18,6 +18,7 @@ from vibeguard.rules.dependencies import DependenciesRule
 from vibeguard.rules.go_rules import GoRulesRule
 from vibeguard.rules.iac import IaCRule
 from vibeguard.rules.packaging import PackagingRule
+from vibeguard.rules.plugins import discover_plugin_rules
 from vibeguard.rules.risky_diff import RiskyDiffRule
 from vibeguard.rules.secrets import SecretsRule
 from vibeguard.rules.sourcemaps import SourceMapsRule
@@ -151,8 +152,23 @@ def run_scan(
     if config.agent_memory.enabled:
         rules.append(AgentMemoryRule())
 
+    # Discover third-party rules registered via the ``vibeguard.rules``
+    # entry-point group (#58). Failed plugins are recorded but do not
+    # interrupt the scan — see vibeguard/rules/plugins.py for the contract.
+    loaded_plugins, plugin_failures = discover_plugin_rules(disabled=config.plugins.disabled)
+    for plugin in loaded_plugins:
+        rules.append(plugin.rule)
+
     findings: list[Finding] = []
     errors: list[str] = []
+
+    # Surface plugin load failures as scan errors so they appear in
+    # console / JSON output without being fatal.
+    for failure in plugin_failures:
+        errors.append(
+            f"Plugin '{failure.name}' "
+            f"({failure.distribution or 'unknown dist'}) failed to load: {failure.reason}"
+        )
 
     # Report skipped files
     errors.extend(skipped)

@@ -213,6 +213,21 @@ class ScannerConfig(BaseModel):
     max_file_size_kb: int = Field(default=1024, ge=1)
 
 
+class PluginsConfig(BaseModel):
+    """Controls third-party rule plugin discovery.
+
+    Plugins are picked up via the ``vibeguard.rules`` entry-point group at
+    scanner startup. Use ``disabled`` to opt a plugin out by its entry-point
+    name (the left-hand side in ``my-rule = "pkg:Class"``) without uninstalling
+    the source package — useful when a plugin is noisy on a particular repo
+    but desirable elsewhere.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    disabled: list[str] = Field(default_factory=list)
+
+
 class VibeGuardConfig(BaseModel):
     """Root configuration model."""
 
@@ -240,6 +255,7 @@ class VibeGuardConfig(BaseModel):
     agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> VibeGuardConfig:

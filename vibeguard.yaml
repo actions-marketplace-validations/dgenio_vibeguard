@@ -18,6 +18,7 @@ ignore:
     - .mypy_cache/
     - examples/
     - tests/
+    - benchmarks/
   findings: []
 
 package_allowlist:

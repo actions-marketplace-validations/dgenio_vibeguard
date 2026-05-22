@@ -1,0 +1,102 @@
+name: False-positive report
+description: Report a finding that VibeGuard raised on benign code.
+title: "[false-positive] "
+labels: ["type:false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        False-positives are first-class bugs for a deterministic safety gate — please report them. Include the **exact code snippet** so the maintainer can add it to the false-positive fixture corpus.
+
+  - type: dropdown
+    id: rule
+    attributes:
+      label: Rule that fired
+      description: The `rule` column in the scan output (e.g. `secrets`, `packaging`, `risky_diff`).
+      options:
+        - agent_memory
+        - ai_footprints
+        - auth
+        - ci_docker
+        - dependencies
+        - go_rules
+        - iac
+        - packaging
+        - risky_diff
+        - secrets
+        - sourcemaps
+        - sql
+        - tests
+    validations:
+      required: true
+
+  - type: input
+    id: finding-id
+    attributes:
+      label: Finding ID
+      description: The `id` shown in `--json` output or by `vibeguard explain <ID>` (e.g. `SEC-GITHUBTOKEN`, `PKG-NPMFILES`).
+      placeholder: "SEC-GITHUBTOKEN"
+    validations:
+      required: true
+
+  - type: textarea
+    id: path-and-line
+    attributes:
+      label: File path and line
+      description: Relative path from the repo root, plus a line number if applicable.
+      placeholder: "src/server.js:42"
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Code snippet that incorrectly triggered the rule
+      description: Minimal reproducer. Redact any real secrets — substitute obviously fake placeholders.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-benign
+    attributes:
+      label: Why this is benign
+      description: Explain why this code is safe in context.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scan-command
+    attributes:
+      label: Command used
+      description: The exact `vibeguard` invocation that produced the false positive.
+      placeholder: "vibeguard scan --path . --json"
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: vibeguard-version
+    attributes:
+      label: VibeGuard version
+      placeholder: "0.6.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround (if any)
+      description: Optional. E.g. a `.vibeguardignore` line, a severity override, or a suppression with reason.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched [existing issues](https://github.com/dgenio/vibeguard/issues?q=is%3Aissue) and did not find a duplicate.
+          required: true
+        - label: The snippet above is the minimum needed to reproduce the false positive.
+          required: true
+        - label: All secrets in the snippet have been replaced with obvious placeholders.
+          required: true

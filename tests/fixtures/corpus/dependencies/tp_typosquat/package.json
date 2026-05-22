@@ -1,0 +1,7 @@
+{
+  "name": "tp-typosquat",
+  "version": "0.1.0",
+  "dependencies": {
+    "expres": "^4.18.0"
+  }
+}

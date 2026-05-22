@@ -1,0 +1,77 @@
+name: Feature request
+description: Propose a new feature, CLI command, reporter, integration, or workflow.
+title: "[feat] "
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for general features and integrations. For a **new detection rule**, use the "Rule request" form instead. For a **false positive in an existing rule**, use the "False-positive report" form.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What is the user pain or gap today? Concrete examples help.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should VibeGuard do? Be specific about CLI shape, config keys, or output format if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered and why you rejected them. Optional.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - cli
+        - config
+        - reporters
+        - rules
+        - integrations (CI/Docker/pre-commit/IDE)
+        - packaging/publish
+        - docs
+        - dx (developer experience)
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know this is done? A short checklist works well.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Related issues, PRs, or docs
+      description: Optional. Link to anything that gives context (RFC, prior discussion, similar feature in another tool).
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched [existing issues](https://github.com/dgenio/vibeguard/issues?q=is%3Aissue) and did not find a duplicate.
+          required: true
+        - label: This proposal does not require VibeGuard to make network calls or require an API key as a core feature.
+          required: true
