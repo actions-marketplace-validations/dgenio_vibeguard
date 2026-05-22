@@ -221,12 +221,8 @@ class TestDockerWorkflow:
     def test_smoke_tests_non_root_user(self, workflow: dict):
         # Issue #48 acceptance criterion: container runs as a non-root user.
         flat = yaml.safe_dump(workflow)
-        assert "UID_RUN" in flat, (
-            "Docker workflow must capture the container UID in a variable"
-        )
-        assert "-ne 0" in flat, (
-            "Docker workflow must assert the UID is non-zero"
-        )
+        assert "UID_RUN" in flat, "Docker workflow must capture the container UID in a variable"
+        assert "-ne 0" in flat, "Docker workflow must assert the UID is non-zero"
 
 
 # --------------------------------------------------------------------------- #
