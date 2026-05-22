@@ -8,7 +8,7 @@
 #
 # Run against a mounted source tree:
 #
-#     docker run --rm -v "$PWD:/scan" vibeguard:dev scan --path /scan
+#     docker run --rm -v "$PWD:/scan:ro" vibeguard:dev scan --path /scan
 #
 # See docs/docker.md for the full guide.
 

@@ -41,7 +41,7 @@ class TestPreCommitHooksManifest:
         return data
 
     def test_ships_expected_hook_ids(self, hooks: list[dict]):
-        ids = {h["id"] for h in hooks}
+        ids = {h.get("id") for h in hooks}
         assert ids == {"vibeguard-gate", "vibeguard-scan", "vibeguard-validate-config"}, (
             f"Unexpected hook id set: {sorted(ids)}"
         )
@@ -216,14 +216,16 @@ class TestDockerWorkflow:
         # The workflow must actually exercise the CLI inside the container,
         # not just verify the image builds.
         assert "docker run" in flat
-        assert "vibeguard:ci" in flat
-        assert "scan" in flat
+        assert "vibeguard:ci scan" in flat
 
     def test_smoke_tests_non_root_user(self, workflow: dict):
         # Issue #48 acceptance criterion: container runs as a non-root user.
         flat = yaml.safe_dump(workflow)
-        assert "non-root" in flat.lower() or "UID_RUN" in flat, (
-            "Docker workflow must verify the image runs as a non-root user"
+        assert "UID_RUN" in flat, (
+            "Docker workflow must capture the container UID in a variable"
+        )
+        assert "-ne 0" in flat, (
+            "Docker workflow must assert the UID is non-zero"
         )
 
 
