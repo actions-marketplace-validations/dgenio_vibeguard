@@ -24,16 +24,19 @@ so a finding's identity is the same end-to-end.
 fingerprint = sha256(
     finding_id + ":" +
     normalized_path + ":" +
-    sha256(raw_evidence)[:16]
+    sha256(stored_evidence)[:16]
 )
 ```
 
 * `finding_id` is the finding's stable identifier (e.g. `SEC-AWSACCESSKEY`).
 * `normalized_path` is the relative file path with `\\` replaced by `/`.
-* `raw_evidence` is the evidence string as discovered by the rule, hashed
-  **before** the 200-character snippet truncation that VibeGuard applies for
-  storage. Two findings that differ only past byte 200 still produce distinct
-  fingerprints. If evidence is `null`, the inner segment is the empty string.
+* `stored_evidence` is the **stored** (post-truncation) evidence string. VibeGuard
+  truncates evidence to the first 200 characters (plus a `…` marker) to avoid
+  inadvertently keeping long secrets in memory. Two findings whose evidence
+  shares the same first 200 characters **and** matches on `finding_id` and
+  `normalized_path` will produce the same fingerprint; in practice the
+  discriminator strength of `id` + `path` keeps this collision boundary
+  narrow. If evidence is `null`, the inner segment is the empty string.
 * **Line numbers are deliberately excluded.** A finding stays identifiable
   when surrounding code shifts.
 
