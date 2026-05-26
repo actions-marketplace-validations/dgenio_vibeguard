@@ -1,0 +1,46 @@
+# Keep the Docker build context small and reproducible.
+# Anything not needed to build the wheel goes here.
+
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Python build / cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Tests, examples and benchmarks are not needed in the image.
+tests/
+examples/
+benchmarks/
+
+# Docs are not bundled into the wheel.
+docs/
+
+# Generated artifacts that would invalidate caches.
+*.log
+*.tmp

@@ -25,6 +25,14 @@ _SEVERITY_ICONS = {
     Severity.CRITICAL: "☠",
 }
 
+_GRADE_COLORS = {
+    "A": "bold green",
+    "B": "green",
+    "C": "yellow",
+    "D": "bold yellow",
+    "F": "bold red",
+}
+
 console = Console(stderr=False)
 
 
@@ -122,7 +130,11 @@ def _print_stats(result: ScanResult) -> None:
     if parts:
         summary += "  |  " + "  ".join(parts)
 
+    score = result.health_score
+    grade_color = _GRADE_COLORS.get(score.grade, "white")
+    score_text = f"health: [{grade_color}]{score.total}/100 ({score.grade})[/]"
+
     console.print(
         f"\n  Scanned [bold]{result.scanned_files}[/] file(s)  •  "
-        f"{summary}  •  policy: [bold]{result.policy}[/]\n"
+        f"{summary}  •  {score_text}  •  policy: [bold]{result.policy}[/]\n"
     )

@@ -24,6 +24,7 @@ from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack
 from vibeguard.publish import run_publish_check
 from vibeguard.reporters.annotations import emit_annotations, is_github_actions
 from vibeguard.reporters.console import render_findings
+from vibeguard.reporters.diagnostics import print_diagnostics
 from vibeguard.reporters.json_reporter import print_json
 from vibeguard.reporters.markdown import render_markdown, render_pr_comment
 from vibeguard.reporters.sarif import print_sarif
@@ -179,25 +180,29 @@ def _validate_output_options(
     markdown_output: bool,
     sarif_output: bool = False,
     pr_comment_output: bool = False,
+    diagnostics_output: bool = False,
     annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
-    selected = sum([json_output, markdown_output, sarif_output, pr_comment_output])
+    selected = sum(
+        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
+    )
     if selected > 1:
         err_console.print(
-            "[red]Error: --json, --markdown, --sarif, and --pr-comment are mutually exclusive."
-            " Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, --pr-comment, and --diagnostics are"
+            " mutually exclusive. Choose one.[/]"
         )
         raise typer.Exit(2)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
-        # with structured output (JSON/SARIF/Markdown) interleaves them into
-        # the report and breaks downstream parsers. Annotations still
-        # auto-enable in GitHub Actions when no structured output is selected.
+        # with structured output (JSON/SARIF/Markdown/diagnostics) interleaves
+        # them into the report and breaks downstream parsers. Annotations
+        # still auto-enable in GitHub Actions when no structured output is
+        # selected.
         err_console.print(
             "[red]Error: --annotations cannot be combined with --json, --markdown,"
-            " --sarif, or --pr-comment (annotations would corrupt the structured"
-            " output).[/]"
+            " --sarif, --pr-comment, or --diagnostics (annotations would corrupt"
+            " the structured output).[/]"
         )
         raise typer.Exit(2)
 
@@ -231,6 +236,13 @@ def scan(
     pr_comment_output: Annotated[
         bool,
         typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
+    ] = False,
+    diagnostics_output: Annotated[
+        bool,
+        typer.Option(
+            "--diagnostics",
+            help="Output a stable JSON diagnostics array for IDE / editor integrations",
+        ),
     ] = False,
     annotations: Annotated[
         bool | None,
@@ -271,6 +283,7 @@ def scan(
         markdown_output,
         sarif_output,
         pr_comment_output,
+        diagnostics_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -296,7 +309,12 @@ def scan(
 
     # Determine annotation mode
     emit_annot = _should_emit_annotations(
-        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+        annotations,
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        diagnostics_output,
     )
 
     if json_output:
@@ -307,6 +325,8 @@ def scan(
         typer.echo(render_pr_comment(result, gate_passed=True))
     elif markdown_output:
         typer.echo(render_markdown(result))
+    elif diagnostics_output:
+        print_diagnostics(result)
     else:
         render_findings(result, verbose=verbose)
 
@@ -355,6 +375,13 @@ def gate(
         bool,
         typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
     ] = False,
+    diagnostics_output: Annotated[
+        bool,
+        typer.Option(
+            "--diagnostics",
+            help="Output a stable JSON diagnostics array for IDE / editor integrations",
+        ),
+    ] = False,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -394,6 +421,7 @@ def gate(
         markdown_output,
         sarif_output,
         pr_comment_output,
+        diagnostics_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -422,7 +450,12 @@ def gate(
 
     # Determine annotation mode
     emit_annot = _should_emit_annotations(
-        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+        annotations,
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        diagnostics_output,
     )
 
     if json_output:
@@ -433,6 +466,8 @@ def gate(
         typer.echo(render_pr_comment(result, gate_passed=gate_passed))
     elif markdown_output:
         typer.echo(render_markdown(result))
+    elif diagnostics_output:
+        print_diagnostics(result)
     else:
         render_findings(result, verbose=verbose)
 
@@ -807,6 +842,7 @@ def _should_emit_annotations(
     markdown_output: bool,
     sarif_output: bool,
     pr_comment_output: bool,
+    diagnostics_output: bool = False,
 ) -> bool:
     """Determine whether to emit GitHub Actions annotations."""
     # Explicit flag takes precedence
@@ -816,7 +852,7 @@ def _should_emit_annotations(
         return False
     # Auto-enable in GitHub Actions unless another structured output is selected
     return is_github_actions() and not any(
-        [json_output, markdown_output, sarif_output, pr_comment_output]
+        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
     )
 
 

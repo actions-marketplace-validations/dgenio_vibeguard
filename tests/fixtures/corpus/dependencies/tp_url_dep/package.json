@@ -1,0 +1,7 @@
+{
+  "name": "tp-url-dep",
+  "version": "0.1.0",
+  "dependencies": {
+    "axios": "git+https://github.com/axios/axios.git#master"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "mutation-widened-package",
+  "version": "0.1.0",
+  "description": "Mutation fixture: package.json files field widened to wildcard. Would publish everything not gitignored.",
+  "files": [
+    "*"
+  ],
+  "scripts": {
+    "build": "echo build"
+  }
+}

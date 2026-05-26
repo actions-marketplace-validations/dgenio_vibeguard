@@ -21,6 +21,8 @@ def render_markdown(result: ScanResult) -> str:
 
     counts = result.counts()
     total = len(result.findings)
+    score = result.health_score
+    lines.append(f"**Health score:** `{score.total}/100` ({score.grade})\n")
 
     if total == 0:
         lines.append("✅ **No findings** — scan passed.\n")
@@ -58,6 +60,7 @@ def _finding_detail(finding: Finding) -> list[str]:
         f"**Path:** `{loc}`  ",
         f"**Severity:** {finding.severity.value}  ",
         f"**Confidence:** {finding.confidence.value}  ",
+        f"**Fingerprint:** `{finding.fingerprint[:12]}`  ",
         "",
         finding.description,
         "",
