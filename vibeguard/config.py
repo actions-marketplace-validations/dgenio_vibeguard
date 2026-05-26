@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,6 +17,14 @@ if TYPE_CHECKING:
 
 
 PolicyPackName = Literal["oss-library", "web-app", "strict-ci"]
+
+# Guard: the Literal must stay in sync with KNOWN_PACK_NAMES. Python's type
+# system cannot derive a Literal from a runtime tuple, so this import-time
+# assertion catches drift earlier than tests alone.
+assert set(get_args(PolicyPackName)) == set(KNOWN_PACK_NAMES), (
+    f"PolicyPackName Literal {set(get_args(PolicyPackName))} does not match "
+    f"KNOWN_PACK_NAMES {set(KNOWN_PACK_NAMES)} — update both when adding a pack."
+)
 
 
 class IgnoreConfig(BaseModel):

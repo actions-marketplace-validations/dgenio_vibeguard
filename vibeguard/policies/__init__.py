@@ -10,8 +10,11 @@ The public surface is intentionally tiny:
 * :data:`KNOWN_PACK_NAMES` — list of built-in pack names.
 * :func:`load_policy_pack` — read a pack's YAML into a plain ``dict``.
 * :func:`merge_policy_pack` — combine pack defaults under a user data dict.
-* :func:`available_packs` — same as :data:`KNOWN_PACK_NAMES` but discovered
-  from disk so a new pack only requires dropping a ``<name>.yaml`` here.
+* :func:`available_packs` — discovered from disk (useful for tooling).
+
+Adding a new built-in pack requires three updates: drop the YAML here, add
+the name to :data:`KNOWN_PACK_NAMES`, and update the ``PolicyPackName``
+Literal in ``vibeguard/config.py``. A test guards this invariant.
 """
 
 from __future__ import annotations

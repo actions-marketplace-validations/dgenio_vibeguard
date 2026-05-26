@@ -102,10 +102,10 @@ tests:
 
 The following configs fail loudly at load time:
 
-* Empty `source` pattern (`tests: must not be empty`).
-* Empty list under `tests:` (`min_length=1`).
-* Empty-string entry inside `tests:`.
-* Any extra key inside a mapping item (`extra="forbid"`).
+* Empty `source` pattern — raises `'source' must be a non-empty glob pattern`.
+* Empty list under `tests:` — fails Pydantic `min_length=1` validation.
+* Empty-string entry inside `tests:` — raises `'tests' patterns must not be empty strings`.
+* Any extra key inside a mapping item — fails Pydantic `extra="forbid"` validation.
 
 ### Simple-repo example
 

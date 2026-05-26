@@ -144,12 +144,12 @@ class MissingTestsRule(Rule):
             )
             for m in mappings
         ]
-        changed_rels = [self._rel(context, f) for f in files_to_check]
+        changed_rels = [self._rel(context, f).replace("\\", "/") for f in files_to_check]
         has_any_test_change = bool(changed_tests)
 
         uncovered: list[str] = []
         for src_file in changed_source:
-            rel = self._rel(context, src_file)
+            rel = self._rel(context, src_file).replace("\\", "/")
             matching_pairs = [
                 (src_spec, test_spec)
                 for src_spec, test_spec in spec_pairs
