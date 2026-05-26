@@ -1,0 +1,51 @@
+# Policy pack: oss-library
+#
+# Profile for open-source library authors. Focused on what gets published:
+# secrets, packaging hygiene, and dependency risks. Missing-tests is disabled
+# because library test layouts vary widely.
+#
+# Applied as defaults; user-supplied keys always win.
+
+policy: balanced
+fail_on: high
+
+ignore:
+  paths:
+    - .git/
+    - node_modules/
+    - .venv/
+    - venv/
+    - dist/
+    - build/
+    - "*.egg-info/"
+    - .tox/
+    - __pycache__/
+    - examples/
+    - docs/
+
+secrets:
+  enabled: true
+sourcemaps:
+  enabled: true
+packaging:
+  enabled: true
+dependencies:
+  enabled: true
+risky_patterns:
+  enabled: true
+tests:
+  enabled: false
+ai_footprints:
+  enabled: true
+go_rules:
+  enabled: true
+ci_docker:
+  enabled: true
+iac:
+  enabled: true
+auth:
+  enabled: true
+sql:
+  enabled: true
+agent_memory:
+  enabled: true

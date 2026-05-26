@@ -77,3 +77,7 @@ addopts = "-v"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vibeguard"]
+# Hatchling includes all files within configured packages by default, but
+# pin the bundled policy-pack YAMLs explicitly so a future packaging-layout
+# tweak can't silently drop them from the wheel.
+artifacts = ["vibeguard/policies/*.yaml"]
