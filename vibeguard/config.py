@@ -167,6 +167,9 @@ class ExplainConfig(BaseModel):
     def _adapter_not_empty(self) -> ExplainConfig:
         if not self.adapter or not self.adapter.strip():
             raise ValueError("'adapter' must be a non-empty string")
+        # Normalize so a padded value like "static " matches the registry key
+        # at lookup time (registry names are not stripped on lookup).
+        self.adapter = self.adapter.strip()
         return self
 
 

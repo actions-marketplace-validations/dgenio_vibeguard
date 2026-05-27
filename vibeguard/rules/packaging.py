@@ -209,7 +209,8 @@ class PackagingRule(Rule):
         # package has a tight `files` allowlist or a corresponding ignore
         # entry. The scripts themselves are not bad — we flag them as a
         # reminder to audit what they write.
-        scripts: dict = data.get("scripts") or {}
+        scripts_obj = data.get("scripts")
+        scripts: dict = scripts_obj if isinstance(scripts_obj, dict) else {}
         for script_name in _PUBLISH_TIME_SCRIPTS:
             cmd = scripts.get(script_name)
             if not cmd or not isinstance(cmd, str):
@@ -553,13 +554,12 @@ class PackagingRule(Rule):
         not, and "ignored from git" is a much weaker signal than "explicitly
         excluded from the publish set".
         """
-        del context  # reserved for future per-file diff filtering
         findings: list[Finding] = []
 
         exclusions = self._collect_root_exclusions(pkg_root, ecosystem=ecosystem)
         allowlist = self._collect_root_allowlist(pkg_root, ecosystem=ecosystem)
 
-        rel_root = self._format_root(pkg_root)
+        rel_root = self._rel(context, pkg_root)
 
         # Coverage artifacts
         for name, label in _COVERAGE_DIRS:
@@ -568,6 +568,7 @@ class PackagingRule(Rule):
                 continue
             if self._is_root_artifact_excluded(name, exclusions, allowlist):
                 continue
+            rel_artifact = self._rel(context, artifact)
             findings.append(
                 Finding(
                     id="PKG-COVERAGE-LEAK",
@@ -580,12 +581,9 @@ class PackagingRule(Rule):
                         "leak filenames, branch names, or commit metadata."
                     ),
                     severity=Severity.LOW,
-                    path=name,
+                    path=rel_artifact,
                     evidence=name,
-                    recommendation=(
-                        f"Add `{name}` to your `.npmignore` / `MANIFEST.in` "
-                        f"`prune {name}` directive, or remove the directory."
-                    ),
+                    recommendation=self._root_exclusion_hint(name, artifact),
                     tags=["packaging", "leak", "coverage"],
                     confidence=Confidence.HIGH,
                 )
@@ -598,6 +596,7 @@ class PackagingRule(Rule):
                 continue
             if self._is_root_artifact_excluded(name, exclusions, allowlist):
                 continue
+            rel_artifact = self._rel(context, artifact)
             findings.append(
                 Finding(
                     id="PKG-CI-LEAK",
@@ -610,12 +609,9 @@ class PackagingRule(Rule):
                         "URLs, or runner setup that should not reach the registry."
                     ),
                     severity=Severity.LOW,
-                    path=name,
+                    path=rel_artifact,
                     evidence=name,
-                    recommendation=(
-                        f"Add `{name}` to `.npmignore` / `MANIFEST.in` "
-                        f"`prune {name}`, or tighten the `files` allowlist."
-                    ),
+                    recommendation=self._root_exclusion_hint(name, artifact),
                     tags=["packaging", "leak", "ci"],
                     confidence=Confidence.HIGH,
                 )
@@ -624,11 +620,22 @@ class PackagingRule(Rule):
         return findings
 
     @staticmethod
-    def _format_root(pkg_root: Path) -> str:
-        try:
-            return str(pkg_root.relative_to(Path.cwd())) or "."
-        except ValueError:
-            return str(pkg_root)
+    def _root_exclusion_hint(name: str, artifact: Path) -> str:
+        """Build a correct publish-exclusion recommendation for a root artifact.
+
+        ``MANIFEST.in`` uses ``prune`` for directory trees and ``exclude`` for
+        individual files — ``prune`` silently matches nothing for a file.
+        """
+        if artifact.is_dir():
+            manifest = f"a `prune {name}` directive in `MANIFEST.in`"
+            target = "directory"
+        else:
+            manifest = f"an `exclude {name}` directive in `MANIFEST.in`"
+            target = "file"
+        return (
+            f"Add `{name}` to your `.npmignore`, add {manifest}, or exclude it "
+            f"via the `package.json` `files` allowlist — or remove the {target}."
+        )
 
     def _collect_root_exclusions(self, pkg_root: Path, *, ecosystem: str) -> set[str]:
         """Return the set of top-level names that ignore files explicitly exclude.

@@ -74,6 +74,7 @@ from __future__ import annotations
 from vibeguard import PLUGIN_API_VERSION
 from vibeguard.explain.base import ExplainAdapter
 from vibeguard.explain.registry import register_explain_adapter
+from vibeguard.explain.static import StaticExplainAdapter
 from vibeguard.models import (
     Confidence,
     Finding,
@@ -103,5 +104,6 @@ __all__ = [
     "RULE_REGISTRY",
     # Explanation-adapter authoring surface
     "ExplainAdapter",
+    "StaticExplainAdapter",
     "register_explain_adapter",
 ]

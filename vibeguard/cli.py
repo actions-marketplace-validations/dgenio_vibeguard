@@ -590,7 +590,11 @@ def explain(
     # adapter is the static one *and* a curated explanation exists for the
     # upper-cased ID, render the curated text verbatim.
     cfg = _load_config(config, path)
-    adapter_name = adapter or cfg.explain.adapter
+    # A whitespace-only `--adapter` override is treated as "no override" and
+    # falls back to the configured adapter, mirroring the config validator's
+    # rejection of blank names (config.py) and avoiding an opaque
+    # "Unknown explain adapter '   '" error.
+    adapter_name = (adapter or "").strip() or cfg.explain.adapter
     explainer = _resolve_explain_adapter(adapter_name)
 
     if isinstance(explainer, StaticExplainAdapter):
