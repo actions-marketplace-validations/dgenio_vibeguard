@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 
 from vibeguard import __version__
 from vibeguard.config import (
@@ -215,15 +216,19 @@ def _validate_scan_path(path: Path) -> None:
     a typo'd or unchecked-out path prints "Gate passed" and exits 0. Validate
     at the CLI boundary so the gate fails closed instead.
     """
+    # Escape the user-supplied path: Rich would otherwise interpret bracketed
+    # segments (e.g. a dir literally named "[wip]") as markup tags and drop or
+    # mangle them, so the error would show a different path than was typed.
+    shown = escape(str(path))
     if not path.exists():
         err_console.print(
-            f"[red]Error: --path does not exist: {path}[/]\n"
+            f"[red]Error: --path does not exist: {shown}[/]\n"
             "Pass the repository root you want to scan."
         )
         raise typer.Exit(2)
     if not path.is_dir():
         err_console.print(
-            f"[red]Error: --path must be a directory, but got a file: {path}[/]\n"
+            f"[red]Error: --path must be a directory, but got a file: {shown}[/]\n"
             "Pass the repository root (a directory), not an individual file."
         )
         raise typer.Exit(2)

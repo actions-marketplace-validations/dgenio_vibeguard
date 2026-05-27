@@ -186,6 +186,21 @@ class TestPathValidation:
         assert result.exit_code == 2
         assert "does not exist" in result.stdout + (result.stderr or "")
 
+    def test_baseline_update_missing_path_errors(self, tmp_path: Path):
+        result = runner.invoke(
+            app,
+            [
+                "baseline",
+                "update",
+                "--path",
+                "/does/not/exist",
+                "--output",
+                str(tmp_path / "b.json"),
+            ],
+        )
+        assert result.exit_code == 2
+        assert "does not exist" in result.stdout + (result.stderr or "")
+
     def test_valid_directory_still_scans(self, tmp_path: Path):
         (tmp_path / "app.py").write_text("print('hi')\n")
         result = runner.invoke(app, ["gate", "--path", str(tmp_path), "--fail-on", "high"])
