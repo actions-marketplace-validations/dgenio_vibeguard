@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from vibeguard.cli import app
@@ -9,6 +11,7 @@ from vibeguard.models import Confidence, Finding, ScanResult, Severity
 from vibeguard.reporters.markdown import render_pr_comment
 
 runner = CliRunner()
+EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 
 def _make_result(with_findings: bool = True) -> ScanResult:
@@ -124,6 +127,30 @@ class TestPrComment:
         closes = last_line.count(">")
         assert opens == closes, f"truncated line has unbalanced angle brackets: {last_line!r}"
 
+    def test_default_threshold_keeps_medium_non_blocking(self):
+        """With the default (HIGH) threshold, a MEDIUM finding stays collapsed."""
+        result = _make_result()  # CRITICAL + MEDIUM
+        output = render_pr_comment(result, gate_passed=False)
+        assert "additional findings" in output
+        assert "below high threshold" in output
+
+    def test_threshold_promotes_medium_to_blocking(self):
+        """With threshold=MEDIUM, the MEDIUM finding is blocking, not collapsed."""
+        result = _make_result()  # CRITICAL + MEDIUM
+        output = render_pr_comment(result, gate_passed=False, threshold=Severity.MEDIUM)
+        # Both findings are now at/above the threshold, so nothing is collapsed.
+        assert "additional findings" not in output
+        # The MEDIUM finding's detail must appear under the blocking header.
+        blocking_idx = output.index("### Blocking Findings")
+        assert output.index("AI-FOOTPRINT") > blocking_idx
+
+    def test_threshold_summary_reflects_cutoff(self):
+        """The collapsed-section summary names the active threshold."""
+        result = _make_result()  # CRITICAL + MEDIUM
+        output = render_pr_comment(result, gate_passed=False, threshold=Severity.CRITICAL)
+        # Only CRITICAL is blocking; MEDIUM is below the CRITICAL threshold.
+        assert "below critical threshold" in output
+
 
 class TestPrCommentCLI:
     def test_scan_pr_comment_flag(self, tmp_path):
@@ -144,3 +171,27 @@ class TestPrCommentCLI:
         (tmp_path / "hello.py").write_text("print('hello')\n")
         result = runner.invoke(app, ["scan", "--path", str(tmp_path), "--pr-comment", "--markdown"])
         assert result.exit_code == 2
+
+    def test_scan_pr_comment_fail_header_on_findings(self):
+        """scan --pr-comment must show FAIL when blocking findings exist (exit still 0)."""
+        pkg = str(EXAMPLES_DIR / "vulnerable-node-package")
+        result = runner.invoke(app, ["scan", "--path", pkg, "--pr-comment"])
+        assert result.exit_code == 0
+        assert "🔴" in result.stdout
+        assert "— FAIL" in result.stdout
+
+    def test_scan_pr_comment_pass_header_when_clean(self, tmp_path):
+        (tmp_path / "hello.py").write_text("print('hello')\n")
+        result = runner.invoke(app, ["scan", "--path", str(tmp_path), "--pr-comment"])
+        assert result.exit_code == 0
+        assert "🟢" in result.stdout
+        assert "— PASS" in result.stdout
+
+    def test_gate_pr_comment_threshold_threaded(self):
+        """gate --pr-comment threads --fail-on through and still gates (exit 1)."""
+        pkg = str(EXAMPLES_DIR / "vulnerable-node-package")
+        result = runner.invoke(app, ["gate", "--path", pkg, "--pr-comment", "--fail-on", "medium"])
+        # Blocking findings exist at/above medium, so the gate fails (exit 1)
+        # and the comment lists them under the blocking section.
+        assert result.exit_code == 1
+        assert "### Blocking Findings" in result.stdout

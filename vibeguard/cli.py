@@ -207,6 +207,28 @@ def _validate_output_options(
         raise typer.Exit(2)
 
 
+def _validate_scan_path(path: Path) -> None:
+    """Reject a ``--path`` that is missing or is not a directory.
+
+    The scanner walks ``path.rglob("*")``, which silently yields nothing for a
+    missing path or a single file. Without this guard ``gate`` fails *open* —
+    a typo'd or unchecked-out path prints "Gate passed" and exits 0. Validate
+    at the CLI boundary so the gate fails closed instead.
+    """
+    if not path.exists():
+        err_console.print(
+            f"[red]Error: --path does not exist: {path}[/]\n"
+            "Pass the repository root you want to scan."
+        )
+        raise typer.Exit(2)
+    if not path.is_dir():
+        err_console.print(
+            f"[red]Error: --path must be a directory, but got a file: {path}[/]\n"
+            "Pass the repository root (a directory), not an individual file."
+        )
+        raise typer.Exit(2)
+
+
 @app.command()
 def scan(
     path: Annotated[
@@ -259,7 +281,11 @@ def scan(
         str | None,
         typer.Option(
             "--fail-on",
-            help="Exit non-zero if findings meet this severity [info|low|medium|high|critical]",
+            help=(
+                "Severity threshold used to summarize blocking findings; scan always "
+                "exits 0 (informational) — use `vibeguard gate` to fail CI. "
+                "[info|low|medium|high|critical]"
+            ),
         ),
     ] = None,
     policy_pack: Annotated[
@@ -278,6 +304,7 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
+    _validate_scan_path(path)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -322,7 +349,10 @@ def scan(
     elif sarif_output:
         print_sarif(result)
     elif pr_comment_output:
-        typer.echo(render_pr_comment(result, gate_passed=True))
+        # scan still exits 0, but the PR-comment headline must reflect whether
+        # blocking findings exist — otherwise it claims PASS while listing them.
+        scan_gate_passed = not result.has_blocking(cfg.fail_on)
+        typer.echo(render_pr_comment(result, gate_passed=scan_gate_passed, threshold=cfg.fail_on))
     elif markdown_output:
         typer.echo(render_markdown(result))
     elif diagnostics_output:
@@ -416,6 +446,7 @@ def gate(
     ] = False,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
+    _validate_scan_path(path)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -463,7 +494,7 @@ def gate(
     elif sarif_output:
         print_sarif(result)
     elif pr_comment_output:
-        typer.echo(render_pr_comment(result, gate_passed=gate_passed))
+        typer.echo(render_pr_comment(result, gate_passed=gate_passed, threshold=threshold))
     elif markdown_output:
         typer.echo(render_markdown(result))
     elif diagnostics_output:
@@ -544,6 +575,7 @@ def publish_check(
     ] = False,
 ) -> None:
     """Simulate a publish and gate on any findings in the published file set."""
+    _validate_scan_path(path)
     _validate_output_options(json_output, markdown_output)
     cfg = _load_config(config, path)
     if not cfg.publish_check.enabled:
@@ -868,6 +900,7 @@ def baseline_create(
     """Create a baseline file from a full scan of the repository."""
     from vibeguard.baseline import create_baseline
 
+    _validate_scan_path(path)
     cfg = _load_config(config, path)
     result = run_scan(path, cfg, diff_only=False)
 
@@ -898,6 +931,7 @@ def baseline_update(
     """Re-scan and update an existing baseline file."""
     from vibeguard.baseline import create_baseline
 
+    _validate_scan_path(path)
     cfg = _load_config(config, path)
     result = run_scan(path, cfg, diff_only=False)
 
