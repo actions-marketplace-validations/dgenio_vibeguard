@@ -379,6 +379,13 @@ class VibeGuardConfig(BaseModel):
         else:
             data = {}
 
+        if not isinstance(data, dict):
+            # A non-mapping YAML root (scalar, list, …) is not a valid config.
+            # Raise a clean TypeError instead of letting the .get()/** access
+            # below fail with AttributeError — callers and the fuzz suite treat
+            # TypeError as a recognised "malformed config" failure mode.
+            raise TypeError(f"config root must be a YAML mapping, got {type(data).__name__}")
+
         effective_pack = policy_pack or data.get("policy_pack")
         if effective_pack and effective_pack in KNOWN_PACK_NAMES:
             # Known pack — merge its defaults in. We deliberately do NOT
