@@ -195,6 +195,38 @@ class PublishCheckConfig(BaseModel):
     fail_on: Severity = Severity.HIGH
 
 
+class ExplainConfig(BaseModel):
+    """Controls the explanation adapter used by ``vibeguard explain``.
+
+    ``adapter`` is a free-form string rather than a ``Literal`` because the
+    set of valid names grows at runtime via the ``vibeguard.explain_adapters``
+    entry-point group. Unknown names surface as a CLI error at command time,
+    not at config-load time — the alternative would be to import every
+    optional plugin before validating the config, which defeats the lazy
+    discovery design.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    adapter: str = Field(
+        default="static",
+        description=(
+            "Name of the explanation adapter to use. The built-in 'static' "
+            "adapter is always available; additional adapters can be "
+            "contributed via the 'vibeguard.explain_adapters' entry point."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _adapter_not_empty(self) -> ExplainConfig:
+        if not self.adapter or not self.adapter.strip():
+            raise ValueError("'adapter' must be a non-empty string")
+        # Normalize so a padded value like "static " matches the registry key
+        # at lookup time (registry names are not stripped on lookup).
+        self.adapter = self.adapter.strip()
+        return self
+
+
 class SeverityOverride(BaseModel):
     """A severity override for a specific rule or finding ID.
 
@@ -316,6 +348,7 @@ class VibeGuardConfig(BaseModel):
     sql: SqlConfig = Field(default_factory=SqlConfig)
     agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
+    explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
@@ -345,6 +378,13 @@ class VibeGuardConfig(BaseModel):
                 data: dict[str, Any] = yaml.safe_load(f) or {}
         else:
             data = {}
+
+        if not isinstance(data, dict):
+            # A non-mapping YAML root (scalar, list, …) is not a valid config.
+            # Raise a clean TypeError instead of letting the .get()/** access
+            # below fail with AttributeError — callers and the fuzz suite treat
+            # TypeError as a recognised "malformed config" failure mode.
+            raise TypeError(f"config root must be a YAML mapping, got {type(data).__name__}")
 
         effective_pack = policy_pack or data.get("policy_pack")
         if effective_pack and effective_pack in KNOWN_PACK_NAMES:
@@ -467,6 +507,12 @@ publish_check:
   enabled: true
   ecosystem: auto     # auto | npm | python-sdist | python-wheel
   fail_on: high       # severity threshold when used as a gate
+
+explain:
+  # Adapter used by `vibeguard explain`. The default `static` adapter is
+  # always available and never makes network calls. See
+  # docs/explain-adapters.md for the contract and how to add custom adapters.
+  adapter: static
 
 # severity_overrides:
 #   - rule_id: "AI-FOOTPRINT"
