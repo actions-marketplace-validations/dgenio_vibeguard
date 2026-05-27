@@ -306,6 +306,17 @@ class TestConfig:
 
 
 class TestCli:
+    @pytest.fixture(autouse=True)
+    def _isolate_registry(self):
+        # The explain CLI resolves adapters via get_explain_adapter, which runs
+        # entry-point discovery (register=True) on a cache miss and mutates the
+        # module-global _REGISTRY. Snapshot/restore so a stray real adapter
+        # entry point can't leak across tests and cause order-dependent flakes.
+        snapshot = dict(registry_module._REGISTRY)
+        yield
+        registry_module._REGISTRY.clear()
+        registry_module._REGISTRY.update(snapshot)
+
     def test_explain_default_adapter_renders_curated_text(self, tmp_path):
         result = runner.invoke(app, ["explain", "SEC-ENV", "--path", str(tmp_path)])
         assert result.exit_code == 0, result.stdout

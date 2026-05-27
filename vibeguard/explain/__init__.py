@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from vibeguard.explain.base import ExplainAdapter
 from vibeguard.explain.registry import (
-    KNOWN_ADAPTERS,
     discover_adapter_plugins,
     get_explain_adapter,
     register_explain_adapter,
@@ -32,7 +31,6 @@ from vibeguard.explain.static import StaticExplainAdapter
 __all__ = [
     "ExplainAdapter",
     "StaticExplainAdapter",
-    "KNOWN_ADAPTERS",
     "discover_adapter_plugins",
     "get_explain_adapter",
     "register_explain_adapter",

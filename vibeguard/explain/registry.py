@@ -46,12 +46,6 @@ _REGISTRY: dict[str, type[ExplainAdapter]] = {}
 _REGISTRY["static"] = StaticExplainAdapter
 
 
-#: Built-in adapter names. The CLI surfaces this set in error messages so
-#: users see the difference between "I typed the name wrong" and "I haven't
-#: installed the plugin that provides that adapter".
-KNOWN_ADAPTERS: frozenset[str] = frozenset({"static"})
-
-
 @dataclass(frozen=True)
 class LoadedAdapter:
     """A successfully discovered third-party adapter."""
