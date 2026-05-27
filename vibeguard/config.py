@@ -4,15 +4,27 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from vibeguard.models import Severity
+from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack, merge_policy_pack
 
 if TYPE_CHECKING:
     from vibeguard.models import Finding
+
+
+PolicyPackName = Literal["oss-library", "web-app", "strict-ci"]
+
+# Guard: the Literal must stay in sync with KNOWN_PACK_NAMES. Python's type
+# system cannot derive a Literal from a runtime tuple, so this import-time
+# assertion catches drift earlier than tests alone.
+assert set(get_args(PolicyPackName)) == set(KNOWN_PACK_NAMES), (
+    f"PolicyPackName Literal {set(get_args(PolicyPackName))} does not match "
+    f"KNOWN_PACK_NAMES {set(KNOWN_PACK_NAMES)} — update both when adding a pack."
+)
 
 
 class IgnoreConfig(BaseModel):
@@ -85,10 +97,52 @@ class RiskyPatternsConfig(BaseModel):
     diff_breadth_threshold: int = Field(default=5, ge=1)
 
 
+class SourceTestMapping(BaseModel):
+    """Maps a source-file glob to one or more test-file globs.
+
+    Used by :class:`vibeguard.rules.tests.MissingTestsRule` in monorepos
+    where the default ``src/ ⇄ tests/`` heuristic would otherwise flag valid
+    layouts (e.g. ``packages/api/src/**`` paired with
+    ``packages/api/tests/**``) as untested.
+
+    Both ``source`` and ``tests`` accept gitignore-style globs (matched via
+    ``pathspec``). At least one ``tests`` glob is required, and patterns
+    must be non-empty after stripping whitespace — invalid patterns surface
+    as ``ValidationError`` at config load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(description="Glob matched against changed source files")
+    tests: list[str] = Field(
+        min_length=1,
+        description="One or more globs for the test files that satisfy this source glob",
+    )
+
+    @model_validator(mode="after")
+    def _patterns_non_empty(self) -> SourceTestMapping:
+        if not self.source.strip():
+            raise ValueError("'source' must be a non-empty glob pattern")
+        for pat in self.tests:
+            if not pat.strip():
+                raise ValueError("'tests' patterns must not be empty strings")
+        return self
+
+
 class TestsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
+    mapping: list[SourceTestMapping] = Field(
+        default_factory=list,
+        description=(
+            "Optional source-test path mappings for monorepos. When empty (the "
+            "default), the rule uses its built-in heuristics; when populated, a "
+            "source change is treated as covered if any mapping's source glob "
+            "matches the file AND any of that mapping's test globs is touched "
+            "by the same change set."
+        ),
+    )
 
 
 class AIFootprintsConfig(BaseModel):
@@ -266,6 +320,14 @@ class VibeGuardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     policy: Literal["relaxed", "balanced", "strict"] = "balanced"
+    policy_pack: PolicyPackName | None = Field(
+        default=None,
+        description=(
+            "Optional built-in policy pack name. When set, the pack's settings "
+            "are merged in as defaults — every key the user has explicitly "
+            "configured wins over the pack. See docs/policy-packs.md."
+        ),
+    )
     fail_on: Severity = Severity.HIGH
     baseline: str | None = Field(default=None, description="Path to baseline file")
     severity_overrides: list[SeverityOverride] = Field(default_factory=list)
@@ -291,17 +353,50 @@ class VibeGuardConfig(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod
-    def load(cls, path: Path | str | None = None) -> VibeGuardConfig:
-        """Load config from a YAML file, falling back to defaults."""
+    def load(
+        cls,
+        path: Path | str | None = None,
+        *,
+        policy_pack: str | None = None,
+    ) -> VibeGuardConfig:
+        """Load config from a YAML file, falling back to defaults.
+
+        If ``policy_pack`` is passed (typically from the CLI ``--policy-pack``
+        flag), it takes precedence over any ``policy_pack:`` key inside the
+        YAML file. The pack's settings are merged in as **defaults** — every
+        key the user has explicitly set in their YAML still wins.
+
+        Raises ``pydantic.ValidationError`` for invalid YAML, unknown pack
+        names, or extra/unknown keys.
+        """
         if path is None:
             path = Path("vibeguard.yaml")
 
         config_path = Path(path)
-        if not config_path.exists():
-            return cls()
+        if config_path.exists():
+            with config_path.open() as f:
+                data: dict[str, Any] = yaml.safe_load(f) or {}
+        else:
+            data = {}
 
-        with config_path.open() as f:
-            data: dict[str, Any] = yaml.safe_load(f) or {}
+        effective_pack = policy_pack or data.get("policy_pack")
+        if effective_pack and effective_pack in KNOWN_PACK_NAMES:
+            # Known pack — merge its defaults in. We deliberately do NOT
+            # short-circuit on unknown packs here: leaving the bad name in
+            # ``data`` lets Pydantic's Literal check on ``policy_pack`` raise
+            # a clean ValidationError with the valid options enumerated,
+            # which is the contract callers expect.
+            pack_data = load_policy_pack(effective_pack)
+            pack_data.pop("policy_pack", None)
+            data = merge_policy_pack(data, pack_data)
+            # Round-trip the chosen pack onto the loaded model so callers can
+            # introspect it (e.g. ``vibeguard validate`` echoes it back).
+            data["policy_pack"] = effective_pack
+        elif effective_pack and policy_pack:
+            # Explicit kwarg with an unknown name — write it into the data
+            # dict so Pydantic surfaces the Literal-mismatch error against
+            # the user-visible key.
+            data["policy_pack"] = policy_pack
 
         return cls.model_validate(data)
 
@@ -336,6 +431,10 @@ def load_ignorefile(root: Path) -> list[str]:
 DEFAULT_CONFIG_YAML = """\
 # VibeGuard configuration
 # https://github.com/dgenio/vibeguard
+
+# Optional: apply a built-in policy pack as defaults. User keys below
+# always override the pack. See docs/policy-packs.md.
+# policy_pack: web-app  # oss-library | web-app | strict-ci
 
 policy: balanced      # relaxed | balanced | strict
 fail_on: high         # info | low | medium | high | critical
@@ -386,6 +485,13 @@ risky_patterns:
 
 tests:
   enabled: true
+  # Source-test mapping for monorepos. Leave empty for standard
+  # src/ ⇄ tests/ layouts. See docs/policy-packs.md#source-test-mapping
+  # for the full semantics.
+  # mapping:
+  #   - source: "packages/api/src/**"
+  #     tests:
+  #       - "packages/api/tests/**"
 
 ai_footprints:
   enabled: true

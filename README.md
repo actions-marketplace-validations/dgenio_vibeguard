@@ -46,7 +46,7 @@ Think of it as the check between "AI generated this diff" and "this diff reaches
 ## Quickstart
 
 ```bash
-pip install vibeguard
+pip install vibeguard-gate
 ```
 
 Or from source:
@@ -74,6 +74,34 @@ Gate your CI (exits 1 if blocking findings found):
 ```bash
 vibeguard gate --diff --fail-on high
 ```
+
+---
+
+## Try it in 30 seconds
+
+The repo ships two deliberately-vulnerable example packages with fake
+secrets, so you can see a real, meaningful set of findings without
+pointing VibeGuard at anything sensitive:
+
+```bash
+git clone https://github.com/dgenio/vibeguard
+cd vibeguard
+pip install -e .
+vibeguard scan --path examples/vulnerable-node-package
+```
+
+You should see ~14 findings spanning secrets, source-map leaks, risky
+patterns, and AI footprints — none of which touch the network or call
+out to any external service. Try `examples/vulnerable-python-package`
+for a Python-flavored version.
+
+To use VibeGuard as a CI gate (exits non-zero on blocking findings):
+
+```bash
+vibeguard gate --path examples/vulnerable-python-package --fail-on medium
+```
+
+No API key, no telemetry, no network calls.
 
 ---
 
@@ -139,31 +167,39 @@ vibeguard explain TEST-MISSING
 
 ## Example Output
 
+Below is the actual output of `vibeguard scan --path examples/vulnerable-node-package`
+on this repository (regenerate with the same command if rules change):
+
 ```
-                         VibeGuard Findings
-┌──────────┬──────────────┬─────────────────────────────┬──────────────────────────────────────┐
-│ Sev      │ Rule         │ Path                        │ Title                                │
-├──────────┼──────────────┼─────────────────────────────┼──────────────────────────────────────┤
-│ ☠ CRIT   │ secrets      │ .env                        │ Sensitive file committed: .env       │
-│ ☠ CRIT   │ secrets      │ src/server.js:9             │ GitHub Token detected                │
-│ ✗ HIGH   │ sourcemaps   │ dist/app.js.map             │ Source map file in publish directory │
-│ ✗ HIGH   │ dependencies │ package.json                │ URL/git/path dependency: axios       │
-│ ✗ HIGH   │ packaging    │ package.json                │ npm package may publish .env files   │
-│ ⚠ MEDIUM │ risky_diff   │ src/server.js:24            │ Risk-sensitive area: eval() usage    │
-│ ⚠ MEDIUM │ ai_footprints│ src/server.js:14            │ AI footprint: security disabled      │
-│ ↓ LOW    │ tests        │ src/server.js               │ Source changes without test changes  │
-└──────────┴──────────────┴─────────────────────────────┴──────────────────────────────────────┘
+                                                       VibeGuard Findings
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Sev        ┃ Rule           ┃ Path                 ┃ Title                                              ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ ☠ CRITICAL │ secrets        │ src/server.js:12     │ GitHub Token detected                              │
+│ ✗ HIGH     │ secrets        │ .env                 │ Sensitive file committed: .env                     │
+│ ✗ HIGH     │ sourcemaps     │ package.json         │ package.json 'files' includes source maps          │
+│ ✗ HIGH     │ packaging      │ package.json         │ npm package may publish Environment files (.env)   │
+│ ✗ HIGH     │ packaging      │ package.json         │ npm package may publish Source map files           │
+│ ✗ HIGH     │ dependencies   │ package.json         │ URL/git/path dependency: axios                     │
+│ ✗ HIGH     │ ai_footprints  │ src/server.js:14     │ AI footprint: Security disabled in code            │
+│ ✗ HIGH     │ ai_footprints  │ src/server.js:31     │ AI footprint: Trust-all certificates               │
+│ ✗ HIGH     │ auth           │ src/server.js:16     │ Auth: Auth bypass TODO/FIXME/HACK comment          │
+│ ⚠ MEDIUM   │ risky_diff     │ src/server.js:9      │ Risk-sensitive area changed: CORS configuration    │
+│ ⚠ MEDIUM   │ risky_diff     │ src/server.js:27     │ Risk-sensitive area changed: eval() or exec() usag │
+│ ⚠ MEDIUM   │ risky_diff     │ src/server.js:32     │ Risk-sensitive area changed: Environment variable  │
+│ ⚠ MEDIUM   │ ai_footprints  │ src/server.js:17     │ AI footprint: Temporary security bypass or mock    │
+│ ℹ INFO     │ ai_footprints  │ src/server.js:11     │ AI footprint: AI-generated code comment            │
+└────────────┴────────────────┴──────────────────────┴────────────────────────────────────────────────────┘
 
-  Scanned 6 file(s)  •  8 finding(s)  |  critical: 2  high: 3  medium: 2  low: 1  •  policy: balanced
-
-✗ Gate failed: findings at or above high severity detected.
+  Scanned 4 file(s)  •  14 finding(s)  |  critical: 1  high: 8  medium: 4  info: 1  •  policy: balanced
 ```
 
-Try it yourself:
+`vibeguard scan` always exits `0` (informational). `vibeguard gate` runs
+the same checks but exits `1` when findings meet or exceed `--fail-on`:
 
 ```bash
-vibeguard scan --path examples/vulnerable-node-package
-vibeguard gate --path examples/vulnerable-python-package --fail-on medium
+vibeguard gate --path examples/vulnerable-node-package --fail-on high
+echo "exit: $?"   # exit: 1
 ```
 
 ---
@@ -250,7 +286,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install vibeguard
+      - run: pip install vibeguard-gate
       - run: vibeguard gate --diff --fail-on high
 ```
 
@@ -263,115 +299,89 @@ For local development (before publishing to PyPI):
 
 ---
 
-## Rules
+## Rule quick reference
 
-### `secrets` — Secret Detection
+VibeGuard ships **13 deterministic rules**. Each rule emits one or more
+stable finding IDs you can target with `vibeguard explain <ID>`,
+suppress via `vibeguard.yaml`, or remap via `severity_overrides`.
 
-Detects likely committed secrets using regex patterns and Shannon entropy heuristics.
+| Rule              | Default severity | Detects                                                                                          |
+|-------------------|------------------|---------------------------------------------------------------------------------------------------|
+| `secrets`         | high             | AWS keys, GitHub/OpenAI/Slack/Stripe tokens, private keys, bearer tokens, hardcoded passwords, DB URLs with credentials, committed `.env` files. |
+| `sourcemaps`      | high             | `.map` files in `dist/`/`build/`, `sourceMappingURL` comments, `package.json` `files` entries that include source maps. |
+| `packaging`       | medium           | npm/PyPI manifests that would publish `.env`, tests, source maps, build configs; broad `MANIFEST.in` grafts, `.npmignore` negations. |
+| `dependencies`    | high             | git/URL/path dependencies, typosquatting heuristics, broad version ranges, lockfile drift, registry changes. |
+| `risky_diff`      | medium           | Changes to risk-sensitive areas (auth, crypto, eval/exec, shell, network, DB writes, payments, CORS, JWT, certs) plus diff-breadth/size signals. |
+| `auth`            | high             | Commented-out auth, JWT `alg=none`, hardcoded admin passwords, `verify=False`, allow-all middlewares, auth functions that return `True`/`nil`. |
+| `sql`             | high             | f-string / concatenation / template-literal / `fmt.Sprintf` SQL construction that smells like injection. |
+| `ai_footprints`   | medium           | AI generation comments, placeholder credentials, trust-all-certs, CORS wildcards, temporary bypasses, skip-validation, hallucinated TODOs. |
+| `agent_memory`    | high             | Accidentally committed agent artifacts: SQLite memory DBs, JSONL logs, transcripts, tool traces, hidden memory directories. |
+| `ci_docker`       | high             | Risky Dockerfiles and GitHub Actions: privileged containers, `latest` tags, curl-pipe-bash, `pull_request_target`, broad permissions, secret echoes, unversioned actions. |
+| `iac`             | high             | Terraform: IAM wildcards, open security groups, public S3, unencrypted resources. Kubernetes: privileged containers, hostPath, root user, no-TLS, allow-all policies. |
+| `go_rules`        | high             | Go-specific risks: TLS bypass, shell injection, CORS wildcards, SQL via `Sprintf`, hardcoded tokens, auth bypass comments, unsafe file deletion. |
+| `tests`           | low              | Source files changed without any corresponding test-file changes. |
 
-Patterns: AWS access keys, GitHub tokens, OpenAI keys, private keys, bearer tokens, Stripe keys, Slack tokens, hardcoded passwords, database URLs with credentials, committed `.env` files.
+Run `vibeguard explain <finding-id>` for the full remediation guidance for any specific finding (e.g. `vibeguard explain SEC-GITHUBTOKEN`).
 
-### `sourcemaps` — Source Map Exposure
-
-Source maps in distribution directories expose your original source code to anyone who downloads your package or opens browser DevTools.
-
-Checks: `.map` files in `dist/`, `build/`, `public/`; `sourceMappingURL` comments in JS bundles; `package.json` `files` arrays that include `.map` patterns.
-
-### `packaging` — Packaging Hygiene
-
-Checks common package manifests for files that should not be published.
-
-Checks: `package.json`, `.npmignore`, `pyproject.toml`, `MANIFEST.in`, `setup.cfg`.
-
-Flags: `.env` files, test directories, source maps, `.github/`, coverage reports, broad include patterns.
-
-### `dependencies` — Dependency Risk
-
-Checks for risky dependency declarations.
-
-Flags: git/URL/path dependencies (bypass registry integrity), typosquatting-like package names (heuristic), broad version constraints in strict mode.
-
-### `risky_diff` — Risky Code Patterns
-
-Flags changes to security-sensitive areas for human review. **Does not claim a vulnerability** — says "risk-sensitive area changed, human review recommended."
-
-Areas: auth/authz, crypto, eval/exec, subprocess/shell, file deletion, network calls, database writes, payment logic, CORS, SQL construction, deserialization, JWT handling, certificate validation.
-
-### `tests` — Missing Tests
-
-If source files changed but no test files changed, emits a low/medium finding.
-
-### `ai_footprints` — AI Footprint Detection
-
-Detects common AI-generated artifacts that indicate incomplete, insecure, or placeholder code.
-
-Patterns: AI generation comments, placeholder credentials, disabled security controls, trust-all-certs, CORS wildcards, temporary bypasses, skip-validation patterns, hallucinated TODO stubs.
+`risky_diff` is intentionally a **risk signal**, not a vulnerability
+claim — it says "human, please look at this," not "this is exploitable."
 
 ---
 
-## Roadmap
+## What VibeGuard is / is not
 
-### v0.1 (current)
-- [x] Deterministic local scanner
-- [x] CLI (`scan`, `gate`, `init`, `explain`)
-- [x] Config file with policy levels
-- [x] All core rules: secrets, sourcemaps, packaging, dependencies, risky patterns, tests, AI footprints
-- [x] Console, JSON, Markdown reporters
-- [x] GitHub Actions integration
-- [x] Example vulnerable packages
+**Is:**
 
-### v0.2
-- [ ] SARIF output for GitHub Code Scanning
-- [ ] GitHub PR comment reporter
-- [ ] Baseline file (suppress existing findings, only alert on new ones)
-- [ ] More language-specific rules (Go, Ruby, PHP)
-- [ ] `.vibeguardignore` file support
+- A deterministic, offline pre-merge safety gate for the kinds of mistakes
+  AI-assisted coding produces at scale.
+- A fast first line of defense — typically runs in single-digit seconds
+  on a typical repo, suitable for pre-commit hooks and PR gates.
+- A tool that requires **no API key, no network calls, no telemetry**,
+  and no LLM in the loop.
 
-### v0.3
-- [ ] Package publish simulation (`vibeguard publish-check`)
-- [ ] npm/PyPI pre-publish hooks
-- [ ] Dependency reputation checks (via public advisories)
-- [ ] Diff size / big-diff warning
+**Is not:**
 
-### v0.4
-- [ ] Optional LLM explanation mode (bring your own key)
-- [ ] VS Code / IDE extension
-- [ ] Policy packs for startups, enterprise, OSS maintainers
-- [ ] Pre-commit hook integration
+- A full SAST replacement (use Semgrep, CodeQL, Bandit, ESLint security
+  plugins for deep semantic analysis).
+- A secret-scanning replacement for already-leaked credentials (use
+  truffleHog or gitleaks against your full git history).
+- A dependency vulnerability scanner (use Dependabot, pip-audit, npm
+  audit, Snyk for CVE coverage).
+- A substitute for human code review.
+- A guarantee that code is safe or production-ready.
 
----
+### Where VibeGuard fits next to other tools
 
-## Philosophy
+| Tool category                     | What it's great at                       | What it tends to miss for AI-generated diffs              |
+|-----------------------------------|------------------------------------------|------------------------------------------------------------|
+| **VibeGuard**                     | Pre-merge gate for AI-coding failure modes (secrets in new files, packaging leaks, "trust all certs", commented-out auth, risky-diff signals). | Deep dataflow analysis, CVE lookups, historical leak scans. |
+| Secret scanners (gitleaks, truffleHog) | Wide pattern coverage; can scan full git history. | A `.env` that's about to be committed *now*; secrets in newly-staged code that hasn't been pushed yet. |
+| SAST (Semgrep, CodeQL, Bandit)    | Deep dataflow; community rule packs.     | "AI footprint" patterns (`# TODO: real auth`, `verify=False`, CORS wildcards) and packaging-manifest hygiene. |
+| Dependency scanners (Dependabot, pip-audit, npm audit, Snyk) | Known CVEs; transitive vuln coverage. | git/URL dependencies, typosquatting heuristics, lockfile drift introduced by an AI commit. |
+| Linters (ruff, eslint)            | Style + simple correctness.              | Anything security-shaped.                                 |
 
-VibeGuard is not a replacement for:
-- SAST tools (Semgrep, CodeQL, Bandit)
-- Secret scanners (truffleHog, gitleaks)
-- Dependency scanners (Dependabot, Snyk, pip-audit)
-- Human code review
-
-It is a **fast first gate** specifically for the failure modes of AI-assisted coding — the things that fall through because the diff is too large to review carefully, or because AI agents bypass security controls to make things work quickly.
-
-The goal is to catch the 80% of AI-coding mistakes in 5 seconds before your existing tools and reviewers spend time on a fundamentally broken diff.
-
-**Deterministic > AI-powered for this use case.** No hallucinations, no API costs, no false confidence from an LLM that thinks the code looks fine.
+The intent is to **complement** these tools, not replace them. A typical
+CI pipeline runs VibeGuard alongside one of each of the above.
 
 ---
 
 ## Contributing
 
-Contributions welcome. See the [issues page](https://github.com/dgenio/vibeguard/issues) for ideas.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, test commands,
+branch and commit conventions, and how to add a new rule.
 
-```bash
-git clone https://github.com/dgenio/vibeguard
-cd vibeguard
-pip install -e ".[dev]"
-pytest
-ruff check vibeguard/ tests/
-```
+For security disclosures, see [SECURITY.md](SECURITY.md) — do not file
+public issues for vulnerabilities.
+
+Filing a bug, feature, rule request, or false-positive? Use the
+[issue forms](https://github.com/dgenio/vibeguard/issues/new/choose).
 
 - **[docs/rules.md](docs/rules.md)** — auto-generated rule reference (`make docs` to regenerate).
 - **[docs/how-to-add-a-rule.md](docs/how-to-add-a-rule.md)** — step-by-step guide for adding a built-in rule.
 - **[docs/plugin-api.md](docs/plugin-api.md)** — public plugin API for shipping rules in your own package.
+- **[docs/policy-packs.md](docs/policy-packs.md)** — built-in policy packs (`oss-library`, `web-app`, `strict-ci`) and source-test mapping for monorepos.
+- **[docs/pre-commit.md](docs/pre-commit.md)** — run VibeGuard locally via the [pre-commit](https://pre-commit.com) framework.
+- **[docs/docker.md](docs/docker.md)** — run VibeGuard as a container in any CI environment.
 
 ---
 

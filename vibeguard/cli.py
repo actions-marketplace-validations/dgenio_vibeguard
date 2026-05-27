@@ -20,9 +20,11 @@ from vibeguard.config import (
 )
 from vibeguard.git import get_git_metadata
 from vibeguard.models import Severity
+from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack
 from vibeguard.publish import run_publish_check
 from vibeguard.reporters.annotations import emit_annotations, is_github_actions
 from vibeguard.reporters.console import render_findings
+from vibeguard.reporters.diagnostics import print_diagnostics
 from vibeguard.reporters.json_reporter import print_json
 from vibeguard.reporters.markdown import render_markdown, render_pr_comment
 from vibeguard.reporters.sarif import print_sarif
@@ -67,6 +69,13 @@ def init(
         Path,
         typer.Option("--path", help="Directory to create vibeguard.yaml in"),
     ] = Path("."),
+    policy_pack: Annotated[
+        str | None,
+        typer.Option(
+            "--policy-pack",
+            help=(f"Pre-populate with a built-in policy pack ({', '.join(KNOWN_PACK_NAMES)})"),
+        ),
+    ] = None,
 ) -> None:
     """Create a default vibeguard.yaml configuration file."""
     config_path = path / "vibeguard.yaml"
@@ -74,10 +83,33 @@ def init(
         err_console.print(f"[yellow]vibeguard.yaml already exists at {config_path}. Skipping.[/]")
         raise typer.Exit(0)
 
+    if policy_pack is not None:
+        try:
+            load_policy_pack(policy_pack)
+        except ValueError as exc:
+            err_console.print(f"[red]{exc}[/]")
+            raise typer.Exit(2) from exc
+        body = (
+            f"# VibeGuard configuration — generated from policy pack: {policy_pack}\n"
+            f"# Run `vibeguard init` to regenerate without a pack.\n"
+            "#\n"
+            "# Pack defaults are applied at load time; any value you set below\n"
+            "# overrides the pack. See docs/policy-packs.md for the full list.\n\n"
+            f"policy_pack: {policy_pack}\n"
+        )
+    else:
+        body = DEFAULT_CONFIG_YAML
+
     path.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(DEFAULT_CONFIG_YAML)
+    config_path.write_text(body)
     err_console.print(f"[green]✓[/] Created [bold]{config_path}[/]")
-    err_console.print("  Edit it to customise your policy, ignores, and enabled rules.")
+    if policy_pack is not None:
+        err_console.print(
+            f"  Pre-populated with policy pack [bold]{policy_pack}[/]. "
+            "Add overrides below the policy_pack key."
+        )
+    else:
+        err_console.print("  Edit it to customise your policy, ignores, and enabled rules.")
 
 
 # ---------------------------------------------------------------------------
@@ -148,25 +180,29 @@ def _validate_output_options(
     markdown_output: bool,
     sarif_output: bool = False,
     pr_comment_output: bool = False,
+    diagnostics_output: bool = False,
     annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
-    selected = sum([json_output, markdown_output, sarif_output, pr_comment_output])
+    selected = sum(
+        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
+    )
     if selected > 1:
         err_console.print(
-            "[red]Error: --json, --markdown, --sarif, and --pr-comment are mutually exclusive."
-            " Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, --pr-comment, and --diagnostics are"
+            " mutually exclusive. Choose one.[/]"
         )
         raise typer.Exit(2)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
-        # with structured output (JSON/SARIF/Markdown) interleaves them into
-        # the report and breaks downstream parsers. Annotations still
-        # auto-enable in GitHub Actions when no structured output is selected.
+        # with structured output (JSON/SARIF/Markdown/diagnostics) interleaves
+        # them into the report and breaks downstream parsers. Annotations
+        # still auto-enable in GitHub Actions when no structured output is
+        # selected.
         err_console.print(
             "[red]Error: --annotations cannot be combined with --json, --markdown,"
-            " --sarif, or --pr-comment (annotations would corrupt the structured"
-            " output).[/]"
+            " --sarif, --pr-comment, or --diagnostics (annotations would corrupt"
+            " the structured output).[/]"
         )
         raise typer.Exit(2)
 
@@ -201,6 +237,13 @@ def scan(
         bool,
         typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
     ] = False,
+    diagnostics_output: Annotated[
+        bool,
+        typer.Option(
+            "--diagnostics",
+            help="Output a stable JSON diagnostics array for IDE / editor integrations",
+        ),
+    ] = False,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -219,6 +262,16 @@ def scan(
             help="Exit non-zero if findings meet this severity [info|low|medium|high|critical]",
         ),
     ] = None,
+    policy_pack: Annotated[
+        str | None,
+        typer.Option(
+            "--policy-pack",
+            help=(
+                "Apply a built-in policy pack as defaults under the user config "
+                f"({', '.join(KNOWN_PACK_NAMES)})"
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Show detailed finding descriptions"),
@@ -230,9 +283,10 @@ def scan(
         markdown_output,
         sarif_output,
         pr_comment_output,
+        diagnostics_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path)
+    cfg = _load_config(config, path, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
@@ -255,7 +309,12 @@ def scan(
 
     # Determine annotation mode
     emit_annot = _should_emit_annotations(
-        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+        annotations,
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        diagnostics_output,
     )
 
     if json_output:
@@ -266,6 +325,8 @@ def scan(
         typer.echo(render_pr_comment(result, gate_passed=True))
     elif markdown_output:
         typer.echo(render_markdown(result))
+    elif diagnostics_output:
+        print_diagnostics(result)
     else:
         render_findings(result, verbose=verbose)
 
@@ -314,6 +375,13 @@ def gate(
         bool,
         typer.Option("--pr-comment", help="Output PR-optimized Markdown comment"),
     ] = False,
+    diagnostics_output: Annotated[
+        bool,
+        typer.Option(
+            "--diagnostics",
+            help="Output a stable JSON diagnostics array for IDE / editor integrations",
+        ),
+    ] = False,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -332,6 +400,16 @@ def gate(
             help="Severity threshold for non-zero exit [info|low|medium|high|critical]",
         ),
     ] = None,
+    policy_pack: Annotated[
+        str | None,
+        typer.Option(
+            "--policy-pack",
+            help=(
+                "Apply a built-in policy pack as defaults under the user config "
+                f"({', '.join(KNOWN_PACK_NAMES)})"
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Show detailed finding descriptions"),
@@ -343,9 +421,10 @@ def gate(
         markdown_output,
         sarif_output,
         pr_comment_output,
+        diagnostics_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path)
+    cfg = _load_config(config, path, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
@@ -371,7 +450,12 @@ def gate(
 
     # Determine annotation mode
     emit_annot = _should_emit_annotations(
-        annotations, json_output, markdown_output, sarif_output, pr_comment_output
+        annotations,
+        json_output,
+        markdown_output,
+        sarif_output,
+        pr_comment_output,
+        diagnostics_output,
     )
 
     if json_output:
@@ -382,6 +466,8 @@ def gate(
         typer.echo(render_pr_comment(result, gate_passed=gate_passed))
     elif markdown_output:
         typer.echo(render_markdown(result))
+    elif diagnostics_output:
+        print_diagnostics(result)
     else:
         render_findings(result, verbose=verbose)
 
@@ -630,11 +716,22 @@ def explain(
 # ---------------------------------------------------------------------------
 
 
-def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
-    """Load config, searching scan_path if no explicit config given."""
+def _load_config(
+    config_path: Path | None,
+    scan_path: Path,
+    *,
+    policy_pack: str | None = None,
+) -> VibeGuardConfig:
+    """Load config, searching scan_path if no explicit config given.
+
+    ``policy_pack`` is a CLI-level override for the optional ``policy_pack:``
+    YAML key. When set, it wins over the file's setting and is propagated
+    into :meth:`VibeGuardConfig.load` so its defaults merge in before
+    validation.
+    """
     if config_path:
         try:
-            return VibeGuardConfig.load(config_path)
+            return VibeGuardConfig.load(config_path, policy_pack=policy_pack)
         except ValidationError as exc:
             err_console.print(f"[red]Invalid config {config_path}:[/]")
             for error in exc.errors():
@@ -649,7 +746,7 @@ def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
     candidate = scan_path / "vibeguard.yaml"
     if candidate.exists():
         try:
-            return VibeGuardConfig.load(candidate)
+            return VibeGuardConfig.load(candidate, policy_pack=policy_pack)
         except ValidationError as exc:
             err_console.print(f"[red]Invalid config {candidate}:[/]")
             for error in exc.errors():
@@ -659,6 +756,20 @@ def _load_config(config_path: Path | None, scan_path: Path) -> VibeGuardConfig:
         except Exception as exc:
             err_console.print(f"[yellow]⚠ Could not load {candidate}: {exc}. Using defaults.[/]")
 
+    # No vibeguard.yaml in the scan path — still honour --policy-pack so
+    # users can ship a pack-only invocation in CI without committing a
+    # config file. Pass a path inside scan_path that definitely doesn't
+    # exist so VibeGuardConfig.load doesn't fall through to the CWD's
+    # ``vibeguard.yaml`` and silently apply it as user config.
+    if policy_pack is not None:
+        try:
+            return VibeGuardConfig.load(candidate, policy_pack=policy_pack)
+        except ValidationError as exc:
+            err_console.print(f"[red]Invalid --policy-pack {policy_pack!r}:[/]")
+            for error in exc.errors():
+                loc = " → ".join(str(p) for p in error["loc"])
+                err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
+            raise typer.Exit(2) from exc
     return VibeGuardConfig()
 
 
@@ -717,6 +828,7 @@ def _should_emit_annotations(
     markdown_output: bool,
     sarif_output: bool,
     pr_comment_output: bool,
+    diagnostics_output: bool = False,
 ) -> bool:
     """Determine whether to emit GitHub Actions annotations."""
     # Explicit flag takes precedence
@@ -726,7 +838,7 @@ def _should_emit_annotations(
         return False
     # Auto-enable in GitHub Actions unless another structured output is selected
     return is_github_actions() and not any(
-        [json_output, markdown_output, sarif_output, pr_comment_output]
+        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
     )
 
 

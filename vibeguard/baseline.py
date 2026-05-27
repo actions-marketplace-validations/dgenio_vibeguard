@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,16 +67,12 @@ class Baseline(BaseModel):
 def compute_fingerprint(finding: Finding) -> str:
     """Compute a stable fingerprint for a finding.
 
-    Fingerprint = sha256(rule_id + ":" + relative_path + ":" + evidence_hash[:16]).
-    Line numbers are intentionally excluded (code moves).
+    Thin wrapper around ``Finding.fingerprint`` (the same algorithm) so the
+    baseline file, SARIF ``partialFingerprints``, the diagnostics reporter,
+    and ``model_dump`` JSON all share one identity definition. See
+    ``Finding.fingerprint`` for the algorithm.
     """
-    evidence_part = ""
-    if finding.evidence:
-        evidence_hash = hashlib.sha256(finding.evidence.encode("utf-8")).hexdigest()[:16]
-        evidence_part = evidence_hash
-
-    raw = f"{finding.id}:{finding.path.replace(chr(92), '/')}:{evidence_part}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return finding.fingerprint
 
 
 def create_baseline(findings: list[Finding]) -> Baseline:
