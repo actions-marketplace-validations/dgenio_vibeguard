@@ -82,9 +82,35 @@ class TestCLIExplain:
         assert result.exit_code == 0
         assert len(result.stdout) > 10
 
-    def test_explain_unknown_id(self):
+    def test_explain_unknown_id_exits_two(self):
+        """Unknown finding IDs are a hard error (#90), not a silent pass."""
         result = runner.invoke(app, ["explain", "NOTREAL-999"])
-        assert result.exit_code == 0  # Should not crash
+        assert result.exit_code == 2
+        # Message matches `rules explain` for consistency.
+        combined = result.stdout + (result.stderr or "")
+        assert "Unknown rule or finding ID" in combined
+        assert "rules list" in combined
+
+    def test_explain_and_rules_explain_share_unknown_message(self):
+        """The two explain surfaces must agree on the unknown-ID UX (#90)."""
+        bogus = "ZZZ-NOPE-999"
+        a = runner.invoke(app, ["explain", bogus])
+        b = runner.invoke(app, ["rules", "explain", bogus])
+        assert a.exit_code == 2
+        assert b.exit_code == 2
+
+    def test_explain_uncurated_finding_id_renders_remediation(self):
+        """Every registered finding ID should produce a remediation, not a stub (#88)."""
+        # SEC-GITHUBTOKEN is in the bundled example output but never had a
+        # curated entry; it must now render the rule-metadata remediation.
+        result = runner.invoke(app, ["explain", "SEC-GITHUBTOKEN"])
+        assert result.exit_code == 0
+        # Structural check: the "How to fix" marker is present and the body
+        # following it is non-empty. Avoids coupling to remediation prose
+        # (e.g. "Revoke" / "rotate") that may be reworded over time.
+        assert "How to fix" in result.stdout
+        _, _, after = result.stdout.partition("How to fix")
+        assert after.strip(), "Remediation body following 'How to fix' is empty"
 
 
 class TestCLIVersion:

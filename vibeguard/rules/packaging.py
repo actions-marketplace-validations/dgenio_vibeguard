@@ -839,5 +839,76 @@ register_rule(
         confidence="high",
         tags=["packaging", "supply-chain"],
         applies_to=["package.json", "pyproject.toml", "MANIFEST.in", "setup.cfg", ".npmignore"],
+        remediations={
+            "PKG-NPMFILES": (
+                "Trim the `files` array in `package.json` to only the runtime "
+                "artifacts. Move tests, fixtures, and dev configs outside the "
+                "published tree."
+            ),
+            "PKG-NPMBROAD": (
+                "Replace broad `files` patterns (`./`, `*`, `**`) with a "
+                "curated allow-list. The default whole-directory publish "
+                "leaks tests, .env, and tooling configs."
+            ),
+            "PKG-NPMLEAK": (
+                "Remove the leaking entry (`.env`, secrets, fixtures) from "
+                "the npm `files` list. Rotate any credential that may have "
+                "been packaged in a prior release."
+            ),
+            "PKG-PYBROAD": (
+                "Replace `include = ['*']` or `packages = find_packages()` "
+                "with an explicit list of importable modules so internal "
+                "tooling is excluded from the wheel."
+            ),
+            "PKG-PYLEAK": (
+                "Remove the sensitive file from the sdist/wheel by tightening "
+                "`MANIFEST.in`, `tool.hatch.build.include`, or your build "
+                "backend's package list. Rotate any leaked credential."
+            ),
+            "PKG-MANIFESTLEAK": (
+                "Edit `MANIFEST.in` to remove the entry that pulls in "
+                "sensitive files. Run `python -m build` and inspect the sdist "
+                "to confirm the file is gone."
+            ),
+            "PKG-MANIFEST-GRAFT": (
+                "Replace `graft` with a narrow `include` directive scoped to "
+                "the specific files you need. `graft` recursively pulls in "
+                "every file under a tree and is prone to leaks."
+            ),
+            "PKG-MANIFEST-RECURSIVE": (
+                "Replace recursive globs (e.g. `recursive-include * *`) with "
+                "explicit, scoped include rules so you can see what ships."
+            ),
+            "PKG-NPMIGNORE-NEGATE": (
+                "Avoid `!`-prefixed re-includes in `.npmignore`. They are "
+                "easy to misread and tend to re-add the very files you "
+                "intended to exclude."
+            ),
+            "PKG-NPMIGNORE-BROAD": (
+                "Tighten the `.npmignore` rule. Broad patterns like `*` "
+                "without matching re-includes can silently include or "
+                "exclude entire directories."
+            ),
+            "PKG-COVERAGE-LEAK": (
+                "Add coverage artefacts (`.coverage`, `coverage.xml`, "
+                "`htmlcov/`) to `.npmignore`/`MANIFEST.in` exclusions so "
+                "they never ship to a registry."
+            ),
+            "PKG-CI-LEAK": (
+                "Exclude `.github/`, `.gitlab-ci.yml`, and similar CI "
+                "configuration from the published package. They reveal your "
+                "internal pipeline and can leak secret-injection hints."
+            ),
+            "PKG-PREPARE-SCRIPT": (
+                "Review the `prepare`/`postinstall` script for side effects. "
+                "Lifecycle scripts run automatically on every install and "
+                "are a common supply-chain attack vector."
+            ),
+            "PKG-SETUPPYLEAK": (
+                "Remove the leaking entry from `setup.py`/`setup.cfg`. Inspect "
+                "the built sdist (`tar tf dist/*.tar.gz`) to confirm only the "
+                "intended files ship."
+            ),
+        },
     )
 )

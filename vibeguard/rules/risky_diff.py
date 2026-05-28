@@ -359,5 +359,91 @@ register_rule(
         confidence="medium",
         tags=["security", "risky-diff"],
         applies_to=["*.py", "*.js", "*.ts", "*.go", "*.java", "*.rb"],
+        config_key="risky_patterns",
+        remediations={
+            "RISK-AUTHBYPASS": (
+                "Verify the auth check is intentional and tested. Audit every "
+                "code path that bypasses authentication before merging."
+            ),
+            "RISK-AUTHZCHECK": (
+                "Confirm the authorization check still enforces the expected "
+                "policy. Add a test that asserts a non-permitted role is denied."
+            ),
+            "RISK-CRYPTOUSAGE": (
+                "Use vetted primitives from the standard library (e.g. "
+                "`hashlib`, `secrets`, `cryptography`). Avoid rolling your own "
+                "crypto and review changes with a security-aware reviewer."
+            ),
+            "RISK-EVALEXEC": (
+                "Eliminate `eval`/`exec` if possible. If unavoidable, "
+                "validate and whitelist inputs strictly before execution and "
+                "document why the dynamic execution is required."
+            ),
+            "RISK-SUBPROCESSSHELL": (
+                "Pass arguments as a list, never as a single shell string. "
+                "Avoid `shell=True`. Validate any user input before it reaches "
+                "the subprocess."
+            ),
+            "RISK-FILEDELETE": (
+                "Confirm the deletion path is intentional and scoped to "
+                "expected directories. Add a dry-run option or guardrails to "
+                "prevent accidental data loss."
+            ),
+            "RISK-NETWORKCALL": (
+                "Ensure the network call respects timeouts, TLS verification, "
+                "and retry policies. Document any new outbound destinations."
+            ),
+            "RISK-DBWRITE": (
+                "Add tests for the new database write. Confirm transactional "
+                "boundaries, error handling, and rollback semantics are correct."
+            ),
+            "RISK-PAYMENTLOGIC": (
+                "Payment logic changes need a dedicated review with the "
+                "finance/billing owner. Add tests that cover currency rounding, "
+                "refund paths, and idempotency keys."
+            ),
+            "RISK-ENVACCESS": (
+                "Confirm the environment variable is documented in deployment "
+                "configs and has a safe default. Avoid reading secrets directly "
+                "from `os.environ` in request paths."
+            ),
+            "RISK-CORSCONFIG": (
+                "Avoid wildcard origins (`*`) in CORS configuration. Allow "
+                "only the specific origins your frontend needs and reject the "
+                "rest."
+            ),
+            "RISK-DESERIALIZATION": (
+                "Replace `pickle`/`yaml.load`/`marshal` with a safe serialiser "
+                "(JSON, `yaml.safe_load`, msgpack). Untrusted deserialisation "
+                "is a common RCE vector."
+            ),
+            "RISK-JWTHANDLING": (
+                "Validate `alg`, `iss`, `aud`, and `exp` claims. Never accept "
+                "the `none` algorithm. Pin the verification key to a known set "
+                "of issuers."
+            ),
+            "RISK-TRUSTCERTS": (
+                "Re-enable TLS certificate verification. Use a proper CA "
+                "bundle (e.g. `certifi`) or pin the specific CA your "
+                "environment trusts."
+            ),
+            "RISK-PERMCHANGE": (
+                "File-permission changes should be narrow and explicit. Avoid "
+                "world-writable bits (`0o777`) and document any setuid usage."
+            ),
+            "DIFF-BREADTH": (
+                "Split the change into smaller, reviewable PRs. Wide-breadth "
+                "diffs hide regressions and slow down review."
+            ),
+            "DIFF-SIZE": (
+                "Large diffs are hard to review carefully. Break the change "
+                "into incremental PRs each with their own tests."
+            ),
+            "DIFF-RISK-FILES": (
+                "This diff touches security-sensitive files. Request a "
+                "security-aware reviewer and add tests covering the changed "
+                "code paths."
+            ),
+        },
     )
 )

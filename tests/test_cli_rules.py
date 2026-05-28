@@ -82,3 +82,34 @@ class TestRulesExplain:
         result = runner.invoke(app, ["rules", "explain", "sec-env"])
         assert result.exit_code == 0, result.stdout
         assert "Secrets Detection" in result.stdout
+
+    def test_explain_surfaces_config_key_for_mismatched_rules(self):
+        """`rules explain risky_diff` must point at the `risky_patterns:` YAML
+        section so users can find the right key without grepping (#89)."""
+        result = runner.invoke(app, ["rules", "explain", "risky_diff"])
+        assert result.exit_code == 0, result.stdout
+        assert "Config section" in result.stdout
+        assert "risky_patterns" in result.stdout
+
+    def test_explain_surfaces_config_key_when_it_matches_rule_id(self):
+        """Even rules where config_key matches rule_id must surface the
+        section name so users always know which YAML block to edit (#89)."""
+        result = runner.invoke(app, ["rules", "explain", "secrets"])
+        assert result.exit_code == 0, result.stdout
+        assert "Config section" in result.stdout
+        assert "secrets" in result.stdout
+
+    def test_rules_list_json_includes_config_key(self):
+        """`rules list --json` must expose `config_key` so integrators can
+        build "go from rule id to YAML block" lookups (#89)."""
+        result = runner.invoke(app, ["rules", "list", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        rows = {row["rule_id"]: row for row in payload["rules"]}
+        assert rows["risky_diff"]["config_key"] == "risky_patterns"
+        # The common case — rule_id and config_key match — is still emitted.
+        assert rows["secrets"]["config_key"] == "secrets"
+        # Every rule must declare a config_key (defaulted from rule_id at
+        # registration time).
+        for rule_id, row in rows.items():
+            assert row["config_key"], f"{rule_id} missing config_key in JSON output"

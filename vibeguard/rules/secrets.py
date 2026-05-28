@@ -362,5 +362,67 @@ register_rule(
         confidence="high",
         tags=["security", "secrets"],
         applies_to=["*"],
+        remediations={
+            "SEC-AWSACCESSKEY": (
+                "Rotate the AWS access key immediately in IAM. Remove it from "
+                "git history and audit CloudTrail for unauthorised use. "
+                "Prefer IAM roles or AWS Secrets Manager over inline keys."
+            ),
+            "SEC-AWSSECRETKEY": (
+                "Treat as compromised: rotate the AWS secret key and the "
+                "paired access key id immediately. Audit usage via CloudTrail "
+                "and remove the value from git history."
+            ),
+            "SEC-GITHUBTOKEN": (
+                "Revoke the token in https://github.com/settings/tokens and "
+                "issue a fresh one. Remove the value from git history. Store "
+                "the new token in GitHub Actions secrets or a secret manager."
+            ),
+            "SEC-OPENAIKEY": (
+                "Revoke the key in the OpenAI dashboard, issue a fresh one, "
+                "and load it from an environment variable. Audit usage logs "
+                "for unexpected spend."
+            ),
+            "SEC-PRIVATEKEY": (
+                "Re-key any service that trusted this private key. Remove the "
+                "file from git history and store the new key in a dedicated "
+                "secret manager (Vault, AWS Secrets Manager, etc.)."
+            ),
+            "SEC-BEARERTOKEN": (
+                "Treat the bearer token as leaked. Revoke and re-issue it via "
+                "the upstream provider, then load the replacement from a "
+                "secret manager or env var."
+            ),
+            "SEC-HARDCODEDPASSWORD": (
+                "Replace the hardcoded password with an environment variable "
+                "or secret manager lookup. Rotate the credential and audit "
+                "any downstream system that may have logged it."
+            ),
+            "SEC-DATABASEURL": (
+                "Move the connection string into an environment variable or "
+                "secret manager. Rotate the database password and review "
+                "audit logs for unexpected access."
+            ),
+            "SEC-SLACKTOKEN": (
+                "Revoke the Slack token in the workspace admin console and "
+                "issue a fresh one with the minimum required scopes. Audit "
+                "channel access for the leaked token's lifetime."
+            ),
+            "SEC-STRIPEKEY": (
+                "Roll the Stripe API key in the dashboard immediately and "
+                "audit charges/events for the exposure window. Restricted "
+                "keys with narrow scopes are safer than full secret keys."
+            ),
+            "SEC-GENERICAPIKEY": (
+                "Treat the value as leaked and rotate it with the upstream "
+                "provider. Replace the inline literal with an environment "
+                "variable or secret manager call."
+            ),
+            "SEC-ENV": (
+                "Add `.env` to `.gitignore`, remove it from git history, and "
+                "rotate every credential it contained. Distribute secrets "
+                "through CI variables or a dedicated secret manager."
+            ),
+        },
     )
 )

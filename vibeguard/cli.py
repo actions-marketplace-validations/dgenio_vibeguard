@@ -648,15 +648,9 @@ def publish_check(
 # explain
 # ---------------------------------------------------------------------------
 
-_DEFAULT_EXPLANATION = """
-[bold]{finding_id}[/]
-
-No detailed explanation is available for this finding ID.
-
-Run [bold]vibeguard scan --verbose[/] for inline descriptions and recommendations.
-For more information, see the VibeGuard documentation:
-https://github.com/dgenio/vibeguard
-"""
+_UNKNOWN_FINDING_MESSAGE = (
+    "Unknown rule or finding ID: {finding_id!r}. Run 'vibeguard rules list' to see available rules."
+)
 
 
 def _resolve_explain_adapter(name: str):
@@ -745,7 +739,11 @@ def explain(
             c.print(explainer.explain(synthetic))
             return
 
-    c.print(_DEFAULT_EXPLANATION.format(finding_id=finding_id))
+    # Match the exit-code semantics of ``vibeguard rules explain``: an
+    # unknown identifier is a hard error (exit 2) so a typo in CI doesn't
+    # silently masquerade as a passed explain. See issue #90.
+    err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=finding_id)}[/]")
+    raise typer.Exit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -1029,6 +1027,7 @@ def rules_list(
                 "tags": list(meta.tags),
                 "finding_ids": list(meta.finding_ids),
                 "applies_to": list(meta.applies_to),
+                "config_key": meta.config_key,
             }
         )
 
@@ -1117,10 +1116,7 @@ def rules_explain(
                 break
 
     if meta is None:
-        err_console.print(
-            f"[red]Unknown rule or finding ID: {identifier!r}.[/] "
-            f"Run 'vibeguard rules list' to see available rules."
-        )
+        err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=identifier)}[/]")
         raise typer.Exit(2)
 
     finding_lines = [f"  • {fid}" for fid in meta.finding_ids] or ["  (none registered)"]
@@ -1133,6 +1129,12 @@ def rules_explain(
         f"[dim]Confidence:[/]       {meta.confidence}",
         f"[dim]Tags:[/]             {', '.join(meta.tags) or '—'}",
         f"[dim]Applies to:[/]       {', '.join(meta.applies_to) or '*'}",
+        # The config section is rule id by default (filled in by
+        # ``register_rule``); the few mismatches (e.g. ``risky_diff`` →
+        # ``risky_patterns``) override it explicitly. Surfacing
+        # ``config_key`` here closes #89's UX gap so a user knows exactly
+        # which YAML block tunes the rule.
+        f"[dim]Config section:[/]   {meta.config_key} (in vibeguard.yaml)",
         "",
         "[bold]Finding IDs[/]",
         *finding_lines,

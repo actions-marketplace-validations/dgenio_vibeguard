@@ -120,7 +120,16 @@ def _registry_fallback(finding: Finding) -> str:
             lines.append(f"[dim]Applies to:[/] {', '.join(meta.applies_to)}")
         if meta.tags:
             lines.append(f"[dim]Tags:[/] {', '.join(meta.tags)}")
-        if finding.recommendation:
+        # Prefer the rule-registry's per-finding remediation over the
+        # synthesised ``Finding.recommendation`` because (a) the registry text
+        # is hand-tuned for ``explain`` UX and (b) ``vibeguard explain
+        # <FINDING_ID>`` synthesises a Finding with an empty recommendation
+        # — without this lookup, the "How to fix" section would never render
+        # for that call path.
+        remediation = meta.remediations.get(finding.id.upper())
+        if remediation:
+            lines += ["", "[bold]How to fix[/]", remediation]
+        elif finding.recommendation:
             lines += ["", "[bold]Recommendation[/]", finding.recommendation]
         return "\n".join(lines) + "\n"
 

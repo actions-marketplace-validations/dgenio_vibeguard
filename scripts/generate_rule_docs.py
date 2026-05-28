@@ -60,6 +60,7 @@ def _render_summary_row(meta: RuleMetadata) -> str:
     return (
         f"| [`{meta.rule_id}`](#{_slug(meta.rule_id)}) "
         f"| {_md_escape(meta.title)} "
+        f"| `{meta.config_key}` "
         f"| {meta.default_severity} "
         f"| {meta.confidence} "
         f"| {finding_count} "
@@ -77,6 +78,7 @@ def _render_rule_section(meta: RuleMetadata) -> str:
     out.write(
         f"- **Default severity:** `{meta.default_severity}`\n"
         f"- **Confidence:** `{meta.confidence}`\n"
+        f"- **Config section:** `{meta.config_key}` (in `vibeguard.yaml`)\n"
         f"- **Tags:** {', '.join(f'`{t}`' for t in meta.tags) if meta.tags else '_none_'}\n"
         f"- **Applies to:** "
         f"{', '.join(f'`{p}`' for p in meta.applies_to) if meta.applies_to else '`*`'}\n"
@@ -85,8 +87,19 @@ def _render_rule_section(meta: RuleMetadata) -> str:
         out.write(f"- **Docs:** <{meta.docs_url}>\n")
     out.write("\n**Finding IDs**\n\n")
     if meta.finding_ids:
-        for fid in meta.finding_ids:
-            out.write(f"- `{fid}`\n")
+        if meta.remediations:
+            # Render finding IDs as a definition list of id → remediation so
+            # the generated docs surface the same "how to fix" text the
+            # ``vibeguard explain`` command renders.
+            for fid in meta.finding_ids:
+                remediation = meta.remediations.get(fid.upper())
+                if remediation:
+                    out.write(f"- `{fid}` — {_md_escape(remediation)}\n")
+                else:
+                    out.write(f"- `{fid}`\n")
+        else:
+            for fid in meta.finding_ids:
+                out.write(f"- `{fid}`\n")
     else:
         out.write("_(none registered yet)_\n")
     if meta.examples:
@@ -118,8 +131,14 @@ def render_rules_markdown() -> str:
         "`vibeguard rules list`.\n\n"
     )
     out.write("## Summary\n\n")
-    out.write("| Rule | Title | Default severity | Confidence | Findings | Tags | Applies to |\n")
-    out.write("|------|-------|------------------|------------|----------|------|------------|\n")
+    out.write(
+        "| Rule | Title | Config section | Default severity | Confidence | Findings "
+        "| Tags | Applies to |\n"
+    )
+    out.write(
+        "|------|-------|----------------|------------------|------------|----------"
+        "|------|------------|\n"
+    )
     for rule_id in rule_ids:
         out.write(_render_summary_row(RULE_REGISTRY[rule_id]) + "\n")
     out.write("\n## Rules\n\n")

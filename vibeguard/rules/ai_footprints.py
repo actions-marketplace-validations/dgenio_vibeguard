@@ -234,5 +234,46 @@ register_rule(
         confidence="medium",
         tags=["ai-footprint", "security"],
         applies_to=["*.py", "*.js", "*.ts", "*.go", "*.yaml"],
+        remediations={
+            "AI-AIGENERATED": (
+                "Remove the AI-generation marker before merging. Read the "
+                "surrounding code carefully — generated code without human "
+                "review tends to hide subtle bugs."
+            ),
+            "AI-PLACEHOLDERCRED": (
+                "Replace the placeholder credential with a real one loaded "
+                "from a secret manager or environment variable. Leaving "
+                "`changeme`/`password123` in code blocks integration."
+            ),
+            "AI-DISABLESECURITY": (
+                "Re-enable the security control. If the bypass is required "
+                "for a narrow case, document why, gate it behind a flag, and "
+                "request a security-aware review."
+            ),
+            "AI-TRUSTALLCERTS": (
+                "Restore certificate verification. Use a proper CA bundle or "
+                "pin the specific certificate the environment requires — "
+                "never trust everything."
+            ),
+            "AI-CORSWILDCARD": (
+                "Replace `*` origins with the specific hosts your frontend "
+                "uses. Wildcard CORS combined with credentials is a "
+                "well-known account-takeover vector."
+            ),
+            "AI-TEMPBYPASS": (
+                "Remove the temporary bypass before merging. If it cannot "
+                "be removed yet, track it as a ticket and add a test that "
+                "fails when the bypass remains in place."
+            ),
+            "AI-SKIPVALIDATION": (
+                "Restore the validation step. Skipping validation in tests "
+                "or middleware often leaks into production via copy-paste."
+            ),
+            "AI-HALLUCINATEDTODO": (
+                "Resolve the TODO or remove it. AI assistants often emit "
+                "`TODO: implement real X` when they couldn't complete a step "
+                "— leaving it in is a future incident."
+            ),
+        },
     )
 )

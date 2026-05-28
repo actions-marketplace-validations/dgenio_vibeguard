@@ -257,6 +257,9 @@ packaging:
 dependencies:
   enabled: true
 
+# `risky_patterns:` tunes the `risky_diff` rule — the YAML section name and
+# the rule id differ for historical reasons. Use `vibeguard rules explain
+# <rule-id>` to look up the config section for any rule.
 risky_patterns:
   enabled: true
 

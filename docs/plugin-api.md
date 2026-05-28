@@ -35,8 +35,21 @@ deeper paths — open an issue if you need something that isn't exposed in
 `vibeguard.api`.
 
 `PLUGIN_API_VERSION` is a `"MAJOR.MINOR"` string. Plugins should pin a
-range in their dependency metadata, e.g. `vibeguard-gate >=0.6,<0.7`,
-until VibeGuard adopts a richer compatibility contract.
+range in their dependency metadata that tracks **the API version**, not
+the release version of `vibeguard-gate`. Today `PLUGIN_API_VERSION` is
+`1.0`, so a safe pin is:
+
+```toml
+dependencies = ["vibeguard-gate>=0.8"]
+```
+
+The lower bound is the current release floor (i.e. the oldest release
+that exposes the API surface you import). There's intentionally no upper
+bound: minor `vibeguard-gate` releases (`0.8.x` → `0.9.0`) keep
+`PLUGIN_API_VERSION` at `1.x`, so they stay compatible. When VibeGuard
+ships a `PLUGIN_API_VERSION` major bump (`1.x` → `2.0`) the release
+notes will tell you to add an upper bound (e.g. `<1.0` if you can't
+yet support the new major) and update your imports.
 
 ## Rule contract
 
@@ -135,7 +148,7 @@ acme-vibeguard-rules/
 name = "acme-vibeguard-rules"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["vibeguard-gate>=0.6,<0.7"]
+dependencies = ["vibeguard-gate>=0.8"]
 
 [project.entry-points."vibeguard.rules"]
 acme-todo = "acme_vg_rules.todo:TodoRule"
