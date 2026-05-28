@@ -10,6 +10,44 @@
 
 ---
 
+## Add VibeGuard to your PR workflow
+
+**The deterministic pre-merge safety gate for AI-generated diffs** — runs in
+single-digit seconds, fully offline, no API key.
+
+**Try it locally** (full walkthrough in [Try it in 30 seconds](#try-it-in-30-seconds)):
+
+```bash
+pip install vibeguard-gate
+vibeguard scan --path .
+```
+
+**Add it as a GitHub Actions PR gate** that fails the PR on high-severity findings:
+
+```yaml
+# .github/workflows/vibeguard.yml
+name: VibeGuard
+on: [pull_request]
+jobs:
+  vibeguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dgenio/vibeguard@v0.8.0
+        with:
+          diff: "true"
+          fail-on: high
+```
+
+When a finding blocks, VibeGuard prints a severity/rule/path table and exits
+non-zero — see [Example Output](#example-output). It **complements** Semgrep,
+CodeQL, gitleaks, and Dependabot rather than replacing them; see the
+[tool comparison guide](docs/comparison.md) for when to use it and when not to.
+
+---
+
 ## The Problem
 
 AI coding tools let developers ship in hours what used to take days. That is genuinely great. But accepting large AI-generated diffs without scrutiny creates a new failure mode that traditional security tools were not designed to catch:
@@ -365,6 +403,25 @@ claim — it says "human, please look at this," not "this is exploitable."
 
 The intent is to **complement** these tools, not replace them. A typical
 CI pipeline runs VibeGuard alongside one of each of the above.
+
+For a deeper, per-tool breakdown — when to reach for VibeGuard and when not
+to, plus a recommended layered CI pipeline — see the
+[tool comparison guide](docs/comparison.md).
+
+---
+
+## Ecosystem
+
+VibeGuard is **fully standalone**. It has no runtime dependency on any
+external service, API, or sibling project, and it never phones home. The only
+thing it needs is the diff or directory you point it at.
+
+It is built to fit *into* a broader toolchain through standard, boring
+interfaces — process exit codes, JSON and SARIF reports, and editor
+diagnostics — so downstream tooling can consume its findings without coupling
+to VibeGuard internals. Treat those outputs as the integration surface:
+nothing downstream is required for VibeGuard to do its job, and adopting
+VibeGuard never forces any other tool on you.
 
 ---
 

@@ -19,6 +19,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
+README = REPO_ROOT / "README.md"
+COMPARISON = DOCS_DIR / "comparison.md"
 
 # Snapshot of published tags as a fallback when the test runs outside a git
 # checkout (e.g. an installed sdist). The live source of truth — used when
@@ -120,3 +122,72 @@ class TestContributingNoStaleIssueRefs:
         text = _read(REPO_ROOT / "CONTRIBUTING.md")
         assert "vibeguard/scanner.py" in text
         assert "load_all_builtin_rules" in text
+
+
+class TestComparisonGuide:
+    """Issue #96: a dedicated comparison guide must exist, be linked from the
+    README, frame VibeGuard as complementary (not a replacement), and cover
+    each tool category the issue calls out."""
+
+    def test_comparison_guide_exists(self):
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
+
+    def test_readme_links_to_comparison_guide(self):
+        assert "docs/comparison.md" in _read(README), (
+            "README must link to docs/comparison.md so readers can find the "
+            "per-tool breakdown. See #96."
+        )
+
+    def test_guide_covers_every_tool_category(self):
+        text = _read(COMPARISON)
+        # The five categories the issue enumerates must each be present.
+        for tool in ("CodeQL", "Semgrep", "gitleaks", "Dependabot", "eslint"):
+            assert tool in text, f"docs/comparison.md does not mention {tool!r} — see #96."
+
+    def test_guide_frames_vibeguard_as_complementary(self):
+        """The guide must say VibeGuard complements rather than replaces, and
+        must keep the explicit 'do not use as' boundary the issue asks for."""
+        text = _read(COMPARISON)
+        assert "complement" in text.lower()
+        assert "Use VibeGuard when" in text
+        assert "Do not use VibeGuard as" in text
+
+
+class TestAdoptionReadme:
+    """Issue #95: the README must surface an adoption-first path — a one-line
+    positioning statement plus a GitHub Actions PR-gate snippet — near the top,
+    above the deep CLI reference."""
+
+    def test_readme_has_positioning_statement(self):
+        assert "deterministic pre-merge safety gate for AI-generated diffs" in _read(README), (
+            "README is missing the one-line positioning statement. See #95."
+        )
+
+    def test_action_snippet_appears_before_cli_reference(self):
+        """The copy-paste GitHub Actions gate must be above the fold — i.e.
+        before the deep `## CLI Reference` section — so a reader sees the
+        adoption path without scrolling the whole README."""
+        text = _read(README)
+        gate_idx = text.find("dgenio/vibeguard@")
+        cli_idx = text.find("## CLI Reference")
+        assert gate_idx != -1, "README has no GitHub Action snippet — see #95."
+        assert cli_idx != -1, "README is missing its CLI Reference section."
+        assert gate_idx < cli_idx, (
+            "The GitHub Actions gate snippet must appear before the CLI "
+            "reference so the adoption path is above the fold. See #95."
+        )
+
+
+class TestEcosystemNote:
+    """Issue #104: the README must explain where VibeGuard fits in a broader
+    ecosystem while making clear it remains fully standalone."""
+
+    def test_readme_has_ecosystem_section(self):
+        assert "## Ecosystem" in _read(README), "README is missing the ## Ecosystem note. See #104."
+
+    def test_ecosystem_note_states_standalone(self):
+        text = _read(README)
+        ecosystem = text.split("## Ecosystem", 1)[1]
+        assert "standalone" in ecosystem.lower(), (
+            "The ecosystem note must state that VibeGuard is fully standalone. See #104."
+        )
