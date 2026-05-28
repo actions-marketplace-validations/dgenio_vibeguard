@@ -19,6 +19,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
+README = REPO_ROOT / "README.md"
+COMPARISON = DOCS_DIR / "comparison.md"
 
 # Snapshot of published tags as a fallback when the test runs outside a git
 # checkout (e.g. an installed sdist). The live source of truth — used when
@@ -50,6 +52,30 @@ def _known_tags() -> frozenset[str]:
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _github_slug(heading_text: str) -> str:
+    """Approximate GitHub's heading-anchor slug: lowercase, drop punctuation
+    GitHub strips (keeping word chars, spaces, hyphens), spaces -> hyphens."""
+    text = re.sub(r"[^\w\s-]", "", heading_text.strip().lower())
+    return text.replace(" ", "-")
+
+
+def _markdown_heading_slugs(text: str) -> set[str]:
+    """Collect anchor slugs for every ATX heading, ignoring fenced code blocks
+    so `# comment` lines inside ```` ``` ```` snippets are not treated as headings."""
+    slugs: set[str] = set()
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = re.match(r"#{1,6}\s+(.*)", line)
+        if match:
+            slugs.add(_github_slug(match.group(1)))
+    return slugs
 
 
 class TestPluginApiDocs:
@@ -97,6 +123,20 @@ class TestGitHubActionDocs:
             f"tag before merging. See #87."
         )
 
+    def test_action_ref_tag_is_consistent_across_docs(self):
+        """The PR-gate snippet is duplicated in README and docs/comparison.md
+        (#95/#96). Markdown can't transclude, so guard that both copies pin the
+        same `dgenio/vibeguard@<tag>` and can't silently drift apart."""
+        refs: set[str] = set()
+        for path in (README, COMPARISON):
+            if path.exists():
+                refs.update(self._ACTION_REF.findall(_read(path)))
+        assert len(refs) <= 1, (
+            "README and docs/comparison.md pin different dgenio/vibeguard "
+            f"action tags: {sorted(refs)}. The duplicated PR-gate snippets must "
+            "stay on one tag so they can't drift apart."
+        )
+
 
 class TestContributingNoStaleIssueRefs:
     """Issue #91: CONTRIBUTING.md must not tell readers to wait for a PR
@@ -120,3 +160,93 @@ class TestContributingNoStaleIssueRefs:
         text = _read(REPO_ROOT / "CONTRIBUTING.md")
         assert "vibeguard/scanner.py" in text
         assert "load_all_builtin_rules" in text
+
+
+class TestComparisonGuide:
+    """Issue #96: a dedicated comparison guide must exist, be linked from the
+    README, frame VibeGuard as complementary (not a replacement), and cover
+    each tool category the issue calls out."""
+
+    def test_comparison_guide_exists(self):
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
+
+    def test_readme_links_to_comparison_guide(self):
+        assert "docs/comparison.md" in _read(README), (
+            "README must link to docs/comparison.md so readers can find the "
+            "per-tool breakdown. See #96."
+        )
+
+    def test_guide_covers_every_tool_category(self):
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
+        text = _read(COMPARISON)
+        # The five categories the issue enumerates must each be present.
+        for tool in ("CodeQL", "Semgrep", "gitleaks", "Dependabot", "eslint"):
+            assert tool in text, f"docs/comparison.md does not mention {tool!r} — see #96."
+
+    def test_guide_frames_vibeguard_as_complementary(self):
+        """The guide must say VibeGuard complements rather than replaces, and
+        must keep the explicit 'do not use as' boundary the issue asks for."""
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
+        text = _read(COMPARISON)
+        assert "complement" in text.lower()
+        assert "Use VibeGuard when" in text
+        assert "Do not use VibeGuard as" in text
+
+
+class TestAdoptionReadme:
+    """Issue #95: the README must surface an adoption-first path — a one-line
+    positioning statement plus a GitHub Actions PR-gate snippet — near the top,
+    above the deep CLI reference."""
+
+    def test_readme_has_positioning_statement(self):
+        assert "deterministic pre-merge safety gate for AI-generated diffs" in _read(README), (
+            "README is missing the one-line positioning statement. See #95."
+        )
+
+    def test_action_snippet_appears_before_cli_reference(self):
+        """The copy-paste GitHub Actions gate must be above the fold — i.e.
+        before the deep `## CLI Reference` section — so a reader sees the
+        adoption path without scrolling the whole README."""
+        text = _read(README)
+        gate_idx = text.find("dgenio/vibeguard@")
+        cli_idx = text.find("## CLI Reference")
+        assert gate_idx != -1, "README has no GitHub Action snippet — see #95."
+        assert cli_idx != -1, "README is missing its CLI Reference section."
+        assert gate_idx < cli_idx, (
+            "The GitHub Actions gate snippet must appear before the CLI "
+            "reference so the adoption path is above the fold. See #95."
+        )
+
+
+class TestEcosystemNote:
+    """Issue #104: the README must explain where VibeGuard fits in a broader
+    ecosystem while making clear it remains fully standalone."""
+
+    def test_readme_has_ecosystem_section(self):
+        assert "## Ecosystem" in _read(README), "README is missing the ## Ecosystem note. See #104."
+
+    def test_ecosystem_note_states_standalone(self):
+        text = _read(README)
+        _, sep, ecosystem = text.partition("## Ecosystem")
+        assert sep, "README is missing the ## Ecosystem note. See #104."
+        assert "standalone" in ecosystem.lower(), (
+            "The ecosystem note must state that VibeGuard is fully standalone. See #104."
+        )
+
+
+class TestReadmeAnchors:
+    """Issue #95: the adoption-first section links in-page anchors (e.g. the
+    30-second demo and example output). Guard that every intra-doc anchor link
+    in the README resolves to a real heading, so a future heading rename can't
+    silently break the adoption funnel's navigation."""
+
+    def test_intradoc_anchor_links_resolve(self):
+        text = _read(README)
+        slugs = _markdown_heading_slugs(text)
+        broken = sorted(
+            anchor for anchor in re.findall(r"\]\(#([^)]+)\)", text) if anchor not in slugs
+        )
+        assert not broken, (
+            f"README links to in-page anchor(s) with no matching heading: {broken}. "
+            "Rename the link or restore the heading. See #95."
+        )
