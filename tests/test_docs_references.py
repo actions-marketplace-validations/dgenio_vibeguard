@@ -54,6 +54,30 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _github_slug(heading_text: str) -> str:
+    """Approximate GitHub's heading-anchor slug: lowercase, drop punctuation
+    GitHub strips (keeping word chars, spaces, hyphens), spaces -> hyphens."""
+    text = re.sub(r"[^\w\s-]", "", heading_text.strip().lower())
+    return text.replace(" ", "-")
+
+
+def _markdown_heading_slugs(text: str) -> set[str]:
+    """Collect anchor slugs for every ATX heading, ignoring fenced code blocks
+    so `# comment` lines inside ```` ``` ```` snippets are not treated as headings."""
+    slugs: set[str] = set()
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = re.match(r"#{1,6}\s+(.*)", line)
+        if match:
+            slugs.add(_github_slug(match.group(1)))
+    return slugs
+
+
 class TestPluginApiDocs:
     """Issue #86: plugin pin must include the current release."""
 
@@ -97,6 +121,20 @@ class TestGitHubActionDocs:
             "Files reference dgenio/vibeguard@<tag> for tag(s) that do not "
             f"exist: {offenders}. Update the file to a real tag, or cut the "
             f"tag before merging. See #87."
+        )
+
+    def test_action_ref_tag_is_consistent_across_docs(self):
+        """The PR-gate snippet is duplicated in README and docs/comparison.md
+        (#95/#96). Markdown can't transclude, so guard that both copies pin the
+        same `dgenio/vibeguard@<tag>` and can't silently drift apart."""
+        refs: set[str] = set()
+        for path in (README, COMPARISON):
+            if path.exists():
+                refs.update(self._ACTION_REF.findall(_read(path)))
+        assert len(refs) <= 1, (
+            "README and docs/comparison.md pin different dgenio/vibeguard "
+            f"action tags: {sorted(refs)}. The duplicated PR-gate snippets must "
+            "stay on one tag so they can't drift apart."
         )
 
 
@@ -193,4 +231,22 @@ class TestEcosystemNote:
         assert sep, "README is missing the ## Ecosystem note. See #104."
         assert "standalone" in ecosystem.lower(), (
             "The ecosystem note must state that VibeGuard is fully standalone. See #104."
+        )
+
+
+class TestReadmeAnchors:
+    """Issue #95: the adoption-first section links in-page anchors (e.g. the
+    30-second demo and example output). Guard that every intra-doc anchor link
+    in the README resolves to a real heading, so a future heading rename can't
+    silently break the adoption funnel's navigation."""
+
+    def test_intradoc_anchor_links_resolve(self):
+        text = _read(README)
+        slugs = _markdown_heading_slugs(text)
+        broken = sorted(
+            anchor for anchor in re.findall(r"\]\(#([^)]+)\)", text) if anchor not in slugs
+        )
+        assert not broken, (
+            f"README links to in-page anchor(s) with no matching heading: {broken}. "
+            "Rename the link or restore the heading. See #95."
         )
