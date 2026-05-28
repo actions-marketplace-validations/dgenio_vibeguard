@@ -1027,7 +1027,7 @@ def rules_list(
                 "tags": list(meta.tags),
                 "finding_ids": list(meta.finding_ids),
                 "applies_to": list(meta.applies_to),
-                "config_key": meta.config_key or meta.rule_id,
+                "config_key": meta.config_key,
             }
         )
 
@@ -1129,11 +1129,12 @@ def rules_explain(
         f"[dim]Confidence:[/]       {meta.confidence}",
         f"[dim]Tags:[/]             {', '.join(meta.tags) or '—'}",
         f"[dim]Applies to:[/]       {', '.join(meta.applies_to) or '*'}",
-        # The config section is rule id by default, but the few mismatches
-        # (e.g. ``risky_diff`` → ``risky_patterns``) used to be invisible
-        # from this surface. Surfacing ``config_key`` here closes #89's UX
-        # gap so a user knows exactly which YAML block tunes the rule.
-        f"[dim]Config section:[/]   {meta.config_key or meta.rule_id} (in vibeguard.yaml)",
+        # The config section is rule id by default (filled in by
+        # ``register_rule``); the few mismatches (e.g. ``risky_diff`` →
+        # ``risky_patterns``) override it explicitly. Surfacing
+        # ``config_key`` here closes #89's UX gap so a user knows exactly
+        # which YAML block tunes the rule.
+        f"[dim]Config section:[/]   {meta.config_key} (in vibeguard.yaml)",
         "",
         "[bold]Finding IDs[/]",
         *finding_lines,

@@ -71,13 +71,12 @@ class TestRuleRegistry:
         registered finding ID. The static adapter's curated dict covers the
         canonical "rich text" cases; everything else must have a one-line
         remediation in the rule's metadata (#88)."""
-        from vibeguard.explain.static import _CURATED
+        from vibeguard.explain.static import StaticExplainAdapter
 
-        curated = set(_CURATED.keys())
         for rule_id, meta in RULE_REGISTRY.items():
             for fid in meta.finding_ids:
                 fid_upper = fid.upper()
-                has_curated = fid_upper in curated
+                has_curated = StaticExplainAdapter.explain_by_id(fid_upper) is not None
                 has_remediation = fid_upper in meta.remediations
                 assert has_curated or has_remediation, (
                     f"Finding {fid} (rule {rule_id}) has neither a curated "

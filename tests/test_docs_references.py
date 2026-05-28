@@ -14,14 +14,38 @@ paper-cut patterns called out in the v1 newcomer-audit issues:
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
 
-# Tags published by the project, drawn from `git tag` at the time of writing.
-# Treat this list as the source of truth for "does this action ref exist".
-KNOWN_TAGS = {"v0.1.1", "v0.4.0", "v0.5.0", "v0.6.0", "v0.7.0", "v0.8.0"}
+# Snapshot of published tags as a fallback when the test runs outside a git
+# checkout (e.g. an installed sdist). The live source of truth — used when
+# available — is ``git tag -l`` in the working tree; see ``_known_tags``.
+_FALLBACK_TAGS = frozenset({"v0.1.1", "v0.4.0", "v0.5.0", "v0.6.0", "v0.7.0", "v0.8.0"})
+
+
+def _known_tags() -> frozenset[str]:
+    """Return the set of tags that GitHub will resolve for ``dgenio/vibeguard@<ref>``.
+
+    Prefer ``git tag -l`` so the set tracks the repo on every release without
+    a manual list update — that hand-maintained list was the same staleness
+    class issue #87 was filed to prevent. Fall back to a snapshot when git is
+    not available (e.g. installed sdist).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "tag", "-l"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return _FALLBACK_TAGS
+    tags = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return frozenset(tags) if tags else _FALLBACK_TAGS
 
 
 def _read(path: Path) -> str:
@@ -60,16 +84,17 @@ class TestGitHubActionDocs:
         candidate_paths: list[Path] = list(DOCS_DIR.rglob("*.md"))
         candidate_paths.append(REPO_ROOT / "action.yml")
         candidate_paths.append(REPO_ROOT / "README.md")
+        known_tags = _known_tags()
         for path in candidate_paths:
             if not path.exists():
                 continue
             for ref in self._ACTION_REF.findall(_read(path)):
-                if ref not in KNOWN_TAGS:
+                if ref not in known_tags:
                     offenders.append((path.relative_to(REPO_ROOT), ref))
         assert not offenders, (
             "Files reference dgenio/vibeguard@<tag> for tag(s) that do not "
-            f"exist: {offenders}. Update the file to a real tag or add the "
-            f"new tag to KNOWN_TAGS in this test. See #87."
+            f"exist: {offenders}. Update the file to a real tag, or cut the "
+            f"tag before merging. See #87."
         )
 
 

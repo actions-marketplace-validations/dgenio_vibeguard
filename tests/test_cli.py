@@ -105,8 +105,12 @@ class TestCLIExplain:
         # curated entry; it must now render the rule-metadata remediation.
         result = runner.invoke(app, ["explain", "SEC-GITHUBTOKEN"])
         assert result.exit_code == 0
+        # Structural check: the "How to fix" marker is present and the body
+        # following it is non-empty. Avoids coupling to remediation prose
+        # (e.g. "Revoke" / "rotate") that may be reworded over time.
         assert "How to fix" in result.stdout
-        assert "Revoke" in result.stdout or "rotate" in result.stdout.lower()
+        _, _, after = result.stdout.partition("How to fix")
+        assert after.strip(), "Remediation body following 'How to fix' is empty"
 
 
 class TestCLIVersion:

@@ -57,11 +57,10 @@ def _render_summary_row(meta: RuleMetadata) -> str:
     finding_count = len(meta.finding_ids)
     applies = ", ".join(meta.applies_to) if meta.applies_to else "*"
     tags = ", ".join(meta.tags) if meta.tags else "—"
-    config_key = meta.config_key or meta.rule_id
     return (
         f"| [`{meta.rule_id}`](#{_slug(meta.rule_id)}) "
         f"| {_md_escape(meta.title)} "
-        f"| `{config_key}` "
+        f"| `{meta.config_key}` "
         f"| {meta.default_severity} "
         f"| {meta.confidence} "
         f"| {finding_count} "
@@ -76,11 +75,10 @@ def _render_rule_section(meta: RuleMetadata) -> str:
     out.write(f"### `{meta.rule_id}` — {meta.title}\n\n")
     out.write(meta.description.rstrip())
     out.write("\n\n")
-    config_key = meta.config_key or meta.rule_id
     out.write(
         f"- **Default severity:** `{meta.default_severity}`\n"
         f"- **Confidence:** `{meta.confidence}`\n"
-        f"- **Config section:** `{config_key}` (in `vibeguard.yaml`)\n"
+        f"- **Config section:** `{meta.config_key}` (in `vibeguard.yaml`)\n"
         f"- **Tags:** {', '.join(f'`{t}`' for t in meta.tags) if meta.tags else '_none_'}\n"
         f"- **Applies to:** "
         f"{', '.join(f'`{p}`' for p in meta.applies_to) if meta.applies_to else '`*`'}\n"
