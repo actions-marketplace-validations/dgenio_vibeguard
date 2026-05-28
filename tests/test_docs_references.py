@@ -139,6 +139,7 @@ class TestComparisonGuide:
         )
 
     def test_guide_covers_every_tool_category(self):
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
         text = _read(COMPARISON)
         # The five categories the issue enumerates must each be present.
         for tool in ("CodeQL", "Semgrep", "gitleaks", "Dependabot", "eslint"):
@@ -147,6 +148,7 @@ class TestComparisonGuide:
     def test_guide_frames_vibeguard_as_complementary(self):
         """The guide must say VibeGuard complements rather than replaces, and
         must keep the explicit 'do not use as' boundary the issue asks for."""
+        assert COMPARISON.exists(), "docs/comparison.md is missing — see #96."
         text = _read(COMPARISON)
         assert "complement" in text.lower()
         assert "Use VibeGuard when" in text
@@ -187,7 +189,8 @@ class TestEcosystemNote:
 
     def test_ecosystem_note_states_standalone(self):
         text = _read(README)
-        ecosystem = text.split("## Ecosystem", 1)[1]
+        _, sep, ecosystem = text.partition("## Ecosystem")
+        assert sep, "README is missing the ## Ecosystem note. See #104."
         assert "standalone" in ecosystem.lower(), (
             "The ecosystem note must state that VibeGuard is fully standalone. See #104."
         )
