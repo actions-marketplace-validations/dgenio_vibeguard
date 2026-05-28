@@ -178,5 +178,12 @@ register_rule(
         confidence="medium",
         tags=["tests", "coverage"],
         applies_to=["*.py", "*.js", "*.ts"],
+        remediations={
+            "TEST-MISSING": (
+                "Add unit tests covering the changed logic before merging. "
+                "Even a happy-path test catches a large share of regressions "
+                "in AI-generated code."
+            ),
+        },
     )
 )

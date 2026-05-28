@@ -5,7 +5,7 @@ The `dgenio/vibeguard` action runs VibeGuard as a composite GitHub Action step.
 ## Usage
 
 ```yaml
-- uses: dgenio/vibeguard@v0.2
+- uses: dgenio/vibeguard@v0.8.0
   with:
     path: '.'
     diff: 'true'
@@ -54,7 +54,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dgenio/vibeguard@v0.2
+      - uses: dgenio/vibeguard@v0.8.0
         id: vibeguard
         with:
           diff: 'true'

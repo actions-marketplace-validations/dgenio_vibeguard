@@ -298,5 +298,53 @@ register_rule(
         confidence="high",
         tags=["security", "iac", "terraform", "kubernetes"],
         applies_to=["*.tf", "*.yaml", "*.yml"],
+        remediations={
+            "TF-IAM-WILDCARD": (
+                "Replace `*` actions/resources in IAM policy with the "
+                "specific calls and ARNs required. Least-privilege is the "
+                "single biggest IAM hardening you can do."
+            ),
+            "TF-SG-OPEN": (
+                "Lock the security group's CIDR from `0.0.0.0/0` to the "
+                "specific addresses or VPC ranges that need access."
+            ),
+            "TF-S3-PUBLIC": (
+                'Set the bucket to private (`acl = "private"`, '
+                "`block_public_acls = true`). Use signed URLs or "
+                "CloudFront for legitimate public access."
+            ),
+            "TF-UNENCRYPTED": (
+                "Enable encryption at rest (`server_side_encryption_*`, "
+                "`encrypted = true`). Use a managed KMS key unless you have "
+                "a compliance reason to bring your own."
+            ),
+            "TF-NO-VERSION-PIN": (
+                "Pin providers and modules with a `version` constraint "
+                "(`~> 5.0` or exact). Floating providers can ship breaking "
+                "changes mid-deploy."
+            ),
+            "K8S-PRIVILEGED": (
+                "Set `securityContext.privileged: false` and only add the "
+                "specific capabilities the workload needs."
+            ),
+            "K8S-HOST-PATH": (
+                "Avoid `hostPath` volumes. Use a dedicated PVC or an "
+                "emptyDir if the data is ephemeral; hostPath escapes the "
+                "container boundary."
+            ),
+            "K8S-NO-TLS": (
+                "Configure TLS for the ingress/service. Cluster-internal "
+                "plaintext is a regression even on private networks."
+            ),
+            "K8S-ALLOW-ALL": (
+                "Replace allow-all NetworkPolicy/RBAC with explicit "
+                "ingress/egress rules and minimum RBAC verbs."
+            ),
+            "K8S-ROOT-CONTAINER": (
+                "Set `runAsNonRoot: true` and pick a numeric UID. Running "
+                "as root inside the container is unnecessary for almost "
+                "every workload."
+            ),
+        },
     )
 )

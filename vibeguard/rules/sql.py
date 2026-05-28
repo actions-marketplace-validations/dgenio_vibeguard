@@ -151,5 +151,36 @@ register_rule(
         confidence="medium",
         tags=["security", "sql", "injection"],
         applies_to=["*.py", "*.js", "*.ts", "*.go"],
+        remediations={
+            "SQL-PY-FSTRING": (
+                "Use parameterised queries: pass user values as positional "
+                "or named bind parameters (e.g. `cursor.execute(sql, (a,))`). "
+                "F-strings in SQL invite injection."
+            ),
+            "SQL-PY-CONCAT": (
+                "Replace string concatenation with parameterised queries. "
+                "Use your driver's `?`/`%s`/named-param syntax instead of "
+                "`+` or `%` on user input."
+            ),
+            "SQL-PY-FORMAT": (
+                "Avoid `.format(...)` on SQL strings. Build the query with "
+                "bind parameters so the driver escapes values."
+            ),
+            "SQL-JS-TEMPLATE": (
+                "Use the database client's parameter binding API (`?`, `$1`, "
+                "or prepared statements). Template literals concatenate user "
+                "input directly into SQL."
+            ),
+            "SQL-JS-CONCAT": (
+                "Replace string concatenation with parameterised queries via "
+                "the driver. Even `+`-joined SQL with sanitisation drifts "
+                "out of sync over time."
+            ),
+            "SQL-GO-SPRINTF": (
+                "Use `db.QueryContext` / `db.ExecContext` with `?` "
+                "placeholders. `fmt.Sprintf` to assemble SQL is the canonical "
+                "Go injection pattern."
+            ),
+        },
     )
 )

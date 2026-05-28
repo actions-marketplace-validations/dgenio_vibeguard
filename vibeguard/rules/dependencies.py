@@ -454,5 +454,49 @@ register_rule(
         confidence="medium",
         tags=["security", "supply-chain", "dependencies"],
         applies_to=["package.json", "pyproject.toml", ".npmrc", "pip.conf"],
+        remediations={
+            "DEP-URLNODE": (
+                "Publish the dependency to a registry and use a versioned "
+                "specifier (`name@^1.2.3`). Direct git/URL deps bypass "
+                "lockfiles and integrity checks."
+            ),
+            "DEP-BROADVER": (
+                "Tighten the version range. Avoid `*`/`x`/`latest` and prefer "
+                "a `^1.2` or pinned `1.2.3` constraint."
+            ),
+            "DEP-TYPOSQUATNPM": (
+                "Verify this is the package you intended. Check npmjs.com "
+                "ownership and weekly downloads before installing. Replace "
+                "with the canonical package if this was a typo."
+            ),
+            "DEP-URLPYTHON": (
+                "Publish the dependency to PyPI and use a versioned "
+                "specifier. URL/git installs have no integrity hash and skip "
+                "wheel signing."
+            ),
+            "DEP-UNPINNEDPY": (
+                "Add a version constraint (e.g. `name>=1.0,<2.0`). Unpinned "
+                "deps make builds non-reproducible."
+            ),
+            "DEP-TYPOSQUATPY": (
+                "Confirm the package name on pypi.org. Replace with the "
+                "canonical package if this was a typo (`requests` not "
+                "`requesst`, etc.)."
+            ),
+            "DEP-LOCKFILE-MISMATCH": (
+                "Regenerate the lockfile so it matches the manifest "
+                "(`npm install`/`poetry lock`). Drift between the two is how "
+                "supply-chain attacks slip into CI."
+            ),
+            "DEP-MANIFEST-NO-LOCK": (
+                "Commit a lockfile alongside the manifest. Without one, every "
+                "install resolves transitives non-deterministically."
+            ),
+            "DEP-REGISTRY-CHANGE": (
+                "Confirm the new registry/index URL is intentional and "
+                "trusted. Document the change in the PR description and "
+                "monitor build integrity logs after merge."
+            ),
+        },
     )
 )

@@ -136,5 +136,42 @@ register_rule(
         confidence="medium",
         tags=["security", "go"],
         applies_to=["*.go"],
+        remediations={
+            "GO-INSECURE-TLS": (
+                "Remove `InsecureSkipVerify: true` from the `tls.Config`. "
+                "Use the system CA bundle, or pin a known root via "
+                "`x509.CertPool`."
+            ),
+            "GO-EXEC-SHELL": (
+                "Use `exec.Command(name, args...)` with arguments as separate "
+                "strings. Avoid `sh -c` and never interpolate user input "
+                "into the command string."
+            ),
+            "GO-CORS-WILDCARD": (
+                "Set `Access-Control-Allow-Origin` to an explicit allow-list, "
+                "not `*`. Wildcard + credentials is a known account-takeover "
+                "vector."
+            ),
+            "GO-SQL-SPRINTF": (
+                "Replace `fmt.Sprintf` SQL with `db.QueryContext`/"
+                "`db.ExecContext` and `?` placeholders so the driver handles "
+                "escaping."
+            ),
+            "GO-HARDCODED-TOKEN": (
+                "Move the token to an environment variable or secret manager. "
+                "Rotate it immediately and audit any downstream system that "
+                "may have logged the value."
+            ),
+            "GO-AUTH-BYPASS": (
+                "Re-enable the authentication middleware/check. If a public "
+                "route is intentional, mark it on the route itself rather "
+                "than removing global guards."
+            ),
+            "GO-UNSAFE-DELETE": (
+                "Guard `os.RemoveAll`/`os.Remove` with explicit path "
+                "validation. Confirm the path stays within an expected root "
+                "before deleting."
+            ),
+        },
     )
 )

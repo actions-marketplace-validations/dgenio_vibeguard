@@ -53,3 +53,35 @@ class TestRuleRegistry:
             assert meta.title
             assert meta.description
             assert meta.tags
+
+    def test_every_rule_declares_a_config_key(self):
+        """``register_rule`` defaults ``config_key`` to ``rule_id`` so this
+        invariant must hold for every entry. Tested explicitly so a future
+        registry refactor that drops the default is caught (#89)."""
+        for rule_id, meta in RULE_REGISTRY.items():
+            assert meta.config_key, f"Rule {rule_id} missing config_key"
+
+    def test_known_config_key_mismatches(self):
+        """The one historical mismatch — ``rule_id='risky_diff'`` is configured
+        via the ``risky_patterns`` YAML section — must remain surfaced (#89)."""
+        assert RULE_REGISTRY["risky_diff"].config_key == "risky_patterns"
+
+    def test_every_finding_id_has_a_remediation(self):
+        """``vibeguard explain <ID>`` must render a remediation for every
+        registered finding ID. The static adapter's curated dict covers the
+        canonical "rich text" cases; everything else must have a one-line
+        remediation in the rule's metadata (#88)."""
+        from vibeguard.explain.static import _CURATED
+
+        curated = set(_CURATED.keys())
+        for rule_id, meta in RULE_REGISTRY.items():
+            for fid in meta.finding_ids:
+                fid_upper = fid.upper()
+                has_curated = fid_upper in curated
+                has_remediation = fid_upper in meta.remediations
+                assert has_curated or has_remediation, (
+                    f"Finding {fid} (rule {rule_id}) has neither a curated "
+                    f"explanation nor a remediation. Add one in either "
+                    f"vibeguard/explain/static.py or the rule's "
+                    f"RuleMetadata(remediations=...)."
+                )

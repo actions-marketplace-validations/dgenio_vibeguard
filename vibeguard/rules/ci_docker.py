@@ -294,5 +294,61 @@ register_rule(
         confidence="high",
         tags=["security", "docker", "ci", "github-actions"],
         applies_to=["Dockerfile", "Dockerfile.*", "*.dockerfile", ".github/workflows/*.yml"],
+        remediations={
+            "DOCKER-PRIVILEGED": (
+                "Drop `--privileged`/`privileged: true`. Use explicit "
+                "capabilities (`--cap-add`) or, better, find a path that "
+                "doesn't need any kernel privileges."
+            ),
+            "DOCKER-LATEST-TAG": (
+                "Pin the base image to a specific digest or version tag. "
+                "`:latest` makes builds non-reproducible and hides "
+                "supply-chain rebases."
+            ),
+            "DOCKER-CURL-BASH": (
+                "Avoid `curl … | bash`. Download the installer, verify a "
+                "checksum or signature, then execute. Better yet, install via "
+                "a versioned package."
+            ),
+            "DOCKER-BROAD-CHMOD": (
+                "Replace `chmod 777`/`chmod -R 777` with the narrowest mode "
+                "your process needs. World-writable bits are rarely correct."
+            ),
+            "DOCKER-SECRET-ENV": (
+                "Don't bake secrets into the image. Pass them as build "
+                "secrets (`--secret`) or read them from the orchestrator at "
+                "runtime."
+            ),
+            "DOCKER-ADD-URL": (
+                "Use `COPY` against a verified local artifact, or `RUN curl` "
+                "with a checksum check. `ADD <URL>` skips integrity checks "
+                "and follows redirects silently."
+            ),
+            "GHA-PULL-REQUEST-TARGET": (
+                "Switch the workflow to `pull_request` and restrict secret "
+                "access. `pull_request_target` runs with write tokens on "
+                "untrusted forks — confirm you actually need it."
+            ),
+            "GHA-BROAD-PERMISSIONS": (
+                "Replace `permissions: write-all` with explicit minimum "
+                "scopes per job (e.g. `contents: read`, `pull-requests: "
+                "write`)."
+            ),
+            "GHA-SECRET-ECHO": (
+                "Remove the `echo`/`run` step that exposes a secret. Even "
+                "behind a mask, secrets in shell commands can leak via "
+                "process listings or downstream logs."
+            ),
+            "GHA-DISABLE-CHECK": (
+                "Restore the disabled check. If a check is genuinely "
+                "obsolete, delete the workflow rather than leaving a "
+                "disabled stub that confuses reviewers."
+            ),
+            "GHA-UNVERSIONED-ACTION": (
+                "Pin third-party actions to a commit SHA (e.g. "
+                "`uses: actions/checkout@<sha>`). Floating refs like "
+                "`@main`/`@v1` can be force-pushed."
+            ),
+        },
     )
 )

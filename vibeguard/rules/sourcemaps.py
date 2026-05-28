@@ -157,5 +157,27 @@ register_rule(
         confidence="high",
         tags=["security", "sourcemaps", "packaging"],
         applies_to=["*.map", "*.js", "package.json"],
+        remediations={
+            "MAP-DIST": (
+                "Add `*.map` to `.npmignore` (or remove the matching pattern "
+                "from `files` in `package.json`) so source maps are not "
+                "shipped to the registry."
+            ),
+            "MAP-FILE": (
+                "Disable source-map output for production bundles, or set the "
+                "build tool to emit hidden source maps that stay outside the "
+                "published artifact."
+            ),
+            "MAP-URL": (
+                "Strip the `//# sourceMappingURL=` comment from the published "
+                "bundle, or point it at an internal-only host that does not "
+                "serve the maps publicly."
+            ),
+            "MAP-PKG": (
+                "Remove `*.map` entries from the `files` array in "
+                "`package.json` (or add `*.map` to `.npmignore`) so source "
+                "maps are excluded from the next publish."
+            ),
+        },
     )
 )

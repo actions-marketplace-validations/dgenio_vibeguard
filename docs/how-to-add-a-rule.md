@@ -164,18 +164,33 @@ register_rule(
 - `tags` include `security` whenever the rule is security-related; this
   is what `vibeguard rules list --tag security` filters on.
 
-## 4. Wire the rule into the scanner
+## 4. Wire the rule into the scanner **and** the registry loader
 
-Open `vibeguard/scanner.py` and add two things:
+Built-in rules need to be wired in two places. Both are required, because
+they serve different call paths.
+
+**4a. `vibeguard/scanner.py`** — this is what `vibeguard scan`/`gate`
+runs. Add two things:
 
 1. Import the rule class with the other rules at the top of the file.
 2. Add an `if config.<name>.enabled: rules.append(...)` block inside
    `run_scan`, matching the pattern of the surrounding rules.
 
+**4b. `vibeguard/rules/__init__.py:load_all_builtin_rules`** — this
+populates `RULE_REGISTRY` for code paths that don't go through the
+scanner (the CLI `rules list` / `rules explain` / `explain` commands,
+`scripts/generate_rule_docs.py`, plugin discovery, etc.). Add a single
+`import vibeguard.rules.<your_module>  # noqa: F401` line alongside the
+existing imports. The metadata in your module's `register_rule(...)`
+call only runs when the module is imported, so missing this step makes
+your rule invisible to every non-scanner code path.
+
 If your rule needs a config toggle, also add a `XxxConfig` model to
 `vibeguard/config.py` and reference it from `VibeGuardConfig`. The
 default for new rules is **`enabled: true`** unless there's a clear
-reason to opt in.
+reason to opt in. Pass `config_key="..."` to `RuleMetadata` only when
+the YAML section name differs from the `rule_id` (rare — see
+`risky_diff` for the only built-in mismatch).
 
 ## 5. Write unit tests
 

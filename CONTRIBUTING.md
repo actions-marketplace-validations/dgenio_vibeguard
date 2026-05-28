@@ -181,19 +181,23 @@ If you're adding a brand-new detection rule, the high-level steps are:
    `vibeguard.rules.base.Rule`.
 3. Register a `RuleMetadata` entry via `register_rule(...)` at
    import time.
-4. Wire the rule into `vibeguard/scanner.py` (the scanner imports each
-   rule module explicitly today — there's no auto-discovery for built-ins).
+4. Wire the rule into both import sites: add the class to
+   `vibeguard/scanner.py` (with an `if config.<name>.enabled:
+   rules.append(...)` block matching the surrounding rules) **and** add
+   the module to `vibeguard/rules/__init__.py:load_all_builtin_rules`
+   so `RULE_REGISTRY` is populated for any code path that uses the
+   registry without going through the scanner (CLI `rules list`/`explain`,
+   doc generation, plugin discovery).
 5. Add tests under `tests/test_<rule>.py` mirroring an existing rule's
    test file (`test_secrets.py` and `test_packaging.py` are good models).
 6. If the issue includes a triggering example, add it to
    `examples/vulnerable-node-package` or `examples/vulnerable-python-package`
    so `make demo` exercises the new rule.
 
-The detailed walkthrough (with a worked example) will live in
-[`docs/how-to-add-a-rule.md`](docs/how-to-add-a-rule.md) once PR #74
-lands. Until then, the steps above plus an existing rule module
-(`vibeguard/rules/secrets.py` is a good model) are enough to get a
-working rule.
+The full worked example lives in
+[`docs/how-to-add-a-rule.md`](docs/how-to-add-a-rule.md). Start there
+when implementing a new rule; the high-level steps above are a quick
+reference for reviewers and contributors who already know the layout.
 
 ---
 

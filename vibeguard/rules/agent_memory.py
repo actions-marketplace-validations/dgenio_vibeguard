@@ -158,5 +158,32 @@ register_rule(
         confidence="medium",
         tags=["security", "agent-memory", "data-leak"],
         applies_to=["*.sqlite", "*.sqlite3", "*.db", "*.jsonl", "*.ndjson"],
+        remediations={
+            "AGENT-MEMORY-DB": (
+                "Remove the agent memory database from git and add the "
+                "pattern (`*.sqlite`, `memory.db`, etc.) to `.gitignore`. "
+                "Audit the file for accidentally captured secrets or PII."
+            ),
+            "AGENT-MEMORY-LOG": (
+                "Remove the JSONL/NDJSON log from git and ignore the path. "
+                "Agent logs frequently contain prompts, secrets, and "
+                "private data."
+            ),
+            "AGENT-TRANSCRIPT": (
+                "Delete the committed conversation transcript and add it to "
+                "`.gitignore`. Treat any credentials, tokens, or customer "
+                "data inside it as leaked."
+            ),
+            "AGENT-TOOL-TRACE": (
+                "Tool-call traces routinely contain arguments and tokens. "
+                "Remove the trace file from git history and add the path "
+                "to `.gitignore`."
+            ),
+            "AGENT-MEMORY-DIR": (
+                "Remove the hidden memory directory (`.claude/`, "
+                "`.agent_memory/`, etc.) from the repo and ignore it. "
+                "Treat anything previously committed there as leaked."
+            ),
+        },
     )
 )
