@@ -78,8 +78,18 @@ def _finding_detail(finding: Finding) -> list[str]:
 _MAX_PR_COMMENT_CHARS = 65536
 
 
-def render_pr_comment(result: ScanResult, gate_passed: bool = True) -> str:
-    """Return a PR-optimized Markdown comment with collapsible sections."""
+def render_pr_comment(
+    result: ScanResult,
+    gate_passed: bool = True,
+    threshold: Severity = Severity.HIGH,
+) -> str:
+    """Return a PR-optimized Markdown comment with collapsible sections.
+
+    ``threshold`` is the effective ``--fail-on`` severity. Findings at or above
+    it are shown under "Blocking Findings"; everything below is collapsed. The
+    default of ``HIGH`` preserves the historical split for callers that don't
+    pass a threshold.
+    """
     lines: list[str] = []
 
     # Header with pass/fail
@@ -104,11 +114,11 @@ def render_pr_comment(result: ScanResult, gate_passed: bool = True) -> str:
     if total == 0:
         lines.append("✅ No findings — all clear.\n")
     else:
-        # Separate blocking from non-blocking
-        blocking = [f for f in result.findings if f.severity in (Severity.CRITICAL, Severity.HIGH)]
-        non_blocking = [
-            f for f in result.findings if f.severity not in (Severity.CRITICAL, Severity.HIGH)
-        ]
+        # Separate blocking from non-blocking by the effective fail-on threshold
+        # so the comment matches the gate decision (e.g. --fail-on medium shows
+        # medium findings as blocking, not tucked under "additional findings").
+        blocking = [f for f in result.findings if f.severity >= threshold]
+        non_blocking = [f for f in result.findings if f.severity < threshold]
 
         if blocking:
             lines.append("### Blocking Findings\n")
@@ -118,7 +128,7 @@ def render_pr_comment(result: ScanResult, gate_passed: bool = True) -> str:
         if non_blocking:
             lines.append(
                 f"\n<details>\n<summary>{len(non_blocking)} additional findings "
-                f"(medium/low/info)...</summary>\n"
+                f"(below {threshold.value} threshold)...</summary>\n"
             )
             for finding in sorted(non_blocking, key=lambda f: f.severity, reverse=True):
                 lines.extend(_pr_finding_detail(finding))

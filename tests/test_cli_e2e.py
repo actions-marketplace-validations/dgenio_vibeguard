@@ -144,6 +144,82 @@ class TestMutualExclusionOutput:
         assert result.exit_code == 2
 
 
+class TestPathValidation:
+    """`--path` must fail closed on a missing or non-directory input (#81, #83)."""
+
+    def test_gate_missing_path_fails_closed(self):
+        result = runner.invoke(app, ["gate", "--path", "/does/not/exist", "--fail-on", "high"])
+        assert result.exit_code == 2
+        combined = result.stdout + (result.stderr or "")
+        # The gate must NOT report success on a bad path.
+        assert "Gate passed" not in combined
+        assert "does not exist" in combined
+
+    def test_scan_missing_path_errors(self):
+        result = runner.invoke(app, ["scan", "--path", "/does/not/exist"])
+        assert result.exit_code == 2
+        assert "does not exist" in result.stdout + (result.stderr or "")
+
+    def test_scan_file_path_rejected(self):
+        env_file = EXAMPLES_DIR / "vulnerable-node-package" / ".env"
+        result = runner.invoke(app, ["scan", "--path", str(env_file)])
+        assert result.exit_code == 2
+        assert "must be a directory" in result.stdout + (result.stderr or "")
+
+    def test_publish_check_missing_path_errors(self):
+        result = runner.invoke(app, ["publish-check", "--path", "/does/not/exist"])
+        assert result.exit_code == 2
+        assert "does not exist" in result.stdout + (result.stderr or "")
+
+    def test_baseline_create_missing_path_errors(self, tmp_path: Path):
+        result = runner.invoke(
+            app,
+            [
+                "baseline",
+                "create",
+                "--path",
+                "/does/not/exist",
+                "--output",
+                str(tmp_path / "b.json"),
+            ],
+        )
+        assert result.exit_code == 2
+        assert "does not exist" in result.stdout + (result.stderr or "")
+
+    def test_baseline_update_missing_path_errors(self, tmp_path: Path):
+        result = runner.invoke(
+            app,
+            [
+                "baseline",
+                "update",
+                "--path",
+                "/does/not/exist",
+                "--output",
+                str(tmp_path / "b.json"),
+            ],
+        )
+        assert result.exit_code == 2
+        assert "does not exist" in result.stdout + (result.stderr or "")
+
+    def test_valid_directory_still_scans(self, tmp_path: Path):
+        (tmp_path / "app.py").write_text("print('hi')\n")
+        result = runner.invoke(app, ["gate", "--path", str(tmp_path), "--fail-on", "high"])
+        assert result.exit_code == 0
+
+
+class TestScanFailOnHelp:
+    """`scan --fail-on` help must not claim it exits non-zero (#84)."""
+
+    def test_fail_on_help_matches_informational_behavior(self):
+        result = runner.invoke(app, ["scan", "--help"])
+        assert result.exit_code == 0
+        # Collapse wrapping so phrase checks are robust to terminal width.
+        normalized = " ".join((result.stdout + (result.stderr or "")).split())
+        assert "Exit non-zero" not in normalized
+        assert "exits 0" in normalized
+        assert "gate" in normalized
+
+
 class TestBinarySafety:
     """Tests for binary/large file safety (#16)."""
 
