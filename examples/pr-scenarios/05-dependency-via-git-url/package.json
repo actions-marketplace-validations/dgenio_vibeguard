@@ -1,0 +1,15 @@
+{
+  "name": "checkout-service",
+  "version": "1.4.0",
+  "description": "Checkout service",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "dependencies": {
+    "express": "^4.18.2",
+    "payments-lib": "git+https://github.com/some-vendor/payments-lib.git#main"
+  },
+  "license": "MIT"
+}

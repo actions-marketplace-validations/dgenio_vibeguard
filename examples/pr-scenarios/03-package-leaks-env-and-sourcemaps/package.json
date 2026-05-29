@@ -1,0 +1,12 @@
+{
+  "name": "billing-sdk",
+  "version": "2.3.0",
+  "description": "Billing SDK",
+  "main": "dist/index.js",
+  "files": [
+    "dist/",
+    ".env",
+    "**/*.map"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tidy-lib"
+version = "1.0.0"
+description = "A small, well-behaved library used as a clean benchmark baseline"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tidy_lib"]

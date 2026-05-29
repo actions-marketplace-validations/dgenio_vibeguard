@@ -1,4 +1,4 @@
-.PHONY: help install-dev test lint format-check typecheck ci clean demo docs docs-check bench bench-small bench-medium bench-large update-goldens
+.PHONY: help install-dev test lint format-check typecheck ci clean demo docs docs-check bench bench-small bench-medium bench-large bench-scenarios update-goldens
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -45,6 +45,9 @@ bench-medium: ## Generate and scan a medium synthetic repo (~5 MB)
 
 bench-large: ## Generate and scan a large synthetic repo (~20 MB)
 	python -m benchmarks.run --size large
+
+bench-scenarios: ## Evaluate detection + false-positive baseline on scenario fixtures
+	python -m benchmarks.scenarios
 
 update-goldens: ## Regenerate golden reporter snapshots in tests/fixtures/golden/
 	PYTEST_UPDATE_GOLDENS=1 pytest tests/test_reporters_golden.py -q

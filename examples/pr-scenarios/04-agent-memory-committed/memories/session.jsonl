@@ -1,0 +1,3 @@
+{"role":"user","content":"refactor the billing module"}
+{"role":"assistant","content":"I will update src/billing.py and the admin token in config"}
+{"role":"assistant","content":"note: staging DB password is hunter2 (fake, demo only)"}

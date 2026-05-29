@@ -56,8 +56,9 @@ target-version = "py310"
 line-length = 100
 # Fixture files are intentionally pathological (vulnerable-looking
 # secrets, eval(), disabled auth, etc.) so the rules have realistic
-# inputs. Linting them would defeat the point.
-extend-exclude = ["tests/fixtures"]
+# inputs. Linting them would defeat the point. ``benchmarks/scenarios``
+# holds the same kind of deliberately-unsafe evaluation fixtures.
+extend-exclude = ["tests/fixtures", "benchmarks/scenarios"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]

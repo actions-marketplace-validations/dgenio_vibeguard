@@ -128,9 +128,9 @@ pip install -e .
 vibeguard scan --path examples/vulnerable-node-package
 ```
 
-You should see ~14 findings spanning secrets, source-map leaks, risky
-patterns, and AI footprints — none of which touch the network or call
-out to any external service. Try `examples/vulnerable-python-package`
+You should see ~16 findings spanning secrets, source-map leaks, packaging
+leaks, risky patterns, and AI footprints — none of which touch the network
+or call out to any external service. Try `examples/vulnerable-python-package`
 for a Python-flavored version.
 
 To use VibeGuard as a CI gate (exits non-zero on blocking findings):
@@ -140,6 +140,12 @@ vibeguard gate --path examples/vulnerable-python-package --fail-on medium
 ```
 
 No API key, no telemetry, no network calls.
+
+Want changes that look like a real PR rather than a kitchen-sink demo? See
+[`examples/pr-scenarios/`](examples/pr-scenarios) — six self-contained
+scenarios (disable-TLS-to-pass-tests, temporary auth bypass, packaging leaks,
+committed agent memory, git-URL dependency, risky DB write) each with the
+exact command, expected findings, and a fix.
 
 ---
 
@@ -222,14 +228,16 @@ on this repository (regenerate with the same command if rules change):
 │ ✗ HIGH     │ ai_footprints  │ src/server.js:14     │ AI footprint: Security disabled in code            │
 │ ✗ HIGH     │ ai_footprints  │ src/server.js:31     │ AI footprint: Trust-all certificates               │
 │ ✗ HIGH     │ auth           │ src/server.js:16     │ Auth: Auth bypass TODO/FIXME/HACK comment          │
+│ ⚠ MEDIUM   │ packaging      │ .npmignore:8         │ Overly broad .npmignore negation: '!*'             │
 │ ⚠ MEDIUM   │ risky_diff     │ src/server.js:9      │ Risk-sensitive area changed: CORS configuration    │
 │ ⚠ MEDIUM   │ risky_diff     │ src/server.js:27     │ Risk-sensitive area changed: eval() or exec() usag │
 │ ⚠ MEDIUM   │ risky_diff     │ src/server.js:32     │ Risk-sensitive area changed: Environment variable  │
 │ ⚠ MEDIUM   │ ai_footprints  │ src/server.js:17     │ AI footprint: Temporary security bypass or mock    │
+│ ↓ LOW      │ packaging      │ package.json         │ package.json runs `prepare` at publish time        │
 │ ℹ INFO     │ ai_footprints  │ src/server.js:11     │ AI footprint: AI-generated code comment            │
 └────────────┴────────────────┴──────────────────────┴────────────────────────────────────────────────────┘
 
-  Scanned 4 file(s)  •  14 finding(s)  |  critical: 1  high: 8  medium: 4  info: 1  •  policy: balanced
+  Scanned 5 file(s)  •  16 finding(s)  |  critical: 1  high: 8  medium: 5  low: 1  info: 1  •  policy: balanced
 ```
 
 `vibeguard scan` always exits `0` (informational). `vibeguard gate` runs
@@ -407,6 +415,13 @@ CI pipeline runs VibeGuard alongside one of each of the above.
 For a deeper, per-tool breakdown — when to reach for VibeGuard and when not
 to, plus a recommended layered CI pipeline — see the
 [tool comparison guide](docs/comparison.md).
+
+### Speed & false positives
+
+VibeGuard ships a reproducible [benchmark & evaluation report](docs/benchmark.md):
+scan throughput on synthetic repos, detection across Node/Python/Go/Terraform
+fixtures, and a **zero blocking false-positives** baseline on clean code. Run
+it yourself with `make bench` and `make bench-scenarios`.
 
 ---
 
