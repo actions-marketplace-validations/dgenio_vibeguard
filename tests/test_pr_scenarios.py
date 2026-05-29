@@ -28,7 +28,11 @@ _EXPECTED: dict[str, set[str]] = {
     "01-tls-verify-disabled": {"AUTH-VERIFY-FALSE", "AI-TRUSTALLCERTS"},
     "02-auth-bypass-left-in": {"AUTH-BYPASS-COMMENT", "AI-TEMPBYPASS"},
     "03-package-leaks-env-and-sourcemaps": {"SEC-ENV", "MAP-PKG", "PKG-NPMLEAK"},
-    "04-agent-memory-committed": {"AGENT-MEMORY-LOG", "AGENT-TOOL-TRACE"},
+    "04-agent-memory-committed": {
+        "AGENT-MEMORY-LOG",
+        "AGENT-MEMORY-DIR",
+        "AGENT-TOOL-TRACE",
+    },
     "05-dependency-via-git-url": {"DEP-URLNODE"},
     "06-risky-db-write-no-tests": {"SQL-PY-FSTRING", "SQL-PY-CONCAT"},
 }
