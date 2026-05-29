@@ -22,6 +22,14 @@ def _finding_ids(rel: str) -> set[str]:
     return {f.id for f in result.findings}
 
 
+def test_node_example_total_matches_readme_example_output() -> None:
+    """The README "Example Output" block pins this count (16 findings). Keep
+    the curated table and the live scan in lockstep — if this fails, the rule
+    set changed the demo output and the README block needs regenerating."""
+    result = run_scan(EXAMPLES / "vulnerable-node-package", VibeGuardConfig())
+    assert len(result.findings) == 16
+
+
 def test_node_example_surfaces_prepare_and_broad_npmignore() -> None:
     ids = _finding_ids("vulnerable-node-package")
     assert "PKG-PREPARE-SCRIPT" in ids
