@@ -1,0 +1,5 @@
+# Override the repo's global .gitignore so this benchmark fixture's
+# intentionally-leaky files are committed and detection reproduces in CI.
+!.env
+!dist/
+!dist/**
