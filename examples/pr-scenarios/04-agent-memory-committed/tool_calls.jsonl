@@ -1,0 +1,2 @@
+{"tool":"run_shell","args":{"cmd":"psql -h prod-db ..."}}
+{"tool":"write_file","args":{"path":"src/billing.py"}}

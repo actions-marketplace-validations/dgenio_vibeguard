@@ -1,0 +1,8 @@
+# AI-generated CI config — no MANIFEST.in prunes it, so it ships in the sdist.
+language: python
+python:
+  - "3.11"
+install:
+  - pip install -e .
+script:
+  - pytest

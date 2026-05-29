@@ -1,0 +1,5 @@
+# Override the repo's global .gitignore so this fixture's intentionally-leaky
+# files are committed and the scenario reproduces in a fresh checkout / CI.
+!.env
+!dist/
+!dist/**

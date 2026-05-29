@@ -1,0 +1,8 @@
+# AI-generated .npmignore — "make sure the build output ships"
+# The trailing `!*` re-includes EVERYTHING, defeating every rule above it.
+node_modules/
+*.log
+coverage/
+.github/
+# oops: re-include everything so the publish doesn't "miss files"
+!*
