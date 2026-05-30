@@ -440,6 +440,24 @@ VibeGuard never forces any other tool on you.
 
 ---
 
+## Stability & roadmap
+
+VibeGuard is meant to be enforced in CI, so its behaviour is contractual:
+
+- **[docs/stability-contract.md](docs/stability-contract.md)** — which
+  surfaces are stable (CLI, exit codes, finding IDs, JSON/SARIF), how
+  `scan` and `gate` differ, the versioning policy, and the fail-closed
+  guarantees for bad paths, malformed config, and empty scans.
+- **[docs/roadmap.md](docs/roadmap.md)** — where the project is heading
+  (trust before breadth), the label taxonomy, what makes a good rule, and
+  when to ship a plugin instead of a core rule.
+
+Maintainers: see **[docs/release-checklist.md](docs/release-checklist.md)**
+for the release process that keeps the README, PyPI, tags, and action
+snippets aligned (`make check-versions` is the automated guard).
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, test commands,

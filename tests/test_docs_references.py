@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
 README = REPO_ROOT / "README.md"
+CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 COMPARISON = DOCS_DIR / "comparison.md"
+VERSION_CHECK = REPO_ROOT / "scripts" / "check_doc_versions.py"
 
 # Snapshot of published tags as a fallback when the test runs outside a git
 # checkout (e.g. an installed sdist). The live source of truth — used when
@@ -250,3 +253,189 @@ class TestReadmeAnchors:
             f"README links to in-page anchor(s) with no matching heading: {broken}. "
             "Rename the link or restore the heading. See #95."
         )
+
+
+class TestStabilityContract:
+    """Issue #102: a v1 stability contract must exist, be linked from the
+    README, distinguish `scan` from `gate`, and cover the stable surfaces."""
+
+    CONTRACT = DOCS_DIR / "stability-contract.md"
+
+    def test_contract_exists(self):
+        assert self.CONTRACT.exists(), "docs/stability-contract.md is missing — see #102."
+
+    def test_readme_links_to_contract(self):
+        assert "docs/stability-contract.md" in _read(README), (
+            "README must link to docs/stability-contract.md. See #102."
+        )
+
+    def test_contract_distinguishes_scan_from_gate(self):
+        text = _read(self.CONTRACT)
+        assert "scan" in text and "gate" in text
+        # The core promise: scan never fails the build; gate is the CI gate.
+        assert "always exits `0`" in text, (
+            "The contract must state that `scan` always exits 0 (informational). See #102."
+        )
+
+    def test_contract_covers_stable_surfaces(self):
+        text = _read(self.CONTRACT)
+        for topic in (
+            "Exit code",
+            "Finding ID",
+            "config",
+            "SARIF",
+            "Plugin API",
+            "Versioning policy",
+        ):
+            assert topic in text, f"stability contract does not cover {topic!r} — see #102."
+
+    def test_contract_documents_fail_closed_behaviour(self):
+        """The acceptance criteria require the documented operational behaviour
+        to match the tests that guarantee it (#81/#83/#82)."""
+        text = _read(self.CONTRACT)
+        assert "fail" in text.lower() and "exit `2`" in text
+        assert "test_cli_e2e.py" in text, (
+            "The contract should cite the tests that back its fail-closed "
+            "guarantees so docs and behaviour stay in sync. See #102."
+        )
+
+
+class TestRoadmap:
+    """Issue #101: a roadmap must exist, be linked from README and
+    CONTRIBUTING, and document the contribution funnel."""
+
+    ROADMAP = DOCS_DIR / "roadmap.md"
+
+    def test_roadmap_exists(self):
+        assert self.ROADMAP.exists(), "docs/roadmap.md is missing — see #101."
+
+    def test_readme_links_to_roadmap(self):
+        assert "docs/roadmap.md" in _read(README), "README must link to docs/roadmap.md. See #101."
+
+    def test_contributing_links_to_roadmap(self):
+        assert "docs/roadmap.md" in _read(CONTRIBUTING), (
+            "CONTRIBUTING.md must link to docs/roadmap.md. See #101."
+        )
+
+    def test_roadmap_has_now_next_later_nongoals(self):
+        text = _read(self.ROADMAP).lower()
+        for section in ("now", "next", "later", "non-goal"):
+            assert section in text, f"roadmap is missing a {section!r} section — see #101."
+
+    def test_roadmap_documents_label_taxonomy(self):
+        text = _read(self.ROADMAP)
+        # A first-time contributor must be able to find an entry point.
+        assert "good-first-issue" in text
+        assert "v1-blocker" in text
+
+    def test_roadmap_distinguishes_core_from_plugin(self):
+        text = _read(self.ROADMAP).lower()
+        assert "plugin" in text and "core" in text
+
+
+class TestReleaseChecklist:
+    """Issue #94: a release checklist must exist, name a single canonical
+    version source, and document the PyPI vs GitHub Action paths."""
+
+    CHECKLIST = DOCS_DIR / "release-checklist.md"
+
+    def test_checklist_exists(self):
+        assert self.CHECKLIST.exists(), "docs/release-checklist.md is missing — see #94."
+
+    def test_readme_links_to_checklist(self):
+        assert "docs/release-checklist.md" in _read(README), (
+            "README must link to docs/release-checklist.md. See #94."
+        )
+
+    def test_checklist_names_canonical_version_source(self):
+        text = _read(self.CHECKLIST)
+        assert "pyproject.toml" in text and "version" in text.lower()
+
+    def test_checklist_documents_pypi_and_action_paths(self):
+        text = _read(self.CHECKLIST)
+        assert "pip install vibeguard-gate" in text
+        assert "dgenio/vibeguard@" in text
+
+    def test_checklist_references_drift_guard(self):
+        assert "check_doc_versions" in _read(self.CHECKLIST), (
+            "The checklist should point at the automated drift guard. See #94."
+        )
+
+
+class TestVersionSource:
+    """Issue #94: there is one canonical version source. ``__version__`` must
+    derive from the installed distribution metadata (pyproject.toml), never a
+    hardcoded literal that can silently drift (it shipped as 0.8.0 while
+    pyproject was 0.8.1)."""
+
+    INIT = REPO_ROOT / "vibeguard" / "__init__.py"
+
+    def test_version_is_not_hardcoded(self):
+        text = _read(self.INIT)
+        assert "importlib.metadata" in text, (
+            "vibeguard/__init__.py must derive __version__ from "
+            "importlib.metadata, not hardcode it. See #94."
+        )
+        # Catch a hardcoded release literal (e.g. "0.8.0") while allowing the
+        # "0.0.0+unknown" source-checkout sentinel — the closing quote must
+        # follow the x.y.z, which the +unknown sentinel does not have.
+        assert not re.search(r'__version__\s*=\s*[\'"]\d+\.\d+\.\d+[\'"]', text), (
+            "vibeguard/__init__.py hardcodes a release __version__; derive it "
+            "from package metadata so it tracks pyproject.toml. See #94."
+        )
+
+    def test_version_matches_distribution_metadata(self):
+        from importlib.metadata import version
+
+        import vibeguard
+
+        assert vibeguard.__version__ == version("vibeguard-gate")
+
+
+class TestDocVersionCheck:
+    """Issue #94: the version-drift guard script must pass on the current tree
+    and must actually catch drift (so it is a real gate, not a no-op)."""
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(VERSION_CHECK), *args],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_script_exists(self):
+        assert VERSION_CHECK.exists(), "scripts/check_doc_versions.py is missing — see #94."
+
+    def test_passes_on_current_repo(self):
+        result = self._run()
+        assert result.returncode == 0, result.stderr
+
+    def test_detects_action_tag_drift(self, tmp_path: Path):
+        (tmp_path / "README.md").write_text(
+            "pip install vibeguard-gate\nuses: dgenio/vibeguard@v0.8.0\n", encoding="utf-8"
+        )
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "actions.md").write_text(
+            "uses: dgenio/vibeguard@v0.7.0\n", encoding="utf-8"
+        )
+        result = self._run("--root", str(tmp_path))
+        assert result.returncode == 1
+        assert "disagree" in result.stderr
+
+    def test_detects_excluding_plugin_pin(self, tmp_path: Path):
+        (tmp_path / "README.md").write_text("pip install vibeguard-gate\n", encoding="utf-8")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "plugin.md").write_text(
+            'dependencies = ["vibeguard-gate>=0.6,<0.7"]\n', encoding="utf-8"
+        )
+        result = self._run("--root", str(tmp_path))
+        assert result.returncode == 1
+        assert "upper" in result.stderr
+
+    def test_detects_missing_install_instruction(self, tmp_path: Path):
+        (tmp_path / "README.md").write_text("no install line here\n", encoding="utf-8")
+        result = self._run("--root", str(tmp_path))
+        assert result.returncode == 1
+        assert "pip install vibeguard-gate" in result.stderr

@@ -12,6 +12,28 @@ public issues for vulnerabilities.
 
 ---
 
+## Project direction & where to start
+
+VibeGuard's current focus is **trust before breadth** — hardening and
+documenting the gate before adding many new rules. Before picking up a
+larger change, skim:
+
+- **[docs/roadmap.md](docs/roadmap.md)** — Now / Next / Later / Non-goals,
+  the issue **label taxonomy** (`good-first-issue`, `v1-blocker`,
+  `rule-request`, …), what makes a good rule, and when to ship a plugin
+  instead of a core rule.
+- **[docs/stability-contract.md](docs/stability-contract.md)** — the
+  promises core rules and outputs carry, so you know what counts as a
+  breaking change.
+
+Good first contributions: issues labelled `good-first-issue`,
+false-positive reports with a clear repro, and docs. New rules and
+integrations land most easily when they match the **Now / Next** focus in
+the roadmap. Maintainers cutting a release should follow
+[docs/release-checklist.md](docs/release-checklist.md).
+
+---
+
 ## Prerequisites
 
 - **Python 3.10 or newer.** CI tests against 3.10, 3.11, and 3.12.
