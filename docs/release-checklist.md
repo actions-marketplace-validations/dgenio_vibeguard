@@ -21,7 +21,11 @@ Everything else derives from it:
   `vibeguard-gate`), so it always equals the `pyproject.toml` version of the
   installed build. `tests/test_docs_references.py::TestVersionSource` fails
   if anyone reverts it to a hardcoded literal (which previously drifted —
-  `0.8.0` in code vs `0.8.1` in `pyproject.toml`).
+  `0.8.0` in code vs `0.8.1` in `pyproject.toml`). Because the version comes
+  from installed metadata, run `make install-dev` before `make docs` /
+  `make check-versions` in a fresh checkout — otherwise `__version__` falls
+  back to the `0.0.0+unknown` source-tree sentinel and `docs/rules.md`
+  regenerates with it.
 - The PyPI release is built from this version.
 - The GitHub release tag is `v<version>` (e.g. `0.8.1` → `v0.8.1`).
 
@@ -107,8 +111,9 @@ When in doubt, point new users at the **GitHub Action** for PR gating and at
 `scripts/check_doc_versions.py` is the mechanical backstop for this
 checklist. It validates, without contacting the network:
 
-- every `dgenio/vibeguard@v<version>` reference across the README, `docs/`, and
-  `action.yml` pins the **same** tag (no silent drift between copies);
+- every `dgenio/vibeguard@v<version>` reference across the README, `docs/`,
+  `action.yml`, and `.github/workflows/` pins the **same** tag (no silent
+  drift between copies);
 - plugin pin examples (`vibeguard-gate>=…`) use an open-ended,
   API-tracking lower bound rather than an upper bound that would exclude the
   current release (the #86 failure mode);

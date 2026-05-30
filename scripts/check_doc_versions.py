@@ -6,8 +6,8 @@ the surfaces that have silently drifted before, **without** touching the
 network or asserting which tags exist on GitHub/PyPI:
 
 1. Every ``dgenio/vibeguard@vX.Y.Z`` reference across the README, ``docs/``,
-   and ``action.yml`` pins the *same* tag — duplicated PR-gate snippets must
-   not drift apart.
+   ``action.yml``, and the GitHub Actions workflows pins the *same* tag —
+   duplicated PR-gate snippets must not drift apart.
 2. Plugin pin examples (``vibeguard-gate>=…``) use an open-ended,
    API-tracking lower bound, not an exclusive upper bound that would exclude
    the current release (the #86 failure mode, e.g. ``>=0.6,<0.7``).
@@ -45,21 +45,29 @@ def _read(path: Path) -> str:
 
 
 def _doc_paths(root: Path) -> list[Path]:
-    """README, every ``docs/*.md``, and the action manifest."""
+    """README, every ``docs/*.md``, the action manifest, and workflows.
+
+    Workflow files are included so a snippet pinned in ``.github/workflows``
+    cannot drift away from the tag documented in the README/``docs``.
+    """
     paths: list[Path] = [root / "README.md", root / "action.yml"]
     paths.extend(sorted((root / "docs").rglob("*.md")))
+    workflows = root / ".github" / "workflows"
+    paths.extend(sorted(workflows.glob("*.yml")))
+    paths.extend(sorted(workflows.glob("*.yaml")))
     return [p for p in paths if p.exists()]
 
 
 def check(root: Path = REPO_ROOT) -> list[str]:
     """Return a list of human-readable drift errors (empty == clean)."""
     errors: list[str] = []
-    paths = _doc_paths(root)
+    # Read each file once and reuse the text across every check below.
+    contents = {path: _read(path) for path in _doc_paths(root)}
 
     # 1. Action-ref consistency.
     refs: dict[str, list[str]] = {}
-    for path in paths:
-        for ref in _ACTION_REF.findall(_read(path)):
+    for path, text in contents.items():
+        for ref in _ACTION_REF.findall(text):
             refs.setdefault(ref, []).append(str(path.relative_to(root)))
     if len(refs) > 1:
         detail = "; ".join(f"{tag} in {sorted(set(files))}" for tag, files in sorted(refs.items()))
@@ -69,8 +77,8 @@ def check(root: Path = REPO_ROOT) -> list[str]:
         )
 
     # 2. Plugin pin must not carry an excluding upper bound.
-    for path in paths:
-        for match in _PLUGIN_PIN_WITH_UPPER.findall(_read(path)):
+    for path, text in contents.items():
+        for match in _PLUGIN_PIN_WITH_UPPER.findall(text):
             errors.append(
                 f"{path.relative_to(root)} pins a plugin range with an upper "
                 f"bound ({match!r}); use an open-ended `vibeguard-gate>=X.Y` "
@@ -78,8 +86,8 @@ def check(root: Path = REPO_ROOT) -> list[str]:
             )
 
     # 3. README must document the PyPI install path.
-    readme = root / "README.md"
-    if readme.exists() and "pip install vibeguard-gate" not in _read(readme):
+    readme_text = contents.get(root / "README.md")
+    if readme_text is not None and "pip install vibeguard-gate" not in readme_text:
         errors.append(
             "README.md no longer documents `pip install vibeguard-gate` — the "
             "canonical PyPI adoption path. See docs/release-checklist.md."
