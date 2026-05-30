@@ -39,9 +39,12 @@ These commands and their documented behaviour are stable for v1:
 - `vibeguard init` — create a `vibeguard.yaml`. Never overwrites an existing
   config; exits `0` with a notice if one is present.
 - `vibeguard scan` — **informational**. It prints findings and
-  **always exits `0`**, even with `--fail-on`. `--fail-on` on `scan` only
-  sets the severity used to mark findings as "blocking" in the output; it
-  does not change the exit code.
+  **always exits `0`** *on findings*, even with `--fail-on` — `--fail-on` on
+  `scan` only sets the severity used to mark findings as "blocking" in the
+  output; it does not turn findings into a non-zero exit. Operational errors
+  (a bad `--path`, malformed config) are the exception: like every command,
+  `scan` still **fails closed with exit `2`** when it cannot run — see
+  [Exit codes](#exit-codes).
 - `vibeguard gate` — runs the same analysis as `scan` but **exits `1`** when
   findings meet or exceed the `--fail-on` threshold.
 - `vibeguard explain <ID>` — remediation for a finding ID.
@@ -53,17 +56,19 @@ These commands and their documented behaviour are stable for v1:
 - `vibeguard version` — version / Python / platform / install path.
 
 The `scan` vs `gate` distinction is the most important contract in this
-file: **`scan` never fails your build; `gate` is the thing you put in CI.**
-This split is guaranteed by tests (`tests/test_cli.py`,
-`tests/test_cli_e2e.py::TestScanFailOnHelp`).
+file: **`scan` never fails your build on findings; `gate` is the thing you
+put in CI.** (Both still exit `2` on an operational error such as a bad path
+— "informational" means "findings don't fail the build", not "scan can never
+exit non-zero".) This split is guaranteed by tests (`tests/test_cli.py`,
+`tests/test_cli_e2e.py::TestScanFailOnHelp`, `::TestPathValidation`).
 
 ## Exit codes
 
 | Code | Meaning | Applies to |
 |---|---|---|
-| `0` | Success — no blocking findings (or `scan`, always) | all commands |
+| `0` | Success — analysis completed with no blocking findings (`scan` returns `0` for *any* completed analysis, regardless of findings) | all commands |
 | `1` | Blocking findings at or above `--fail-on` | `gate`, `publish-check` |
-| `2` | Operational/usage error (bad path, malformed config, unknown ID) | all commands |
+| `2` | Operational/usage error (bad path, malformed config, unknown ID) — **every** command fails closed here, including `scan` | all commands |
 
 Exit `2` is reserved for "the tool could not run as asked". It is distinct
 from `1` ("the tool ran and the gate failed") so CI can tell a real failure
