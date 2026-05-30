@@ -362,6 +362,36 @@ class TestReleaseChecklist:
         )
 
 
+class TestVersionSource:
+    """Issue #94: there is one canonical version source. ``__version__`` must
+    derive from the installed distribution metadata (pyproject.toml), never a
+    hardcoded literal that can silently drift (it shipped as 0.8.0 while
+    pyproject was 0.8.1)."""
+
+    INIT = REPO_ROOT / "vibeguard" / "__init__.py"
+
+    def test_version_is_not_hardcoded(self):
+        text = _read(self.INIT)
+        assert "importlib.metadata" in text, (
+            "vibeguard/__init__.py must derive __version__ from "
+            "importlib.metadata, not hardcode it. See #94."
+        )
+        # Catch a hardcoded release literal (e.g. "0.8.0") while allowing the
+        # "0.0.0+unknown" source-checkout sentinel — the closing quote must
+        # follow the x.y.z, which the +unknown sentinel does not have.
+        assert not re.search(r'__version__\s*=\s*[\'"]\d+\.\d+\.\d+[\'"]', text), (
+            "vibeguard/__init__.py hardcodes a release __version__; derive it "
+            "from package metadata so it tracks pyproject.toml. See #94."
+        )
+
+    def test_version_matches_distribution_metadata(self):
+        from importlib.metadata import version
+
+        import vibeguard
+
+        assert vibeguard.__version__ == version("vibeguard-gate")
+
+
 class TestDocVersionCheck:
     """Issue #94: the version-drift guard script must pass on the current tree
     and must actually catch drift (so it is a real gate, not a no-op)."""

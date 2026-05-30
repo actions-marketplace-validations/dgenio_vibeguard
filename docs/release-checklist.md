@@ -16,7 +16,12 @@ There is exactly **one** source of truth for the package version:
 
 Everything else derives from it:
 
-- `vibeguard.__version__` reads the installed package metadata.
+- `vibeguard.__version__` is **not** hardcoded — it reads the installed
+  distribution metadata via `importlib.metadata` (the package
+  `vibeguard-gate`), so it always equals the `pyproject.toml` version of the
+  installed build. `tests/test_docs_references.py::TestVersionSource` fails
+  if anyone reverts it to a hardcoded literal (which previously drifted —
+  `0.8.0` in code vs `0.8.1` in `pyproject.toml`).
 - The PyPI release is built from this version.
 - The GitHub release tag is `v<version>` (e.g. `0.8.1` → `v0.8.1`).
 
