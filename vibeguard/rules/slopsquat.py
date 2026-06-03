@@ -137,6 +137,10 @@ class SlopsquatRule(Rule):
         name_cache: dict[Path, set[str]] = {}
 
         registry_check = bool(getattr(context.config.slopsquat, "registry_check", False))
+        # Cache registry lookups for the whole scan so a dependency declared in
+        # several manifests (or repeated within one) costs at most one network
+        # call. Keyed by (ecosystem, lower-cased name).
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]] = {}
 
         for path in files_to_check:
             if path.name == _NODE_MANIFEST:
@@ -165,6 +169,7 @@ class SlopsquatRule(Rule):
                     locked_names,
                     registry_check,
                     context,
+                    registry_cache,
                 )
             )
 
@@ -183,6 +188,7 @@ class SlopsquatRule(Rule):
         locked_names: set[str],
         registry_check: bool,
         context: ScanContext,
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]],
     ) -> list[Finding]:
         findings: list[Finding] = []
         for name in deps:
@@ -216,17 +222,29 @@ class SlopsquatRule(Rule):
 
             # Opt-in registry verification (network).
             if registry_check:
-                findings.extend(self._registry_findings(name, rel, ecosystem, context))
+                findings.extend(
+                    self._registry_findings(name, rel, ecosystem, context, registry_cache)
+                )
 
         return findings
 
     def _registry_findings(
-        self, name: str, rel: str, ecosystem: str, context: ScanContext
+        self,
+        name: str,
+        rel: str,
+        ecosystem: str,
+        context: ScanContext,
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]],
     ) -> list[Finding]:
         timeout = float(getattr(context.config.slopsquat, "registry_timeout_seconds", 3.0))
         max_age_days = int(getattr(context.config.slopsquat, "registry_max_age_days", 30))
 
-        exists, age_days = _registry_lookup(name, ecosystem, timeout)
+        cache_key = (ecosystem, name.lower())
+        if cache_key in registry_cache:
+            exists, age_days = registry_cache[cache_key]
+        else:
+            exists, age_days = _registry_lookup(name, ecosystem, timeout)
+            registry_cache[cache_key] = (exists, age_days)
         if exists is None:
             # Network failed/inconclusive — stay silent rather than guess.
             return []
@@ -387,7 +405,15 @@ def _registry_lookup(name: str, ecosystem: str, timeout: float) -> tuple[bool | 
     from datetime import datetime, timezone
 
     if ecosystem == "npm":
-        url = f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@/')}"
+        # Encode each path segment fully. A scoped name (`@scope/name`) keeps its
+        # single separating slash; any other slash in the name is percent-encoded
+        # so it cannot alter the URL path (the host is always the fixed registry).
+        if name.startswith("@") and name.count("/") == 1:
+            scope, _, pkg = name[1:].partition("/")
+            encoded = f"@{urllib.parse.quote(scope, safe='')}/{urllib.parse.quote(pkg, safe='')}"
+        else:
+            encoded = urllib.parse.quote(name, safe="")
+        url = f"https://registry.npmjs.org/{encoded}"
     else:
         url = f"https://pypi.org/pypi/{urllib.parse.quote(name, safe='')}/json"
 

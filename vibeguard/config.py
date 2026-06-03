@@ -195,6 +195,14 @@ class SlopsquatConfig(BaseModel):
     each declared dependency exists and is not brand-new. That deviates from
     VibeGuard's default offline/deterministic contract, so it must be turned on
     explicitly. The offline name-shape heuristic runs regardless.
+
+    Scope of the registry check: **existence** (the package is published) and
+    **recency** (``registry_max_age_days``). A download-count / popularity
+    signal is intentionally **out of scope** — npm and PyPI expose download
+    stats only via separate services (PyPI's JSON API does not expose them at
+    all), so a uniform, deterministic-by-default cross-registry popularity check
+    is not available here; recency is the registry-side proxy VibeGuard uses for
+    the slopsquat-capture window.
     """
 
     model_config = ConfigDict(extra="forbid")
