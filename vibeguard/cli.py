@@ -1142,3 +1142,73 @@ def rules_explain(
     if meta.docs_url:
         body_lines += ["", f"[dim]Docs:[/] {meta.docs_url}"]
     c.print(Panel.fit("\n".join(body_lines), title=meta.rule_id))
+
+
+# ---------------------------------------------------------------------------
+# dev (contributor tooling)
+# ---------------------------------------------------------------------------
+
+dev_app = typer.Typer(
+    name="dev",
+    help="Contributor tooling (rule scaffolding, etc.).",
+    no_args_is_help=True,
+)
+app.add_typer(dev_app)
+
+
+@dev_app.command("new-rule")
+def dev_new_rule(
+    rule_id: Annotated[
+        str,
+        typer.Argument(help="snake_case rule id, e.g. 'exposed_supabase_key'"),
+    ],
+    finding_prefix: Annotated[
+        str,
+        typer.Option(
+            "--finding-prefix",
+            help="UPPER-CASE finding id prefix, e.g. 'SEC-SUPABASE'",
+        ),
+    ],
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite existing files"),
+    ] = False,
+    draft: Annotated[
+        bool,
+        typer.Option("--draft", help="Mark the generated test skipped so CI stays green"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print what would be created without writing files"),
+    ] = False,
+) -> None:
+    """Scaffold a new built-in rule module and its test."""
+    from vibeguard.scaffold import ScaffoldError, scaffold_rule
+
+    try:
+        result = scaffold_rule(
+            rule_id,
+            finding_prefix,
+            root=Path.cwd(),
+            force=force,
+            draft=draft,
+            dry_run=dry_run,
+        )
+    except ScaffoldError as exc:
+        err_console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(2) from exc
+
+    c = Console()
+    if dry_run:
+        c.print("[bold]Dry run — no files written.[/] Would create:")
+        for path in result.rendered:
+            c.print(f"  [cyan]{path.relative_to(Path.cwd())}[/]")
+    else:
+        for path in result.created:
+            c.print(f"  [green]created[/] {path.relative_to(Path.cwd())}")
+        for path in result.skipped:
+            c.print(f"  [yellow]skipped (exists)[/] {path.relative_to(Path.cwd())}")
+
+    c.print("\n[bold]Next steps[/] (require human judgement):")
+    for i, step in enumerate(result.checklist, start=1):
+        c.print(f"  {i}. {step}")

@@ -195,7 +195,18 @@ open the PR as a draft and ask in the description.
 
 ## Adding a new rule
 
-If you're adding a brand-new detection rule, the high-level steps are:
+If you're adding a brand-new detection rule, scaffold the skeleton first:
+
+```bash
+vibeguard dev new-rule exposed_supabase_key --finding-prefix SEC-SUPABASE
+```
+
+This generates the rule module and a matching test from the repo's
+conventions (add `--dry-run` to preview, `--draft` to keep CI green while it's
+a stub, `--force` to overwrite). It then prints the manual steps below — the
+ones that need human judgement and are not auto-wired.
+
+The high-level steps are:
 
 1. Pick a stable `rule_id` (snake_case) and one or more `<PREFIX>-<NAME>`
    finding IDs that follow the existing convention.

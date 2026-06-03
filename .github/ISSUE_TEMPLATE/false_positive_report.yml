@@ -22,8 +22,10 @@ body:
         - go_rules
         - iac
         - packaging
+        - prompt_injection
         - risky_diff
         - secrets
+        - slopsquat
         - sourcemaps
         - sql
         - tests

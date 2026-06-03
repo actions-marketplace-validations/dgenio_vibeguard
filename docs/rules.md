@@ -17,8 +17,10 @@ This page is generated from the rule metadata registry (`vibeguard/rules/registr
 | [`go_rules`](#go-rules) | Go Risky Patterns | `go_rules` | high | medium | 7 | security, go | *.go |
 | [`iac`](#iac) | Infrastructure-as-Code Security | `iac` | high | high | 10 | security, iac, terraform, kubernetes | *.tf, *.yaml, *.yml |
 | [`packaging`](#packaging) | Packaging Hygiene | `packaging` | medium | high | 14 | packaging, supply-chain | package.json, pyproject.toml, MANIFEST.in, setup.cfg, .npmignore |
+| [`prompt_injection`](#prompt-injection) | Prompt Injection in Code | `prompt_injection` | high | medium | 4 | security, ai-security, prompt-injection | *.py, *.js, *.ts, *.md, *.yaml, *.json, *.txt |
 | [`risky_diff`](#risky-diff) | Risky Code Pattern | `risky_patterns` | medium | medium | 18 | security, risky-diff | *.py, *.js, *.ts, *.go, *.java, *.rb |
 | [`secrets`](#secrets) | Secrets Detection | `secrets` | high | high | 12 | security, secrets | * |
+| [`slopsquat`](#slopsquat) | Slopsquatting / Hallucinated Dependency | `slopsquat` | high | low | 3 | security, supply-chain, dependencies, slopsquatting | package.json, pyproject.toml, requirements*.txt |
 | [`sourcemaps`](#sourcemaps) | Source Map Exposure | `sourcemaps` | high | high | 4 | security, sourcemaps, packaging | *.map, *.js, package.json |
 | [`sql`](#sql) | SQL Construction Risk | `sql` | high | medium | 6 | security, sql, injection | *.py, *.js, *.ts, *.go |
 | [`tests`](#tests) | Missing Tests | `tests` | low | medium | 1 | tests, coverage | *.py, *.js, *.ts |
@@ -217,6 +219,25 @@ Detects files that should not be published in npm/PyPI packages: secrets, test d
 - `PKG-PREPARE-SCRIPT` — Review the `prepare`/`postinstall` script for side effects. Lifecycle scripts run automatically on every install and are a common supply-chain attack vector.
 - `PKG-SETUPPYLEAK` — Remove the leaking entry from `setup.py`/`setup.cfg`. Inspect the built sdist (`tar tf dist/*.tar.gz`) to confirm only the intended files ship.
 
+<a id="prompt-injection"></a>
+
+### `prompt_injection` — Prompt Injection in Code
+
+Detects agent-directed prompt-injection instructions planted in comments, docstrings, markdown, config, and data files — including instruction overrides, exfiltration directives, hidden/zero-width Unicode, and base64-obfuscated payloads.
+
+- **Default severity:** `high`
+- **Confidence:** `medium`
+- **Config section:** `prompt_injection` (in `vibeguard.yaml`)
+- **Tags:** `security`, `ai-security`, `prompt-injection`
+- **Applies to:** `*.py`, `*.js`, `*.ts`, `*.md`, `*.yaml`, `*.json`, `*.txt`
+
+**Finding IDs**
+
+- `PI-OVERRIDE` — Remove the instruction. Text that tells an AI agent to ignore its rules has no legitimate place in source files — treat it as hostile input planted for a downstream agent to obey.
+- `PI-EXFIL` — Remove the directive. Instructions telling an agent to send secrets, credentials, or environment variables somewhere are an exfiltration attempt; audit who added the file.
+- `PI-HIDDEN-UNICODE` — Strip the invisible/zero-width characters. They are used to smuggle instructions past human review while remaining machine-readable. Re-add any legitimately-needed Unicode visibly.
+- `PI-OBFUSCATED` — Decode and review the blob. Base64 next to agent-directed text is a common way to hide injected instructions from a human reviewer.
+
 <a id="risky-diff"></a>
 
 ### `risky_diff` — Risky Code Pattern
@@ -276,6 +297,24 @@ Detects likely committed secrets using regex patterns and entropy heuristics. In
 - `SEC-STRIPEKEY` — Roll the Stripe API key in the dashboard immediately and audit charges/events for the exposure window. Restricted keys with narrow scopes are safer than full secret keys.
 - `SEC-GENERICAPIKEY` — Treat the value as leaked and rotate it with the upstream provider. Replace the inline literal with an environment variable or secret manager call.
 - `SEC-ENV` — Add `.env` to `.gitignore`, remove it from git history, and rotate every credential it contained. Distribute secrets through CI variables or a dedicated secret manager.
+
+<a id="slopsquat"></a>
+
+### `slopsquat` — Slopsquatting / Hallucinated Dependency
+
+Flags likely AI-hallucinated dependencies. Offline by default: descriptive multi-token names added without a lockfile entry. With the opt-in `registry_check`, also verifies each dependency exists on the registry and is not suspiciously new.
+
+- **Default severity:** `high`
+- **Confidence:** `low`
+- **Config section:** `slopsquat` (in `vibeguard.yaml`)
+- **Tags:** `security`, `supply-chain`, `dependencies`, `slopsquatting`
+- **Applies to:** `package.json`, `pyproject.toml`, `requirements*.txt`
+
+**Finding IDs**
+
+- `SLOP-HALLUCINATION-SHAPE` — Confirm the package is real and intended before installing it. AI assistants invent plausible-looking package names; attackers register those names so the next install pulls malicious code. Check the registry listing, ownership, and download counts, and make sure the dependency appears in your committed lockfile.
+- `SLOP-REGISTRY-MISSING` — The package does not exist on the registry — the AI tool almost certainly hallucinated the name. Remove it or replace it with the real package. Do not run the install until the name is corrected, or a slopsquatter may register it first.
+- `SLOP-REGISTRY-YOUNG` — The package exists but was published very recently. Brand-new packages matching a hallucinated name are a classic slopsquat. Verify the maintainer and provenance before depending on it.
 
 <a id="sourcemaps"></a>
 

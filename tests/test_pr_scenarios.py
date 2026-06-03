@@ -35,6 +35,8 @@ _EXPECTED: dict[str, set[str]] = {
     },
     "05-dependency-via-git-url": {"DEP-URLNODE"},
     "06-risky-db-write-no-tests": {"SQL-PY-FSTRING", "SQL-PY-CONCAT"},
+    "07-slopsquatted-dependency": {"SLOP-HALLUCINATION-SHAPE"},
+    "08-prompt-injection-in-comments": {"PI-OVERRIDE", "PI-EXFIL"},
 }
 
 

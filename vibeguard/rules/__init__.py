@@ -16,8 +16,10 @@ def load_all_builtin_rules() -> None:
     import vibeguard.rules.go_rules  # noqa: F401
     import vibeguard.rules.iac  # noqa: F401
     import vibeguard.rules.packaging  # noqa: F401
+    import vibeguard.rules.prompt_injection  # noqa: F401
     import vibeguard.rules.risky_diff  # noqa: F401
     import vibeguard.rules.secrets  # noqa: F401
+    import vibeguard.rules.slopsquat  # noqa: F401
     import vibeguard.rules.sourcemaps  # noqa: F401
     import vibeguard.rules.sql  # noqa: F401
     import vibeguard.rules.tests  # noqa: F401

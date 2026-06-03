@@ -78,6 +78,8 @@ Think of it as the check between "AI generated this diff" and "this diff reaches
 | ⚠️ **Risky code patterns** | eval/exec, shell=True, JWT verify=False, CORS wildcard, pickle.loads, SQL construction |
 | 🧪 **Missing tests** | Source changes with no corresponding test changes |
 | 🤖 **AI footprints** | Placeholder creds, disabled auth, trust-all-certs, TODO stubs, temporary bypasses |
+| 🐚 **Slopsquatting** | AI-hallucinated dependency names (offline heuristic + opt-in registry check) |
+| 💉 **Prompt injection** | Agent-directed instructions, exfiltration directives, hidden/zero-width Unicode in comments/docs/config |
 
 ---
 
@@ -368,6 +370,8 @@ suppress via `vibeguard.yaml`, or remap via `severity_overrides`.
 | `ci_docker`       | high             | Risky Dockerfiles and GitHub Actions: privileged containers, `latest` tags, curl-pipe-bash, `pull_request_target`, broad permissions, secret echoes, unversioned actions. |
 | `iac`             | high             | Terraform: IAM wildcards, open security groups, public S3, unencrypted resources. Kubernetes: privileged containers, hostPath, root user, no-TLS, allow-all policies. |
 | `go_rules`        | high             | Go-specific risks: TLS bypass, shell injection, CORS wildcards, SQL via `Sprintf`, hardcoded tokens, auth bypass comments, unsafe file deletion. |
+| `slopsquat`       | high             | AI-hallucinated dependencies: descriptive multi-token names absent from the lockfile, plus an opt-in registry existence/age check (network). |
+| `prompt_injection`| high             | Agent-directed prompt-injection planted in comments/docstrings/markdown/config: instruction overrides, exfiltration directives, hidden/zero-width Unicode, base64 payloads. |
 | `tests`           | low              | Source files changed without any corresponding test-file changes. |
 
 Run `vibeguard explain <finding-id>` for the full remediation guidance for any specific finding (e.g. `vibeguard explain SEC-GITHUBTOKEN`).
