@@ -26,7 +26,7 @@ dependency actually exists, and how old it is.
    :class:`vibeguard.rules.base.Rule` contract (rules are normally pure,
    offline and deterministic). This is a deliberate, opt-in exception: the
    default offline path honours the contract, the network lookups are isolated
-   in :func:`_registry_exists`, bounded by a timeout, and never raise. Leave
+   in :func:`_registry_lookup`, bounded by a timeout, and never raise. Leave
    ``registry_check`` off to keep scans fully offline.
 """
 
@@ -102,6 +102,15 @@ def _looks_hallucinated(name: str) -> bool:
     return _token_count(name) >= _HALLUCINATION_MIN_TOKENS
 
 
+def _lockfile_covers(lock_dir: Path, manifest_dir: Path) -> bool:
+    """True if a lockfile in ``lock_dir`` governs a manifest in ``manifest_dir``.
+
+    A lockfile applies to its own directory and to any directory nested below it
+    (the workspace-root case), but never to a sibling or parent package.
+    """
+    return lock_dir == manifest_dir or lock_dir in manifest_dir.parents
+
+
 class SlopsquatRule(Rule):
     id = "slopsquat"
     name = "Slopsquatting / Hallucinated Dependency"
@@ -115,39 +124,49 @@ class SlopsquatRule(Rule):
         findings: list[Finding] = []
         files_to_check = context.changed_files if context.diff_only else context.files
 
-        # Build the set of lockfiles that exist anywhere in the scanned tree so
-        # the offline heuristic can tell "added but never installed" from
-        # "added and resolved".
-        present_lockfiles = {p.name for p in context.files}
-        has_node_lock = bool(present_lockfiles & _NODE_LOCKFILES)
-        has_py_lock = bool(present_lockfiles & _PY_LOCKFILES)
-        locked_names = self._collect_locked_names(context.files)
+        # Index every lockfile in the tree. The offline heuristic associates a
+        # manifest with lockfiles in its **own directory or any ancestor** —
+        # mirroring how package managers resolve a workspace (a per-package
+        # lockfile, or a single lockfile at the monorepo root). A manifest in a
+        # subdirectory with no lockfile at or above it is left alone rather than
+        # borrowing an unrelated sibling package's lockfile, which avoids the
+        # monorepo false-positives/negatives a global lockfile set would cause.
+        lockfiles = [
+            p for p in context.files if p.name in _NODE_LOCKFILES or p.name in _PY_LOCKFILES
+        ]
+        name_cache: dict[Path, set[str]] = {}
 
         registry_check = bool(getattr(context.config.slopsquat, "registry_check", False))
 
         for path in files_to_check:
-            rel = self._rel(context, path)
             if path.name == _NODE_MANIFEST:
-                deps = self._node_deps(path)
-                findings.extend(
-                    self._check_deps(
-                        deps, rel, "npm", has_node_lock, locked_names, registry_check, context
-                    )
-                )
+                ecosystem, lockset, deps = "npm", _NODE_LOCKFILES, self._node_deps(path)
             elif path.name == _PY_MANIFEST:
-                deps = self._pyproject_deps(path)
-                findings.extend(
-                    self._check_deps(
-                        deps, rel, "pypi", has_py_lock, locked_names, registry_check, context
-                    )
-                )
+                ecosystem, lockset, deps = "pypi", _PY_LOCKFILES, self._pyproject_deps(path)
             elif _PY_REQUIREMENTS_RE.search(path.name):
-                deps = self._requirements_deps(path)
-                findings.extend(
-                    self._check_deps(
-                        deps, rel, "pypi", has_py_lock, locked_names, registry_check, context
-                    )
+                ecosystem, lockset, deps = "pypi", _PY_LOCKFILES, self._requirements_deps(path)
+            else:
+                continue
+
+            applicable = [lf for lf in lockfiles if _lockfile_covers(lf.parent, path.parent)]
+            has_lock = any(lf.name in lockset for lf in applicable)
+            locked_names: set[str] = set()
+            for lf in applicable:
+                if lf not in name_cache:
+                    name_cache[lf] = self._lock_names(lf)
+                locked_names |= name_cache[lf]
+
+            findings.extend(
+                self._check_deps(
+                    deps,
+                    self._rel(context, path),
+                    ecosystem,
+                    has_lock,
+                    locked_names,
+                    registry_check,
+                    context,
                 )
+            )
 
         return findings
 
@@ -300,17 +319,13 @@ class SlopsquatRule(Rule):
                 names.append(name)
         return names
 
-    def _collect_locked_names(self, files: list[Path]) -> set[str]:
-        """Best-effort set of lower-cased package names already in lockfiles."""
-        names: set[str] = set()
-        for path in files:
-            if path.name in _NODE_LOCKFILES or path.name in _PY_LOCKFILES:
-                try:
-                    text = path.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                names.update(_extract_lock_names(path.name, text))
-        return names
+    def _lock_names(self, path: Path) -> set[str]:
+        """Best-effort set of lower-cased package names declared in one lockfile."""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return set()
+        return _extract_lock_names(path.name, text)
 
     # ``is_applicable`` left as default (True). The scan loop already filters
     # by file name, mirroring ``DependenciesRule``.

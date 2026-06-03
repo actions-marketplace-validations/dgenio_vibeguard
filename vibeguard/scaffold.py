@@ -75,7 +75,9 @@ def render_rule_module(rule_id: str, finding_prefix: str, *, draft: bool) -> str
     finding_id = _finding_id(finding_prefix)
     title = " ".join(part.capitalize() for part in rule_id.split("_"))
     draft_note = (
-        "\n    # NOTE: scaffolded draft — implement detection before enabling.\n" if draft else "\n"
+        "\n        # NOTE: scaffolded draft — implement detection before enabling.\n"
+        if draft
+        else "\n"
     )
     return f'''"""{title} rule.
 

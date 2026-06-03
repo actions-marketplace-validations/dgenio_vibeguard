@@ -97,6 +97,32 @@ class TestOfflineHeuristic:
         findings = self.rule.scan(ctx)
         assert [f.id for f in findings] == ["SLOP-HALLUCINATION-SHAPE"]
 
+    def test_monorepo_sibling_lockfile_does_not_cover(self, tmp_path: Path):
+        # A lockfile in packages/b must NOT vouch for a manifest in packages/a.
+        # With no lockfile at or above packages/a, its manifest is left alone.
+        ctx = _ctx(
+            tmp_path,
+            {
+                "packages/a/package.json": '{"dependencies": {"fancy-multi-token-name": "1.0.0"}}',
+                "packages/b/package-lock.json": '{"packages": {"node_modules/express": {}}}',
+            },
+        )
+        assert self.rule.scan(ctx) == []
+
+    def test_monorepo_root_lockfile_covers_subdir(self, tmp_path: Path):
+        # A root lockfile is an ancestor of every workspace package, so a
+        # subdir dependency absent from it is flagged.
+        ctx = _ctx(
+            tmp_path,
+            {
+                "package-lock.json": '{"packages": {"node_modules/express": {}}}',
+                "packages/a/package.json": '{"dependencies": {"fancy-multi-token-name": "1.0.0"}}',
+            },
+        )
+        findings = self.rule.scan(ctx)
+        assert [f.id for f in findings] == ["SLOP-HALLUCINATION-SHAPE"]
+        assert findings[0].path.replace("\\", "/") == "packages/a/package.json"
+
 
 class TestRegistryCheck:
     rule = SlopsquatRule()

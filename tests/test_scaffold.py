@@ -44,6 +44,15 @@ class TestGeneration:
             src = (tmp_path / rel).read_text(encoding="utf-8")
             ast.parse(src)  # raises SyntaxError if the template is malformed
 
+    def test_draft_templates_are_valid_python(self):
+        # Draft mode injects an extra comment line into scan(); make sure both
+        # the rule and test modules still parse and the comment sits at the
+        # function-body indent.
+        module = render_rule_module("supabase_key", "SEC-SUPABASE", draft=True)
+        ast.parse(module)
+        ast.parse(render_test_module("supabase_key", "SEC-SUPABASE", draft=True))
+        assert "\n        # NOTE: scaffolded draft" in module
+
     def test_module_contains_identifiers(self, tmp_path: Path):
         module = render_rule_module("supabase_key", "SEC-SUPABASE", draft=False)
         assert 'id = "supabase_key"' in module
