@@ -187,6 +187,38 @@ class AgentMemoryConfig(BaseModel):
     enabled: bool = True
 
 
+class SlopsquatConfig(BaseModel):
+    """Controls the slopsquatting / hallucinated-dependency rule.
+
+    ``registry_check`` is **off by default and opt-in**: enabling it makes the
+    rule perform network I/O against the package registry (PyPI/npm) to verify
+    each declared dependency exists and is not brand-new. That deviates from
+    VibeGuard's default offline/deterministic contract, so it must be turned on
+    explicitly. The offline name-shape heuristic runs regardless.
+
+    Scope of the registry check: **existence** (the package is published) and
+    **recency** (``registry_max_age_days``). A download-count / popularity
+    signal is intentionally **out of scope** — npm and PyPI expose download
+    stats only via separate services (PyPI's JSON API does not expose them at
+    all), so a uniform, deterministic-by-default cross-registry popularity check
+    is not available here; recency is the registry-side proxy VibeGuard uses for
+    the slopsquat-capture window.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    registry_check: bool = False
+    registry_max_age_days: int = Field(default=30, ge=0)
+    registry_timeout_seconds: float = Field(default=3.0, gt=0)
+
+
+class PromptInjectionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
 class PublishCheckConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -347,6 +379,8 @@ class VibeGuardConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     sql: SqlConfig = Field(default_factory=SqlConfig)
     agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
+    slopsquat: SlopsquatConfig = Field(default_factory=SlopsquatConfig)
+    prompt_injection: PromptInjectionConfig = Field(default_factory=PromptInjectionConfig)
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
@@ -501,6 +535,18 @@ tests:
   #       - "packages/api/tests/**"
 
 ai_footprints:
+  enabled: true
+
+slopsquat:
+  enabled: true
+  # Opt-in network check: verify each dependency exists on the package
+  # registry and is not suspiciously new. OFF by default — turning it on
+  # makes scans perform network I/O and become non-deterministic.
+  registry_check: false
+  registry_max_age_days: 30
+  registry_timeout_seconds: 3.0
+
+prompt_injection:
   enabled: true
 
 publish_check:

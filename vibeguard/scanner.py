@@ -19,8 +19,10 @@ from vibeguard.rules.go_rules import GoRulesRule
 from vibeguard.rules.iac import IaCRule
 from vibeguard.rules.packaging import PackagingRule
 from vibeguard.rules.plugins import discover_plugin_rules
+from vibeguard.rules.prompt_injection import PromptInjectionRule
 from vibeguard.rules.risky_diff import RiskyDiffRule
 from vibeguard.rules.secrets import SecretsRule
+from vibeguard.rules.slopsquat import SlopsquatRule
 from vibeguard.rules.sourcemaps import SourceMapsRule
 from vibeguard.rules.sql import SqlRule
 from vibeguard.rules.tests import MissingTestsRule
@@ -151,6 +153,10 @@ def run_scan(
         rules.append(SqlRule())
     if config.agent_memory.enabled:
         rules.append(AgentMemoryRule())
+    if config.slopsquat.enabled:
+        rules.append(SlopsquatRule())
+    if config.prompt_injection.enabled:
+        rules.append(PromptInjectionRule())
 
     # Discover third-party rules registered via the ``vibeguard.rules``
     # entry-point group (#58). Failed plugins are recorded but do not

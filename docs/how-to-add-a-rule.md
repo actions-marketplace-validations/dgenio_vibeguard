@@ -14,6 +14,18 @@ The end-to-end checklist for any new rule:
 5. [Write unit tests](#5-write-unit-tests)
 6. [Regenerate docs and run CI](#6-regenerate-docs-and-run-ci)
 
+> **Shortcut: scaffold the skeleton.** Run
+> `vibeguard dev new-rule <rule_id> --finding-prefix <PREFIX>` to generate the
+> rule module and its test from a convention-correct template, then fill in
+> the detection logic. Add `--dry-run` to preview, `--draft` to mark the
+> generated test skipped (so CI stays green for a WIP), and `--force` to
+> overwrite. The command prints the remaining manual steps (scanner wiring,
+> registry import, config toggle, README rows, `make docs`). It deliberately
+> does **not** auto-wire those — they need your judgement. The freshly
+> scaffolded rule is a *failing* stub: its positive test asserts a finding the
+> empty `scan` doesn't yet produce, so CI stays red until you implement it
+> (unless you pass `--draft`).
+
 We'll use a worked example throughout: a hypothetical
 **`js_proto_pollution`** rule that flags `Object.assign({}, …)` calls
 into a freshly created object — a common JavaScript prototype-pollution

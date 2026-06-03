@@ -7,8 +7,9 @@ and third-party VibeGuard rule must implement. The class is re-exported from
 
 Implementations MUST:
 
-* Be pure and deterministic — the same inputs must produce the same findings.
-* Never perform network I/O.
+* Be pure and deterministic *by default* — with the rule's default
+  configuration, the same inputs must produce the same findings.
+* Be offline by default — perform no network I/O on the default code path.
 * Never raise exceptions out of :meth:`Rule.scan`; the scanner will treat any
   exception as a degraded run and surface it as a non-fatal error.
 * Return only :class:`vibeguard.models.Finding` objects from :meth:`scan`.
@@ -18,6 +19,12 @@ Implementations MAY:
 * Read files referenced by the :class:`vibeguard.models.ScanContext`.
 * Override :meth:`is_applicable` to opt out of files outside the rule's
   domain (e.g. a Go-specific rule returning ``False`` for non-``.go`` files).
+* Offer an **explicitly opt-in, off-by-default** networked check — but only
+  when it is gated behind config, documented as such, isolated so it never
+  raises, and the default (config-untouched) path stays offline and
+  deterministic. The built-in ``slopsquat`` rule's ``registry_check`` is the
+  reference example: it is ``false`` by default, so the offline guarantee
+  above holds for every user who does not deliberately enable it.
 """
 
 from __future__ import annotations
