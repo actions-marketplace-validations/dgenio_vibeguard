@@ -444,6 +444,41 @@ VibeGuard never forces any other tool on you.
 
 ---
 
+## Part of the Weaver Stack
+
+VibeGuard is the **dev-time / pre-merge guardrail** in the
+[Weaver Stack](https://github.com/dgenio/weaver-spec) — a family of
+independently useful tools that share contracts but never each other's
+runtime. VibeGuard sits *off the runtime request path*: it gates AI-generated
+diffs **before** they merge.
+
+```mermaid
+flowchart LR
+    dev["AI-generated diff"] --> vg["VibeGuard<br/>(dev-time gate · pre-merge)"]
+    vg -->|"merged code"| af["agentfence<br/>(runtime edge)"]
+    vg -. "ArtifactSafetyReport<br/>(repeated findings)" .-> lw["lessonweaver<br/>(learning loop → reviewed lessons)"]
+    lw -. "AGENTS.md guidance" .-> dev
+    spec["weaver-spec<br/>(shared contracts)"] -. defines .- vg
+    spec -. defines .- af
+    spec -. defines .- lw
+```
+
+The connections are **standard, serialized contracts**, not coupling:
+
+- VibeGuard's `--weaver` export emits a weaver-spec
+  [`ArtifactSafetyReport`](docs/weaver/artifact_safety_report.schema.json);
+  see [docs/interop-lessons.md](docs/interop-lessons.md) for how repeated
+  findings become reviewed lessons in **lessonweaver**.
+- **agentfence** is the runtime edge; **lessonweaver** closes the learning
+  loop; **weaver-spec** holds the shared contracts.
+
+None of this changes the promise above: VibeGuard remains **fully standalone**,
+has **no runtime dependency** on any sibling, and **never phones home**. The
+stack is a set of interfaces you can opt into, not a framework you have to
+adopt. Repos in the stack carry the `weaver-stack` topic on GitHub.
+
+---
+
 ## Stability & roadmap
 
 VibeGuard is meant to be enforced in CI, so its behaviour is contractual:

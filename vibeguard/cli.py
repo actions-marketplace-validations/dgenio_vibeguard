@@ -29,6 +29,7 @@ from vibeguard.reporters.diagnostics import print_diagnostics
 from vibeguard.reporters.json_reporter import print_json
 from vibeguard.reporters.markdown import render_markdown, render_pr_comment
 from vibeguard.reporters.sarif import print_sarif
+from vibeguard.reporters.weaver import print_weaver
 from vibeguard.scanner import run_scan
 
 if TYPE_CHECKING:
@@ -182,28 +183,36 @@ def _validate_output_options(
     sarif_output: bool = False,
     pr_comment_output: bool = False,
     diagnostics_output: bool = False,
+    weaver_output: bool = False,
     annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
     selected = sum(
-        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
+        [
+            json_output,
+            markdown_output,
+            sarif_output,
+            pr_comment_output,
+            diagnostics_output,
+            weaver_output,
+        ]
     )
     if selected > 1:
         err_console.print(
-            "[red]Error: --json, --markdown, --sarif, --pr-comment, and --diagnostics are"
-            " mutually exclusive. Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, --pr-comment, --diagnostics, and"
+            " --weaver are mutually exclusive. Choose one.[/]"
         )
         raise typer.Exit(2)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
-        # with structured output (JSON/SARIF/Markdown/diagnostics) interleaves
-        # them into the report and breaks downstream parsers. Annotations
-        # still auto-enable in GitHub Actions when no structured output is
-        # selected.
+        # with structured output (JSON/SARIF/Markdown/diagnostics/weaver)
+        # interleaves them into the report and breaks downstream parsers.
+        # Annotations still auto-enable in GitHub Actions when no structured
+        # output is selected.
         err_console.print(
             "[red]Error: --annotations cannot be combined with --json, --markdown,"
-            " --sarif, --pr-comment, or --diagnostics (annotations would corrupt"
-            " the structured output).[/]"
+            " --sarif, --pr-comment, --diagnostics, or --weaver (annotations would"
+            " corrupt the structured output).[/]"
         )
         raise typer.Exit(2)
 
@@ -271,6 +280,13 @@ def scan(
             help="Output a stable JSON diagnostics array for IDE / editor integrations",
         ),
     ] = False,
+    weaver_output: Annotated[
+        bool,
+        typer.Option(
+            "--weaver",
+            help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
+        ),
+    ] = False,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -316,6 +332,7 @@ def scan(
         sarif_output,
         pr_comment_output,
         diagnostics_output,
+        weaver_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -347,6 +364,7 @@ def scan(
         sarif_output,
         pr_comment_output,
         diagnostics_output,
+        weaver_output,
     )
 
     if json_output:
@@ -362,6 +380,10 @@ def scan(
         typer.echo(render_markdown(result))
     elif diagnostics_output:
         print_diagnostics(result)
+    elif weaver_output:
+        # scan is informational, so the report mode is advisory; the decision
+        # field still reflects whether blocking findings exist.
+        print_weaver(result, threshold=cfg.fail_on, blocking=False)
     else:
         render_findings(result, verbose=verbose)
 
@@ -417,6 +439,13 @@ def gate(
             help="Output a stable JSON diagnostics array for IDE / editor integrations",
         ),
     ] = False,
+    weaver_output: Annotated[
+        bool,
+        typer.Option(
+            "--weaver",
+            help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
+        ),
+    ] = False,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -458,6 +487,7 @@ def gate(
         sarif_output,
         pr_comment_output,
         diagnostics_output,
+        weaver_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -492,6 +522,7 @@ def gate(
         sarif_output,
         pr_comment_output,
         diagnostics_output,
+        weaver_output,
     )
 
     if json_output:
@@ -504,6 +535,9 @@ def gate(
         typer.echo(render_markdown(result))
     elif diagnostics_output:
         print_diagnostics(result)
+    elif weaver_output:
+        # gate enforces, so the report mode is blocking.
+        print_weaver(result, threshold=threshold, blocking=True)
     else:
         render_findings(result, verbose=verbose)
 
@@ -864,6 +898,7 @@ def _should_emit_annotations(
     sarif_output: bool,
     pr_comment_output: bool,
     diagnostics_output: bool = False,
+    weaver_output: bool = False,
 ) -> bool:
     """Determine whether to emit GitHub Actions annotations."""
     # Explicit flag takes precedence
@@ -873,7 +908,14 @@ def _should_emit_annotations(
         return False
     # Auto-enable in GitHub Actions unless another structured output is selected
     return is_github_actions() and not any(
-        [json_output, markdown_output, sarif_output, pr_comment_output, diagnostics_output]
+        [
+            json_output,
+            markdown_output,
+            sarif_output,
+            pr_comment_output,
+            diagnostics_output,
+            weaver_output,
+        ]
     )
 
 
