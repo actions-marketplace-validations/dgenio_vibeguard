@@ -439,3 +439,89 @@ class TestDocVersionCheck:
         result = self._run("--root", str(tmp_path))
         assert result.returncode == 1
         assert "pip install vibeguard-gate" in result.stderr
+
+
+class TestWeaverStackReadme:
+    """Issue #119: the README must carry a standardized 'Part of the Weaver
+    Stack' block while keeping the standalone / no-telemetry promise explicit,
+    without diluting the existing Ecosystem section."""
+
+    def test_readme_has_weaver_stack_section(self):
+        assert "## Part of the Weaver Stack" in _read(README), (
+            "README is missing the 'Part of the Weaver Stack' block. See #119."
+        )
+
+    def test_block_preserves_standalone_promise(self):
+        text = _read(README)
+        _, sep, block = text.partition("## Part of the Weaver Stack")
+        assert sep, "README is missing the Weaver Stack block. See #119."
+        # Stop at the next top-level heading so we only inspect this block.
+        block = block.split("\n## ", 1)[0]
+        assert "standalone" in block.lower()
+        assert "no runtime dependency" in block.lower()
+        assert "never phones home" in block.lower()
+
+    def test_block_mentions_topic_and_siblings(self):
+        text = _read(README)
+        _, _, block = text.partition("## Part of the Weaver Stack")
+        block = block.split("\n## ", 1)[0]
+        assert "weaver-stack" in block, (
+            "the block must name the shared `weaver-stack` topic. See #119."
+        )
+        for sibling in ("agentfence", "lessonweaver", "weaver-spec"):
+            assert sibling in block, (
+                f"the block should position VibeGuard next to {sibling}. See #119."
+            )
+
+    def test_existing_ecosystem_section_still_present(self):
+        # The new block must not replace the Ecosystem note guarded by #104.
+        assert "## Ecosystem" in _read(README)
+
+
+class TestInteropLessonsDoc:
+    """Issues #103/#120: the interop design note must exist, be linked from the
+    README, document the ArtifactSafetyReport export and the LessonCard
+    outcome, distinguish one-off from repeated, and keep the no-runtime-
+    dependency promise."""
+
+    DOC = DOCS_DIR / "interop-lessons.md"
+    EXAMPLE = REPO_ROOT / "examples" / "interop" / "findings_to_lessons.py"
+    REPORT_SCHEMA = DOCS_DIR / "weaver" / "artifact_safety_report.schema.json"
+    LESSON_SCHEMA = DOCS_DIR / "weaver" / "lesson_card.schema.json"
+
+    def test_doc_exists(self):
+        assert self.DOC.exists(), "docs/interop-lessons.md is missing — see #103/#120."
+
+    def test_readme_links_to_doc(self):
+        assert "docs/interop-lessons.md" in _read(README), (
+            "README must link to docs/interop-lessons.md. See #103/#120."
+        )
+
+    def test_doc_documents_export_and_lesson_contracts(self):
+        text = _read(self.DOC)
+        assert "ArtifactSafetyReport" in text
+        assert "LessonCard" in text
+        assert "--weaver" in text
+
+    def test_doc_distinguishes_one_off_from_repeated(self):
+        text = _read(self.DOC).lower()
+        assert "one-off" in text and "repeated" in text
+
+    def test_doc_states_no_runtime_dependency(self):
+        text = _read(self.DOC).lower()
+        assert "no runtime dependency" in text
+        assert "optional" in text
+
+    def test_vendored_schemas_exist_and_are_valid_json(self):
+        import json
+
+        for schema_path in (self.REPORT_SCHEMA, self.LESSON_SCHEMA):
+            assert schema_path.exists(), f"{schema_path} is missing — see #120."
+            data = json.loads(schema_path.read_text())
+            # Preserve the upstream contract identity for diffing against spec.
+            assert "weaver-spec.dev" in data["$id"]
+
+    def test_runnable_example_exists(self):
+        assert self.EXAMPLE.exists(), (
+            "examples/interop/findings_to_lessons.py is missing — see #103."
+        )
