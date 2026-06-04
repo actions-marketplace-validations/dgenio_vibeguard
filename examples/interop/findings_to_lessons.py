@@ -79,17 +79,17 @@ def build_lesson_cards(
     ``LessonCard`` in the ``in_review`` lifecycle state.
     """
     # rule category -> {"contexts": {scenario, ...}, "finding_ids": {...},
-    #                   "fingerprints": [...]}
+    #                   "fingerprints": {...}}
     by_category: dict[str, dict] = {}
     for scenario, result in results.items():
         for finding in result.findings:
             agg = by_category.setdefault(
                 finding.rule,
-                {"contexts": set(), "finding_ids": set(), "fingerprints": []},
+                {"contexts": set(), "finding_ids": set(), "fingerprints": set()},
             )
             agg["contexts"].add(scenario)
             agg["finding_ids"].add(finding.id)
-            agg["fingerprints"].append(f"vibeguard:fingerprint:{finding.fingerprint}")
+            agg["fingerprints"].add(f"vibeguard:fingerprint:{finding.fingerprint}")
 
     lessons: list[dict] = []
     for rule in sorted(by_category):

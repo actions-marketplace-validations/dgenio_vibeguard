@@ -17,7 +17,6 @@ runner = CliRunner()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _REPORT_SCHEMA_PATH = REPO_ROOT / "docs" / "weaver" / "artifact_safety_report.schema.json"
-_LESSON_SCHEMA_PATH = REPO_ROOT / "docs" / "weaver" / "lesson_card.schema.json"
 
 # A fixed timestamp so the timestamped (otherwise non-deterministic) export
 # can be asserted exactly.

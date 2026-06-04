@@ -43,7 +43,7 @@ The report is a 1:1 mapping of the scan result. Top-level:
 
 | ArtifactSafetyReport | Source | Notes |
 |----------------------|--------|-------|
-| `report_id`          | `sha256(sorted finding fingerprints + scan_path)` | Stable for an unchanged finding set. |
+| `report_id`          | `sha256(sorted finding fingerprints)` | Stable for an unchanged finding set, across machines and checkouts. |
 | `gate_id`            | `"vibeguard"` | Constant. |
 | `decision`           | `fail` if any finding ≥ `fail_on`, else `pass` | Mirrors the gate verdict. |
 | `created_at`         | UTC timestamp at render time | Required by the contract — see *Determinism* below. |

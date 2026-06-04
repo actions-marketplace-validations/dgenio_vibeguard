@@ -49,12 +49,13 @@ def _report_id(result: ScanResult) -> str:
 
     Stable for an identical set of findings so repeated runs on unchanged code
     yield the same ``report_id`` (handy for downstream dedup), while still
-    differing for a distinct finding set.
+    differing for a distinct finding set. Derived from finding content only —
+    the scan path is deliberately excluded so the id does not change between
+    machines or checkouts when the findings are identical.
     """
     digest = hashlib.sha256()
     for fp in sorted(f.fingerprint for f in result.findings):
         digest.update(fp.encode("utf-8"))
-    digest.update(result.scan_path.encode("utf-8"))
     return "vibeguard-" + digest.hexdigest()[:32]
 
 
