@@ -66,6 +66,17 @@ def test_lessons_name_specific_findings():
     assert ai["source_refs"], "lesson must carry provenance source_refs"
 
 
+def test_source_refs_are_deduplicated():
+    """source_refs is fingerprint-keyed; repeated detections must not duplicate
+    a ref. Guards the list->set aggregation fix."""
+    mod = _load_example()
+    results = mod.scan_scenarios()
+    lessons = mod.build_lesson_cards(results, created_at=_FIXED_TS)
+    for lesson in lessons:
+        refs = lesson["source_refs"]
+        assert len(refs) == len(set(refs)), f"duplicate source_refs in {lesson['lesson_id']}"
+
+
 def test_lessons_validate_against_vendored_lesson_schema():
     mod = _load_example()
     results = mod.scan_scenarios()

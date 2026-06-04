@@ -126,6 +126,27 @@ class TestWeaverReport:
         # Identical findings -> identical report_id even though timestamps differ.
         assert a["report_id"] == b["report_id"]
 
+    def test_report_id_independent_of_scan_path(self):
+        # report_id is content-addressed: identical findings under different
+        # scan paths (different machines/checkouts) must yield the same id.
+        # Regression guard for the fix that dropped scan_path from the digest —
+        # the stable-across-runs test above holds scan_path constant, so it
+        # cannot catch scan_path leaking back into the hash.
+        findings = _make_result().findings
+        a = build_report(
+            ScanResult(findings=findings, scanned_files=5, scan_path="/abs/one"),
+            threshold=Severity.HIGH,
+            blocking=False,
+            created_at=_FIXED_TS,
+        )
+        b = build_report(
+            ScanResult(findings=findings, scanned_files=5, scan_path="/abs/two"),
+            threshold=Severity.HIGH,
+            blocking=False,
+            created_at=_FIXED_TS,
+        )
+        assert a["report_id"] == b["report_id"]
+
     def test_provenance_names_vibeguard(self):
         prov = _report()["provenance"]
         assert prov["tool"] == "VibeGuard"
