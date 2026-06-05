@@ -4,19 +4,26 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly: surface a breaking dependency release early (the safety net
+    # that justifies VibeGuard's no-upper-cap dependency policy, #121).
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: Test & Lint
+    name: Test & Lint (latest deps)
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        # Support Python 3.10 -> 3.14 inclusive (#121).
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +60,114 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  floor-deps:
+    name: Floor deps (minimum versions, 3.10)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Pin every runtime dependency to its declared lower bound so the
+      # suite proves each `>=X` specifier is truthful — not just that the
+      # latest versions a normal resolve picks happen to work.
+      - name: Install with minimum dependency versions
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" -c constraints-min.txt
+
+      - name: Show resolved floor versions
+        run: pip list
+
+      - name: Run tests against the floor
+        run: pytest --tb=short
+
+  latest-deps:
+    name: Latest / pre-release deps (3.14, best-effort)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Scheduled / on-demand only: newest deps (incl. pre-releases) catch a
+    # breaking upstream release early. Allowed to fail so it never blocks a
+    # PR — it's an early-warning signal, not a gate (#121).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          allow-prereleases: true
+
+      - name: Install with newest (pre-release) dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install --pre --upgrade typer rich pydantic pyyaml pathspec
+
+      - name: Show resolved versions
+        run: pip list
+
+      - name: Run tests against newest deps
+        run: pytest --tb=short
+
+  install-smoke:
+    name: Co-install smoke (resolver + pre-commit hook)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      # Prove the "frictionless, no forced pins" promise: VibeGuard's wheel
+      # co-installs cleanly into an env that already carries common stacks
+      # (which themselves depend on click/pydantic/typing-extensions). A
+      # clean exit means the resolver found a compatible set (#121).
+      - name: Co-install alongside common stacks
+        run: |
+          python -m venv /tmp/coinstall
+          . /tmp/coinstall/bin/activate
+          pip install --upgrade pip
+          pip install dist/*.whl fastapi "pydantic>=2" rich-click
+          vibeguard --version
+
+      - name: Smoke-test the pre-commit hook
+        run: |
+          pip install pre-commit
+          # `try-repo` wires this repo's .pre-commit-hooks.yaml into a
+          # throwaway config, builds the hook's isolated `language: python`
+          # environment (the resolver check) and runs it end-to-end. We use
+          # the informational `vibeguard-scan` hook, which always exits 0, so
+          # this proves the hook installs and runs without coupling the smoke
+          # test to whether this repo happens to be clean at --fail-on high.
+          pre-commit try-repo . vibeguard-scan --all-files --verbose
 
   vibeguard-self-check:
     name: VibeGuard self-scan
