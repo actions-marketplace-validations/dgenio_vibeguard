@@ -94,7 +94,7 @@ def init(
     body = render_config_body(policy_pack)
 
     path.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(body)
+    config_path.write_text(body, encoding="utf-8")
     err_console.print(f"[green]✓[/] Created [bold]{config_path}[/]")
     if policy_pack is not None:
         err_console.print(

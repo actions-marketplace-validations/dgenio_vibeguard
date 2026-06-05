@@ -152,7 +152,7 @@ def _ctx(tmp_path: Path, files: dict[str, str]) -> ScanContext:
     for name, content in files.items():
         p = tmp_path / name
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
     return ScanContext(
         root=tmp_path,
         config=VibeGuardConfig(),
