@@ -34,6 +34,15 @@ class TestRenderWorkflow:
         assert f'const marker = "{PR_COMMENT_MARKER}";' in wf
         assert "__MARKER__" not in wf
 
+    def test_upsert_paginates_and_filters_to_bot_author(self):
+        # The upsert must page through all comments (listComments caps at 30) so
+        # the marker comment is found on long PRs, and must only match the
+        # github-actions[bot] author so a user echoing the marker can't hijack it.
+        wf = render_workflow("high")
+        assert "github.paginate(github.rest.issues.listComments" in wf
+        assert "per_page: 100" in wf
+        assert 'c.user?.login === "github-actions[bot]"' in wf
+
     def test_workflow_is_valid_yaml_with_expected_surfaces(self):
         doc = yaml.safe_load(render_workflow("high"))
         # `on:` parses to the boolean True under YAML 1.1; GitHub's own parser

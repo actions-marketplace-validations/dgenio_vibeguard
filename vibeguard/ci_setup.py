@@ -125,12 +125,18 @@ jobs:
             const fs = require("fs");
             const body = fs.readFileSync("vibeguard-comment.md", "utf8");
             const marker = "__MARKER__";
-            const { data: comments } = await github.rest.issues.listComments({
+            // Page through every comment (listComments caps at 30/page) so the
+            // marker comment is still found on long PRs, and only match our own
+            // bot comment so a user echoing the marker can't be overwritten.
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              per_page: 100,
             });
-            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            const existing = comments.find(
+              (c) => c.user?.login === "github-actions[bot]" && c.body && c.body.includes(marker)
+            );
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
