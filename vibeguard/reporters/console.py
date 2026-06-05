@@ -52,18 +52,25 @@ def build_findings_table(result: ScanResult) -> Table:
         border_style="dim",
         expand=False,
     )
-    # ``no_wrap`` + ``min_width`` keep the two most important columns from
-    # collapsing on narrow (80-col) terminals — tmux, SSH, GitHub Actions
-    # logs. Without it Rich steals width from every column proportionally,
-    # dropping the severity icon entirely and truncating rule names to 3
-    # chars (see #85). The width=10 on Sev also keeps "☠ CRITICAL" (the
-    # widest label) on a single line so the GitHub Actions problem matcher
-    # in .github/problem-matchers/vibeguard.json can match the row in one
-    # shot. Path is the flexible column that shrinks (with an ellipsis)
-    # when space is tight.
+    # Column sizing balances two constraints:
+    #
+    # 1. #85 — on narrow (80-col) terminals (tmux, SSH, GitHub Actions logs)
+    #    Rich otherwise steals width from every column proportionally,
+    #    dropping the severity icon entirely and truncating rule names to 3
+    #    chars. ``no_wrap`` + ``min_width`` pin Sev/Rule/Path so they stay
+    #    readable, and Title is left wrappable so Rich has a column it can
+    #    shrink to fit the table within the terminal — without a wrappable
+    #    column, an over-wide table is cropped and Sev collapses again.
+    # 2. The GitHub Actions problem matcher
+    #    (.github/problem-matchers/vibeguard.json) parses a finding row with
+    #    an anchored ``^│ … │$`` regex. Sev (width=10, holds "☠ CRITICAL"),
+    #    Rule and Path are ``no_wrap`` + ellipsis, so the severity, rule and
+    #    file:line captures always sit on one physical line. Only the
+    #    trailing message (Title) may wrap; the matcher still matches the
+    #    row's first line and captures file/line correctly.
     table.add_column("Sev", style="bold", width=10, no_wrap=True)
-    table.add_column("Rule", min_width=10, no_wrap=True)
-    table.add_column("Path", min_width=12, overflow="ellipsis")
+    table.add_column("Rule", min_width=10, no_wrap=True, overflow="ellipsis")
+    table.add_column("Path", min_width=12, no_wrap=True, overflow="ellipsis")
     table.add_column("Title", min_width=20)
 
     for finding in sorted_findings:

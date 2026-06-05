@@ -34,6 +34,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          # No-op for versions with a stable toolcache entry; lets newer
+          # interpreters (e.g. 3.14 during the window where only an RC is
+          # cached) resolve instead of failing the run. We keep 3.14 a hard
+          # gate — issue #121 wants CI green on 3.10-3.14 — rather than
+          # marking it continue-on-error.
+          allow-prereleases: true
           cache: pip
           cache-dependency-path: pyproject.toml
 
