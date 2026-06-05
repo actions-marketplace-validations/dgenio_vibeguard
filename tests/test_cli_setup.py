@@ -47,9 +47,9 @@ class TestRenderWorkflow:
         # The docs/github-actions.md Section 3 example is a hand-maintained twin
         # of the generated upsert. Pin the load-bearing lines to both so the docs
         # copy can't silently drift (the original pagination bug existed in both).
-        docs = (
-            Path(__file__).parent.parent / "docs" / "github-actions.md"
-        ).read_text(encoding="utf-8")
+        docs = (Path(__file__).parent.parent / "docs" / "github-actions.md").read_text(
+            encoding="utf-8"
+        )
         for line in (
             "github.paginate(github.rest.issues.listComments",
             "per_page: 100",
