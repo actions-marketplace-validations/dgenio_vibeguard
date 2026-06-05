@@ -77,6 +77,12 @@ def _finding_detail(finding: Finding) -> list[str]:
 
 _MAX_PR_COMMENT_CHARS = 65536
 
+# Hidden HTML marker on the first line of every PR comment. CI uses it to find
+# and update VibeGuard's single existing comment instead of posting a new one on
+# each push — the idempotent upsert wired by ``vibeguard setup github-actions``
+# (#116). HTML comments are invisible in rendered Markdown.
+PR_COMMENT_MARKER = "<!-- vibeguard-report -->"
+
 
 def render_pr_comment(
     result: ScanResult,
@@ -90,7 +96,9 @@ def render_pr_comment(
     default of ``HIGH`` preserves the historical split for callers that don't
     pass a threshold.
     """
-    lines: list[str] = []
+    # Lead with the hidden marker so CI can locate and update this exact comment
+    # on later pushes (idempotent upsert) rather than spamming the PR.
+    lines: list[str] = [PR_COMMENT_MARKER, ""]
 
     # Header with pass/fail
     status_emoji = "🟢" if gate_passed else "🔴"
