@@ -190,6 +190,11 @@ jobs:
             }
 ```
 
+> **Fork PRs:** on pull requests from forks, GitHub restricts `GITHUB_TOKEN` to
+> read-only regardless of the `permissions:` block, so the comment step can't
+> post. Use the SARIF upload (Section 2) for fork coverage, or gate forks without
+> the comment surface.
+
 > `vibeguard setup github-actions` (Section 0) generates a workflow that already
 > includes this idempotent comment step alongside SARIF upload and the gate.
 

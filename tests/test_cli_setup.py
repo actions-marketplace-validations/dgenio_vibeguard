@@ -43,6 +43,21 @@ class TestRenderWorkflow:
         assert "per_page: 100" in wf
         assert 'c.user?.login === "github-actions[bot]"' in wf
 
+    def test_docs_upsert_matches_generated_workflow(self):
+        # The docs/github-actions.md Section 3 example is a hand-maintained twin
+        # of the generated upsert. Pin the load-bearing lines to both so the docs
+        # copy can't silently drift (the original pagination bug existed in both).
+        docs = (
+            Path(__file__).parent.parent / "docs" / "github-actions.md"
+        ).read_text(encoding="utf-8")
+        for line in (
+            "github.paginate(github.rest.issues.listComments",
+            "per_page: 100",
+            'c.user?.login === "github-actions[bot]"',
+        ):
+            assert line in render_workflow("high"), f"missing in generated workflow: {line}"
+            assert line in docs, f"missing in docs/github-actions.md: {line}"
+
     def test_workflow_is_valid_yaml_with_expected_surfaces(self):
         doc = yaml.safe_load(render_workflow("high"))
         # `on:` parses to the boolean True under YAML 1.1; GitHub's own parser
