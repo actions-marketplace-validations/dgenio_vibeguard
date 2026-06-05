@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from vibeguard.cli import app
 from vibeguard.models import Confidence, Finding, ScanResult, Severity
-from vibeguard.reporters.markdown import render_pr_comment
+from vibeguard.reporters.markdown import PR_COMMENT_MARKER, render_pr_comment
 
 runner = CliRunner()
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -82,6 +82,13 @@ class TestPrComment:
         result = _make_result(with_findings=False)
         output = render_pr_comment(result, gate_passed=True)
         assert "No findings" in output
+
+    def test_marker_is_first_line(self):
+        # The hidden marker must lead the comment so CI can find and update a
+        # single comment on later pushes (idempotent upsert) instead of spamming.
+        result = _make_result()
+        output = render_pr_comment(result, gate_passed=False)
+        assert output.startswith(PR_COMMENT_MARKER)
 
     def test_version_in_footer(self):
         from vibeguard import __version__

@@ -14,10 +14,10 @@ from rich.markup import escape
 
 from vibeguard import __version__
 from vibeguard.config import (
-    DEFAULT_CONFIG_YAML,
     VibeGuardConfig,
     apply_policy_suppressions,
     apply_severity_overrides,
+    render_config_body,
 )
 from vibeguard.git import get_git_metadata
 from vibeguard.models import Severity
@@ -91,16 +91,7 @@ def init(
         except ValueError as exc:
             err_console.print(f"[red]{exc}[/]")
             raise typer.Exit(2) from exc
-        body = (
-            f"# VibeGuard configuration — generated from policy pack: {policy_pack}\n"
-            f"# Run `vibeguard init` to regenerate without a pack.\n"
-            "#\n"
-            "# Pack defaults are applied at load time; any value you set below\n"
-            "# overrides the pack. See docs/policy-packs.md for the full list.\n\n"
-            f"policy_pack: {policy_pack}\n"
-        )
-    else:
-        body = DEFAULT_CONFIG_YAML
+    body = render_config_body(policy_pack)
 
     path.mkdir(parents=True, exist_ok=True)
     config_path.write_text(body)
@@ -112,6 +103,94 @@ def init(
         )
     else:
         err_console.print("  Edit it to customise your policy, ignores, and enabled rules.")
+
+
+# ---------------------------------------------------------------------------
+# setup (one-command project wiring)
+# ---------------------------------------------------------------------------
+
+setup_app = typer.Typer(
+    name="setup",
+    help="One-command project setup (CI wiring, etc.).",
+    no_args_is_help=True,
+)
+app.add_typer(setup_app)
+
+
+@setup_app.command("github-actions")
+def setup_github_actions_cmd(
+    path: Annotated[
+        Path,
+        typer.Option("--path", help="Repository root to write into"),
+    ] = Path("."),
+    policy_pack: Annotated[
+        str | None,
+        typer.Option(
+            "--policy-pack",
+            help=(
+                "Generate a vibeguard.yaml for this built-in pack and derive the "
+                f"gate threshold from it ({', '.join(KNOWN_PACK_NAMES)})"
+            ),
+        ),
+    ] = None,
+    fail_on: Annotated[
+        str | None,
+        typer.Option(
+            "--fail-on",
+            help="Gate threshold (default: high, or the policy pack's fail_on)",
+        ),
+    ] = None,
+    with_config: Annotated[
+        bool,
+        typer.Option("--with-config", help="Also generate a vibeguard.yaml"),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite existing files"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print what would be created without writing files"),
+    ] = False,
+) -> None:
+    """Generate a GitHub Actions PR-gate workflow (SARIF + PR comment + gate)."""
+    from vibeguard.ci_setup import SetupError, setup_github_actions
+
+    try:
+        result = setup_github_actions(
+            root=path,
+            fail_on=fail_on,
+            policy_pack=policy_pack,
+            with_config=with_config,
+            force=force,
+            dry_run=dry_run,
+        )
+    except SetupError as exc:
+        err_console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(2) from exc
+
+    if dry_run:
+        err_console.print("[bold]Dry run — no files written.[/] Would create:")
+        for target, content in result.rendered.items():
+            err_console.print(f"\n[cyan]# {target}[/]")
+            # Raw file body to stdout (no Rich markup) so it can be inspected or
+            # piped verbatim.
+            typer.echo(content)
+        return
+
+    for target in result.created:
+        err_console.print(f"  [green]created[/] {target}")
+    for target in result.skipped:
+        err_console.print(f"  [yellow]skipped (exists)[/] {target}")
+
+    err_console.print("\n[bold]Next steps:[/]")
+    err_console.print("  1. Review the generated file(s).")
+    err_console.print(
+        f"  2. Commit them: [cyan]git add {' '.join(str(p) for p in result.created)}[/]"
+    )
+    err_console.print(
+        "  3. Open a PR — VibeGuard will annotate the diff and post a summary comment."
+    )
 
 
 # ---------------------------------------------------------------------------

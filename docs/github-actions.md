@@ -2,6 +2,38 @@
 
 This guide shows how to integrate VibeGuard into your GitHub Actions PR workflow using SARIF code scanning, PR comments, baselines, and annotations.
 
+## 0. One-Command Setup
+
+The fastest path: let VibeGuard write the workflow for you.
+
+```bash
+pip install vibeguard-gate
+vibeguard setup github-actions
+```
+
+This generates `.github/workflows/vibeguard.yml` — a single job that wires all
+three PR surfaces at once:
+
+1. **SARIF upload** → inline code-scanning annotations on the PR diff.
+2. **PR comment** → one summary comment, updated in place on every push (no spam).
+3. **Gate** → fails the PR on findings at/above `--fail-on` (default `high`).
+
+Review the file, commit it, and open a PR. Options:
+
+| Flag | Effect |
+|---|---|
+| `--policy-pack <name>` | Also write a `vibeguard.yaml` for the pack and derive the gate threshold from it (e.g. `web-app` → `medium`). |
+| `--fail-on <severity>` | Override the gate threshold (`info`–`critical`). |
+| `--with-config` | Also write a default `vibeguard.yaml`. |
+| `--dry-run` | Print the generated file(s) to stdout without writing. |
+| `--force` | Overwrite an existing workflow (refuses by default). |
+
+The generated workflow installs VibeGuard from PyPI (`pip install
+vibeguard-gate`) and posts the comment with
+[`actions/github-script`](https://github.com/actions/github-script), so it adds
+no networking to the VibeGuard CLI itself. The sections below document the same
+surfaces individually if you prefer to assemble the workflow by hand.
+
 ## 1. Minimal PR Gate Workflow
 
 The simplest setup: fail PRs that introduce high/critical findings.
@@ -87,7 +119,11 @@ jobs:
 
 ## 3. PR Comment Workflow
 
-Post a formatted summary comment on each PR.
+Post a single summary comment that **updates in place** on every push instead of
+adding a new comment each time. VibeGuard's `--pr-comment` output leads with a
+hidden marker (`<!-- vibeguard-report -->`); the step below finds the existing
+comment by that marker and edits it, falling back to creating one on the first
+run.
 
 ```yaml
 name: VibeGuard PR Comment
@@ -118,11 +154,49 @@ jobs:
         run: vibeguard gate --diff --fail-on high --pr-comment > vibeguard-comment.md
         continue-on-error: true
 
-      - name: Post comment
-        run: gh pr comment ${{ github.event.pull_request.number }} --body-file vibeguard-comment.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Post / update comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync("vibeguard-comment.md", "utf8");
+            const marker = "<!-- vibeguard-report -->";
+            // Page through every comment (listComments caps at 30/page) so the
+            // marker comment is still found on long PRs, and only match our own
+            // bot comment so a user echoing the marker can't be overwritten.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.user?.login === "github-actions[bot]" && c.body && c.body.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 ```
+
+> **Fork PRs:** on pull requests from forks, GitHub restricts `GITHUB_TOKEN` to
+> read-only regardless of the `permissions:` block, so the comment step can't
+> post. Use the SARIF upload (Section 2) for fork coverage, or gate forks without
+> the comment surface.
+
+> `vibeguard setup github-actions` (Section 0) generates a workflow that already
+> includes this idempotent comment step alongside SARIF upload and the gate.
 
 ## 4. Baseline Workflow
 

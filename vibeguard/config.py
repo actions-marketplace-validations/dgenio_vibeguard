@@ -576,6 +576,29 @@ explain:
 """
 
 
+def render_config_body(policy_pack: str | None) -> str:
+    """Return the contents for a generated ``vibeguard.yaml``.
+
+    With no pack, returns :data:`DEFAULT_CONFIG_YAML`. With a pack, returns a
+    minimal file that defers to the pack (pack defaults apply at load time; user
+    keys below the ``policy_pack`` line always win). The caller is responsible
+    for validating that ``policy_pack`` names a real pack.
+
+    Shared by ``vibeguard init`` and ``vibeguard setup github-actions`` so the
+    two generators can never drift apart.
+    """
+    if policy_pack is None:
+        return DEFAULT_CONFIG_YAML
+    return (
+        f"# VibeGuard configuration — generated from policy pack: {policy_pack}\n"
+        "# Run `vibeguard init` to regenerate without a pack.\n"
+        "#\n"
+        "# Pack defaults are applied at load time; any value you set below\n"
+        "# overrides the pack. See docs/policy-packs.md for the full list.\n\n"
+        f"policy_pack: {policy_pack}\n"
+    )
+
+
 def apply_severity_overrides(
     findings: list[Finding], overrides: list[SeverityOverride]
 ) -> list[Finding]:
