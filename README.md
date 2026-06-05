@@ -22,7 +22,20 @@ pip install vibeguard-gate
 vibeguard scan --path .
 ```
 
-**Add it as a GitHub Actions PR gate** that fails the PR on high-severity findings:
+**Add it as a GitHub Actions PR gate** — one command generates the workflow:
+
+```bash
+vibeguard setup github-actions
+```
+
+This writes `.github/workflows/vibeguard.yml` wiring three PR surfaces in one
+job: inline code-scanning annotations (SARIF), a single summary comment that
+updates in place on each push, and a gate that fails the PR on high-severity
+findings. Commit the file and open a PR. See
+[one-command setup](docs/github-actions.md#0-one-command-setup) for options
+(`--policy-pack`, `--fail-on`, `--with-config`, `--dry-run`).
+
+Prefer to copy/paste instead? The minimal action snippet:
 
 ```yaml
 # .github/workflows/vibeguard.yml
@@ -161,6 +174,22 @@ Creates a `vibeguard.yaml` config file with sensible defaults.
 vibeguard init
 vibeguard init --path /path/to/repo
 ```
+
+### `vibeguard setup github-actions`
+
+Generates `.github/workflows/vibeguard.yml` — a complete PR gate that uploads
+SARIF for inline code-scanning annotations, posts a single self-updating summary
+comment, and fails the PR on findings at/above the threshold.
+
+```bash
+vibeguard setup github-actions                       # fail-on: high
+vibeguard setup github-actions --policy-pack web-app # also writes vibeguard.yaml; fail-on from pack
+vibeguard setup github-actions --fail-on medium      # override the threshold
+vibeguard setup github-actions --dry-run             # print the workflow, write nothing
+vibeguard setup github-actions --force               # overwrite an existing workflow
+```
+
+Existing files are never overwritten without `--force`.
 
 ### `vibeguard scan`
 
