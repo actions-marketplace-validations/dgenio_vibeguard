@@ -93,6 +93,47 @@ above the default `--fail-on high` threshold.
 
 ---
 
+## 3. Precision & recall on the labeled corpus
+
+Where the scenario baseline above shows headline detections, the labeled
+corpus under [`tests/fixtures/corpus/`](../tests/fixtures/corpus) answers the
+question that decides whether a team can trust `--fail-on` in CI: **when the
+gate blocks, is it right, and does it catch the real risks?** Every case is
+labeled `tp_*` (a genuine risk the gate should block) or `fp_*` (a benign
+change the gate must not block), and the harness derives precision, recall,
+and F1 per rule family **at the actionable tier** (HIGH/CRITICAL) — the exact
+decision `vibeguard gate --fail-on high` makes.
+
+### Reproduce
+
+```bash
+make bench-precision
+# or, machine-readable:
+python -m benchmarks.precision --json
+```
+
+### Results
+
+The committed, regenerable report lives at
+[`docs/precision-report.md`](precision-report.md). The headline today:
+**precision 1.00** (no blocking false positives across the corpus) with an
+overall **detection recall of 1.00** (every true-positive case fires at least
+one finding). Blocking *recall* is intentionally below 1.0 because advisory
+rules such as `risky_diff` (MEDIUM) and the informational `ai_footprints`
+tier detect but do not block — the report's `Detection recall` column
+separates the two so an advisory rule isn't misread as a miss.
+
+### CI regression guard
+
+[`tests/test_corpus_precision.py`](../tests/test_corpus_precision.py) runs the
+corpus on every PR and fails if any `tp_` case stops firing or any `fp_` case
+starts producing an actionable (HIGH/CRITICAL) finding — so rule changes
+cannot silently degrade precision. Add new corpus cases there (one `tp_` and
+one `fp_` per family minimum) and rerun `make bench-precision` to refresh the
+report.
+
+---
+
 ## What is measured vs. not measured
 
 **Measured**
@@ -101,6 +142,8 @@ above the default `--fail-on high` threshold.
 - Detection of the documented finding IDs on realistic vulnerable fixtures
   across Node, Python, Go, and Terraform.
 - Zero blocking findings on clean fixtures (false-positive baseline).
+- Precision / recall / F1 per rule family on the labeled `tp_`/`fp_` corpus,
+  at the actionable (HIGH/CRITICAL) blocking tier.
 
 **Not measured**
 
