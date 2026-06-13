@@ -30,10 +30,14 @@ Run it::
     python -m benchmarks.precision             # human-readable table
     python -m benchmarks.precision --json       # machine-readable
     python -m benchmarks.precision --markdown    # regenerate docs/precision-report.md
+    python -m benchmarks.precision --check       # fail if the committed report is stale
 
-The committed report lives at ``docs/precision-report.md``; the live CI
-regression guard is ``tests/test_corpus_precision.py`` (every ``tp_`` case
-must fire, every ``fp_`` case must stay below the actionable tier).
+The committed report lives at ``docs/precision-report.md``. Two guards keep
+it honest: ``tests/test_corpus_precision.py`` asserts the underlying corpus
+behaviour (every ``tp_`` case fires, every ``fp_`` case stays below the
+actionable tier), and ``--check`` (wired into ``make ci`` via
+``bench-precision-check`` and ``tests/test_bench_precision_report.py``) fails
+when the committed Markdown drifts from a fresh regeneration.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
@@ -52,6 +57,7 @@ from vibeguard.models import Severity
 from vibeguard.scanner import run_scan
 
 CORPUS_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "corpus"
+DEFAULT_REPORT = Path(__file__).resolve().parent.parent / "docs" / "precision-report.md"
 
 # Directory name -> rule.id values that count as a "hit" for that family.
 # Mirrors ``_RULE_FAMILIES`` in tests/test_corpus_precision.py (the live CI
@@ -155,6 +161,19 @@ def evaluate() -> dict[str, FamilyStats]:
     return dict(stats)
 
 
+def _precision_cell(st: FamilyStats, width: int | None = None) -> str:
+    """Render precision, or ``n/a`` when no case was blocked (``TP+FP==0``).
+
+    A family that blocks nothing has an undefined precision; the
+    :attr:`FamilyStats.precision` property returns ``1.0`` there so F1 stays
+    finite, but printing a bare ``1.00`` reads as "perfect" rather than
+    "vacuous". Surface it as ``n/a`` instead.
+    """
+    if st.tp + st.fp == 0:
+        return f"{'n/a':>{width}}" if width else "n/a"
+    return f"{st.precision:>{width}.2f}" if width else f"{st.precision:.2f}"
+
+
 def _aggregate(stats: dict[str, FamilyStats]) -> FamilyStats:
     total = FamilyStats()
     for st in stats.values():
@@ -199,13 +218,13 @@ def _format_text(stats: dict[str, FamilyStats]) -> str:
     ]
     for name, st in sorted(stats.items()):
         lines.append(
-            f"  {name:<14} {st.precision:>6.2f} {st.recall:>6.2f} {st.f1:>6.2f}  "
+            f"  {name:<14} {_precision_cell(st, 6)} {st.recall:>6.2f} {st.f1:>6.2f}  "
             f"{st.tp:>3} {st.fp:>3} {st.fn:>3} {st.tn:>3}  {st.detection_recall:>6.2f}"
         )
     agg = _aggregate(stats)
     lines += [
         f"  {'-' * 14}",
-        f"  {'OVERALL':<14} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f}  "
+        f"  {'OVERALL':<14} {_precision_cell(agg, 6)} {agg.recall:>6.2f} {agg.f1:>6.2f}  "
         f"{agg.tp:>3} {agg.fp:>3} {agg.fn:>3} {agg.tn:>3}  {agg.detection_recall:>6.2f}",
     ]
     return "\n".join(lines)
@@ -235,11 +254,11 @@ def _format_markdown(stats: dict[str, FamilyStats]) -> str:
     ]
     for name, st in sorted(stats.items()):
         lines.append(
-            f"| `{name}` | {st.precision:.2f} | {st.recall:.2f} | {st.f1:.2f} "
+            f"| `{name}` | {_precision_cell(st)} | {st.recall:.2f} | {st.f1:.2f} "
             f"| {st.tp} | {st.fp} | {st.fn} | {st.tn} | {st.detection_recall:.2f} |"
         )
     lines.append(
-        f"| **Overall** | **{agg.precision:.2f}** | **{agg.recall:.2f}** | "
+        f"| **Overall** | **{_precision_cell(agg)}** | **{agg.recall:.2f}** | "
         f"**{agg.f1:.2f}** | {agg.tp} | {agg.fp} | {agg.fn} | {agg.tn} | "
         f"{agg.detection_recall:.2f} |"
     )
@@ -258,12 +277,24 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Measure VibeGuard precision/recall/F1 on the labeled corpus."
     )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_REPORT,
+        help="Markdown report path for --markdown / --check (default: docs/precision-report.md)",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
     group.add_argument(
         "--markdown",
         action="store_true",
-        help="Write the Markdown report to docs/precision-report.md",
+        help="Write the Markdown report to the output path",
+    )
+    group.add_argument(
+        "--check",
+        action="store_true",
+        help="Fail if the committed Markdown report is missing or out of date",
     )
     args = parser.parse_args(argv)
 
@@ -272,9 +303,23 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(_to_json(stats), indent=2))
     elif args.markdown:
         report = _format_markdown(stats)
-        out = Path(__file__).resolve().parent.parent / "docs" / "precision-report.md"
-        out.write_text(report, encoding="utf-8")
-        print(f"Wrote {out}")
+        args.output.write_text(report, encoding="utf-8")
+        print(f"Wrote {args.output}")
+    elif args.check:
+        expected = _format_markdown(stats)
+        if not args.output.exists():
+            print(
+                f"{args.output} is missing — run `make bench-precision` to generate it.",
+                file=sys.stderr,
+            )
+            return 1
+        if args.output.read_text(encoding="utf-8") != expected:
+            print(
+                f"{args.output} is out of date — run `make bench-precision` to refresh it.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{args.output} is up to date.")
     else:
         print(_format_text(stats))
     return 0
