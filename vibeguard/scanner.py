@@ -121,7 +121,10 @@ def run_scan(
     # place that the registry and ``rules list`` also derive from.
     rules: list[Rule] = []
     for rule_cls in BUILTIN_RULES:
-        section = getattr(config, RULE_REGISTRY[rule_cls.id].config_key)
+        # config_key is always populated at registration (defaults to rule id),
+        # but its type is Optional — fall back to the id to satisfy the checker.
+        config_key = RULE_REGISTRY[rule_cls.id].config_key or rule_cls.id
+        section = getattr(config, config_key)
         if getattr(section, "enabled", True):
             rules.append(rule_cls())
 
@@ -152,7 +155,7 @@ def run_scan(
 
     for rule in rules:
         try:
-            rule_findings = rule.scan(ctx)
+            rule_findings = rule.scan(_context_for_rule(rule, ctx))
             # Filter out suppressed finding IDs
             rule_findings = [f for f in rule_findings if f.id not in config.ignore.findings]
             findings.extend(rule_findings)
@@ -179,6 +182,22 @@ def run_scan(
         policy=config.policy,
         errors=errors,
     )
+
+
+def _context_for_rule(rule: Rule, ctx: ScanContext) -> ScanContext:
+    """Return the scan context a rule sees, honouring its ``is_applicable`` hook (#193).
+
+    Rules that keep the default ``is_applicable`` (return ``True`` for every
+    path) see the shared context unchanged — no per-file calls, no copy. A rule
+    that overrides the hook gets a context whose ``files`` and ``changed_files``
+    are filtered to the paths it accepts, so a path it rejects never reaches its
+    ``scan``.
+    """
+    if type(rule).is_applicable is Rule.is_applicable:
+        return ctx
+    files = [p for p in ctx.files if rule.is_applicable(p)]
+    changed_files = [p for p in ctx.changed_files if rule.is_applicable(p)]
+    return ctx.model_copy(update={"files": files, "changed_files": changed_files})
 
 
 def _filter_by_changed_lines(

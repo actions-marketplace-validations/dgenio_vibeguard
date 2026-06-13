@@ -97,6 +97,11 @@ class IaCRule(Rule):
     name = "Infrastructure-as-Code Security"
     description = "Detects risky patterns in Terraform and Kubernetes manifests"
 
+    def is_applicable(self, path: Path) -> bool:
+        # Terraform (.tf) and Kubernetes/YAML manifests; matches scan's per-file
+        # filter so the scoping never drops a file the rule would have flagged (#193).
+        return path.suffix.lower() in (".tf", ".yaml", ".yml")
+
     def scan(self, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         files_to_check = context.changed_files if context.diff_only else context.files
