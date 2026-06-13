@@ -22,11 +22,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from tests.fixtures.canonical_scan_result import build_canonical_result
+from vibeguard.reporters.console import build_findings_table
 from vibeguard.reporters.json_reporter import render_json
 from vibeguard.reporters.markdown import render_markdown
 from vibeguard.reporters.sarif import render_sarif
@@ -101,6 +104,69 @@ class TestGoldenReporters:
         for r in data["runs"][0]["results"]:
             assert "partialFingerprints" in r
             assert "vibeguard/v1" in r["partialFingerprints"]
+
+    def _render_table(self, width: int) -> str:
+        """Render the console findings table at a fixed terminal width."""
+        console = Console(width=width, force_terminal=False, no_color=True)
+        with console.capture() as capture:
+            console.print(build_findings_table(build_canonical_result()))
+        return capture.get()
+
+    def test_console_table_survives_80_columns(self) -> None:
+        """At 80 cols the severity column and rule names must not collapse (#85).
+
+        The bug: Rich shrank every column proportionally on narrow
+        terminals, dropping the severity icon/label and truncating rule
+        names to 3 chars (``sec…``). The fix pins ``no_wrap`` + ``min_width``
+        on the Sev and Rule columns.
+        """
+        rendered = self._render_table(80)
+
+        # Severity labels render in full, with their icons, not collapsed away.
+        assert "☠ CRITICAL" in rendered
+        assert "✗ HIGH" in rendered
+        assert "⚠ MEDIUM" in rendered
+
+        # Rule names render in full — including the longest builtin rule id
+        # (``ai_footprints``, 13 chars) — rather than being truncated to 3.
+        assert "secrets" in rendered
+        assert "ai_footprints" in rendered
+        assert "sec…" not in rendered
+
+        # The table body still fits within the 80-column budget.
+        for line in rendered.splitlines():
+            assert len(line) <= 80, f"Line exceeds 80 cols: {line!r}"
+
+    def test_console_rows_match_problem_matcher_at_80_cols(self) -> None:
+        """Each finding's first line must satisfy the GHA problem matcher.
+
+        The matcher in .github/problem-matchers/vibeguard.json parses a row
+        with an anchored ``^│ … │$`` regex to produce file:line annotations.
+        Sev/Rule/Path are no_wrap so severity, rule and file:line always sit
+        on one physical line even when the Title wraps — verify that holds at
+        the 80-col width Rich uses in CI logs.
+        """
+        # Mirrors the CRITICAL/HIGH pattern in the committed problem matcher.
+        row_re = re.compile(
+            r"^│\s*(?:☠ CRITICAL|✗ HIGH|⚠ MEDIUM|↓ LOW|ℹ INFO)\s*│\s*(\S+)\s*│\s*"
+            r"([^:│]+?)(?::(\d+))?\s*│\s*(.+?)\s*│$"
+        )
+        rendered = self._render_table(80)
+        matched = [m for m in (row_re.match(line) for line in rendered.splitlines()) if m]
+        # The canonical result has one finding per severity (5 total); every
+        # one must yield a matcher row with a clean file capture.
+        assert len(matched) == 5, (
+            f"Expected 5 matcher-parseable rows at 80 cols, got {len(matched)}"
+        )
+        files = {m.group(2) for m in matched}
+        assert "src/config.py" in files  # path captured single-line, untruncated
+
+    def test_console_table_wide_terminal_unchanged(self) -> None:
+        """Wide terminals keep showing full severity + rule + title (#85)."""
+        rendered = self._render_table(200)
+        assert "☠ CRITICAL" in rendered
+        assert "ai_footprints" in rendered
+        assert "AWS Access Key ID detected" in rendered
 
     def test_markdown_golden_has_expected_structure(self) -> None:
         """Defence-in-depth: the Markdown golden must contain expected sections."""
