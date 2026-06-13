@@ -9,23 +9,10 @@ import pathspec
 from vibeguard.config import VibeGuardConfig, load_ignorefile
 from vibeguard.git import get_diff_text, get_git_metadata, parse_changed_lines
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
-from vibeguard.rules.agent_memory import AgentMemoryRule
-from vibeguard.rules.ai_footprints import AIFootprintsRule
-from vibeguard.rules.auth import AuthRule
 from vibeguard.rules.base import Rule
-from vibeguard.rules.ci_docker import CiDockerRule
-from vibeguard.rules.dependencies import DependenciesRule
-from vibeguard.rules.go_rules import GoRulesRule
-from vibeguard.rules.iac import IaCRule
-from vibeguard.rules.packaging import PackagingRule
+from vibeguard.rules.builtin import BUILTIN_RULES
 from vibeguard.rules.plugins import discover_plugin_rules
-from vibeguard.rules.prompt_injection import PromptInjectionRule
-from vibeguard.rules.risky_diff import RiskyDiffRule
-from vibeguard.rules.secrets import SecretsRule
-from vibeguard.rules.slopsquat import SlopsquatRule
-from vibeguard.rules.sourcemaps import SourceMapsRule
-from vibeguard.rules.sql import SqlRule
-from vibeguard.rules.tests import MissingTestsRule
+from vibeguard.rules.registry import RULE_REGISTRY
 from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressions
 
 _BINARY_SNIFF_SIZE = 8192
@@ -126,37 +113,17 @@ def run_scan(
         diff_only=diff_only,
     )
 
+    # Instantiate every enabled built-in rule from the single source of truth
+    # (#175): iterate the canonical ordered list and gate each rule on the
+    # ``enabled`` flag of the config section its metadata points at (the
+    # ``config_key`` — e.g. ``risky_diff`` reads ``risky_patterns``). Replaces
+    # the former 15-branch if-chain so the rule set and its order live in one
+    # place that the registry and ``rules list`` also derive from.
     rules: list[Rule] = []
-    if config.secrets.enabled:
-        rules.append(SecretsRule())
-    if config.sourcemaps.enabled:
-        rules.append(SourceMapsRule())
-    if config.packaging.enabled:
-        rules.append(PackagingRule())
-    if config.dependencies.enabled:
-        rules.append(DependenciesRule())
-    if config.risky_patterns.enabled:
-        rules.append(RiskyDiffRule())
-    if config.tests.enabled:
-        rules.append(MissingTestsRule())
-    if config.ai_footprints.enabled:
-        rules.append(AIFootprintsRule())
-    if config.go_rules.enabled:
-        rules.append(GoRulesRule())
-    if config.ci_docker.enabled:
-        rules.append(CiDockerRule())
-    if config.iac.enabled:
-        rules.append(IaCRule())
-    if config.auth.enabled:
-        rules.append(AuthRule())
-    if config.sql.enabled:
-        rules.append(SqlRule())
-    if config.agent_memory.enabled:
-        rules.append(AgentMemoryRule())
-    if config.slopsquat.enabled:
-        rules.append(SlopsquatRule())
-    if config.prompt_injection.enabled:
-        rules.append(PromptInjectionRule())
+    for rule_cls in BUILTIN_RULES:
+        section = getattr(config, RULE_REGISTRY[rule_cls.id].config_key)
+        if getattr(section, "enabled", True):
+            rules.append(rule_cls())
 
     # Discover third-party rules registered via the ``vibeguard.rules``
     # entry-point group (#58). Failed plugins are recorded but do not
