@@ -16,9 +16,10 @@ from pathlib import Path
 
 from vibeguard.models import Finding, ScanContext
 from vibeguard.rules.base import Rule
-from vibeguard.rules.packaging import _npm, _python
-from vibeguard.rules.packaging._common import RULE_ID, check_root_artifacts
 from vibeguard.rules.registry import RuleMetadata, register_rule
+
+from . import _npm, _python
+from ._common import RULE_ID, check_root_artifacts
 
 __all__ = ["PackagingRule"]
 

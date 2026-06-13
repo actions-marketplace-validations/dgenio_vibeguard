@@ -62,6 +62,28 @@ def test_rejected_paths_never_reach_scan():
     assert rule.seen == ["main.go", "lib.go"]
 
 
+def test_is_applicable_evaluated_once_per_unique_path():
+    # A path present in both files and changed_files must be evaluated once
+    # (the documented "once per candidate file per rule" contract).
+    calls: list[str] = []
+
+    class _CountingRule(Rule):
+        id = "counting-test"
+        name = "Counting"
+        description = "Counts is_applicable calls."
+
+        def is_applicable(self, path: Path) -> bool:
+            calls.append(path.name)
+            return path.suffix == ".go"
+
+        def scan(self, context: ScanContext) -> list[Finding]:
+            return []
+
+    ctx = _ctx(["main.go", "app.py"])  # files and changed_files are identical
+    _context_for_rule(_CountingRule(), ctx)
+    assert sorted(calls) == ["app.py", "main.go"]  # each unique path once, not twice
+
+
 def test_default_hook_returns_context_unchanged_and_uncopied():
     # Rules that don't override the hook pay no filtering cost — same object.
     ctx = _ctx(["a.py", "b.js"])

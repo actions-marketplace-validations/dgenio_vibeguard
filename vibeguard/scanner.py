@@ -195,8 +195,21 @@ def _context_for_rule(rule: Rule, ctx: ScanContext) -> ScanContext:
     """
     if type(rule).is_applicable is Rule.is_applicable:
         return ctx
-    files = [p for p in ctx.files if rule.is_applicable(p)]
-    changed_files = [p for p in ctx.changed_files if rule.is_applicable(p)]
+
+    # Evaluate the hook at most once per unique path (a path can appear in both
+    # files and changed_files), honouring the "once per candidate file per rule"
+    # contract and keeping filtering O(n).
+    cache: dict[Path, bool] = {}
+
+    def applicable(path: Path) -> bool:
+        result = cache.get(path)
+        if result is None:
+            result = rule.is_applicable(path)
+            cache[path] = result
+        return result
+
+    files = [p for p in ctx.files if applicable(p)]
+    changed_files = [p for p in ctx.changed_files if applicable(p)]
     return ctx.model_copy(update={"files": files, "changed_files": changed_files})
 
 
