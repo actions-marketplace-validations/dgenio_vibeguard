@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
+from vibeguard.manifests import (
+    LOCKFILE_TO_MANIFEST,
+    node_dependency_versions,
+    pyproject_dependency_specifiers,
+)
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import load_toml
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -133,21 +136,11 @@ class DependenciesRule(Rule):
     def _check_package_json(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+            text = path.read_text(encoding="utf-8")
+        except OSError:
             return findings
 
-        dep_groups = {
-            "dependencies": data.get("dependencies", {}),
-            "devDependencies": data.get("devDependencies", {}),
-            "optionalDependencies": data.get("optionalDependencies", {}),
-        }
-
-        all_deps: dict[str, str] = {}
-        for _group, deps in dep_groups.items():
-            if isinstance(deps, dict):
-                all_deps.update(deps)
-
+        all_deps = node_dependency_versions(text)
         is_strict = context.config.policy == "strict"
 
         for name, version in all_deps.items():
@@ -223,11 +216,7 @@ class DependenciesRule(Rule):
 
     def _check_pyproject(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
-        data = load_toml(path.read_text(encoding="utf-8"))
-        if data is None:
-            return findings
-
-        deps: list[str] = data.get("project", {}).get("dependencies", [])
+        deps = pyproject_dependency_specifiers(path.read_text(encoding="utf-8"))
         is_strict = context.config.policy == "strict"
 
         for dep in deps:
@@ -313,17 +302,8 @@ class DependenciesRule(Rule):
                 changed_by_dir[dir_key] = set()
             changed_by_dir[dir_key].add(p.name)
 
-        lockfile_map = {
-            "package-lock.json": "package.json",
-            "yarn.lock": "package.json",
-            "pnpm-lock.yaml": "package.json",
-            "poetry.lock": "pyproject.toml",
-            "uv.lock": "pyproject.toml",
-            "Pipfile.lock": "Pipfile",
-        }
-
         for dir_path, names_in_dir in changed_by_dir.items():
-            for lockfile, manifest in lockfile_map.items():
+            for lockfile, manifest in LOCKFILE_TO_MANIFEST.items():
                 if lockfile in names_in_dir and manifest not in names_in_dir:
                     rel_lockfile = str(dir_path / lockfile)
                     findings.append(

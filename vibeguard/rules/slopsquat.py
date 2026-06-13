@@ -36,21 +36,28 @@ import json
 import re
 from pathlib import Path
 
+from vibeguard.manifests import NODE_LOCKFILES as _NODE_LOCKFILES
+from vibeguard.manifests import NODE_MANIFEST as _NODE_MANIFEST
+from vibeguard.manifests import PY_LOCKFILES as _PY_LOCKFILES
+from vibeguard.manifests import PY_MANIFEST as _PY_MANIFEST
+from vibeguard.manifests import PY_REQUIREMENTS_RE as _PY_REQUIREMENTS_RE
+from vibeguard.manifests import (
+    lock_package_names,
+    node_dependency_names,
+    pyproject_dependency_names,
+    requirements_dependency_names,
+)
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import load_toml
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
-# Manifest files we read declared dependencies from, keyed by ecosystem.
-_NODE_MANIFEST = "package.json"
-_PY_MANIFEST = "pyproject.toml"
-_PY_REQUIREMENTS_RE = re.compile(r"requirements.*\.txt$")
+# Manifest/lockfile parsing and the name constants above now live in
+# vibeguard.manifests (#179); they are aliased here so the rule body and the
+# existing tests keep their local names.
 
-# Lockfiles whose presence means a declared dependency has been resolved. A
-# dependency *absent* from these is "added but never installed" — the shape an
-# AI hallucination takes before anyone runs the package manager.
-_NODE_LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
-_PY_LOCKFILES = {"poetry.lock", "uv.lock", "Pipfile.lock"}
+# ``_extract_lock_names`` is re-exported for the dedicated parser test and any
+# caller that imported it from this module before the consolidation.
+_extract_lock_names = lock_package_names
 
 # Minimum hyphen/underscore-separated token count for a name to read as a
 # "descriptive, invented" hallucination shape (e.g. ``smart-data-pipeline``).
@@ -284,42 +291,20 @@ class SlopsquatRule(Rule):
 
     def _node_deps(self, path: Path) -> list[str]:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+            text = path.read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001 — unreadable manifest yields no deps
             return []
-        names: list[str] = []
-        for group in ("dependencies", "devDependencies", "optionalDependencies"):
-            block = data.get(group)
-            if isinstance(block, dict):
-                names.extend(str(k) for k in block)
-        return names
+        return node_dependency_names(text)
 
     def _pyproject_deps(self, path: Path) -> list[str]:
-        data = load_toml(path.read_text(encoding="utf-8", errors="replace"))
-        if data is None:
-            return []
-        raw = data.get("project", {}).get("dependencies", [])
-        names: list[str] = []
-        for dep in raw:
-            name = _PY_NAME_RE.split(str(dep))[0].strip()
-            if name:
-                names.append(name)
-        return names
+        return pyproject_dependency_names(path.read_text(encoding="utf-8", errors="replace"))
 
     def _requirements_deps(self, path: Path) -> list[str]:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return []
-        names: list[str] = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith(("#", "-")):
-                continue
-            name = _PY_NAME_RE.split(line)[0].strip()
-            if name:
-                names.append(name)
-        return names
+        return requirements_dependency_names(text)
 
     def _lock_names(self, path: Path) -> set[str]:
         """Best-effort set of lower-cased package names declared in one lockfile."""
@@ -327,54 +312,10 @@ class SlopsquatRule(Rule):
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return set()
-        return _extract_lock_names(path.name, text)
+        return lock_package_names(path.name, text)
 
     # ``is_applicable`` left as default (True). The scan loop already filters
     # by file name, mirroring ``DependenciesRule``.
-
-
-# Package-name boundary for Python specifiers (e.g. ``requests>=2,<3 ; extra``).
-_PY_NAME_RE = re.compile(r"[>=<!~;\s\[\]()]")
-
-# Loose name extractors for lockfiles. These are intentionally permissive — a
-# false *inclusion* only suppresses a heuristic finding, which is the safe
-# direction.
-_PKG_LOCK_NAME_RE = re.compile(r'"node_modules/((?:@[^/"]+/)?[^/"]+)"')
-_YARN_NAME_RE = re.compile(r'^"?((?:@[^/@\s]+/)?[^@\s"]+)@', re.MULTILINE)
-_POETRY_NAME_RE = re.compile(r'^name\s*=\s*"([^"]+)"', re.MULTILINE)
-
-
-def _extract_lock_names(filename: str, text: str) -> set[str]:
-    names: set[str] = set()
-    if filename == "package-lock.json":
-        try:
-            data = json.loads(text)
-        except Exception:  # noqa: BLE001
-            data = None
-        if isinstance(data, dict):
-            for key in ("packages", "dependencies"):
-                block = data.get(key)
-                if isinstance(block, dict):
-                    for raw in block:
-                        leaf = str(raw).rsplit("node_modules/", 1)[-1]
-                        if leaf:
-                            names.add(leaf.lower())
-        names.update(m.group(1).lower() for m in _PKG_LOCK_NAME_RE.finditer(text))
-    elif filename in {"yarn.lock", "pnpm-lock.yaml"}:
-        names.update(m.group(1).lower() for m in _YARN_NAME_RE.finditer(text))
-    elif filename in {"poetry.lock", "uv.lock"}:
-        names.update(m.group(1).lower() for m in _POETRY_NAME_RE.finditer(text))
-    elif filename == "Pipfile.lock":
-        try:
-            data = json.loads(text)
-        except Exception:  # noqa: BLE001
-            data = None
-        if isinstance(data, dict):
-            for section in ("default", "develop"):
-                block = data.get(section)
-                if isinstance(block, dict):
-                    names.update(str(k).lower() for k in block)
-    return names
 
 
 def _registry_lookup(name: str, ecosystem: str, timeout: float) -> tuple[bool | None, int | None]:
