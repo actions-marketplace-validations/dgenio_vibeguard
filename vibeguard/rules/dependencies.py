@@ -5,27 +5,11 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import load_toml
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
-
-
-def _load_toml(text: str) -> dict[str, Any] | None:
-    """Parse TOML text, returning None if no TOML parser is available."""
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
-            return None
-    try:
-        return tomllib.loads(text)
-    except Exception:  # noqa: BLE001 — malformed TOML
-        return None
-
 
 # Common package names that are frequent typosquatting targets
 _POPULAR_PACKAGES_NODE = {
@@ -239,7 +223,7 @@ class DependenciesRule(Rule):
 
     def _check_pyproject(self, path: Path, rel: str, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
-        data = _load_toml(path.read_text(encoding="utf-8"))
+        data = load_toml(path.read_text(encoding="utf-8"))
         if data is None:
             return findings
 

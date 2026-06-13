@@ -22,18 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from vibeguard.publish.manifest import Ecosystem, PublishedFile, PublishManifest
-
-
-def _load_toml(text: str) -> dict[str, Any] | None:
-    try:
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
-        return tomllib.loads(text)
-    except Exception:  # noqa: BLE001 — malformed TOML
-        return None
-
+from vibeguard.rules._util import load_toml
 
 # Sdist always-included files (basename match at the package root).
 _SDIST_ALWAYS_INCLUDED: tuple[re.Pattern[str], ...] = (
@@ -362,7 +351,7 @@ def simulate_python(
         raise FileNotFoundError(f"{pyproject} not found")
 
     toml_text = pyproject.read_text(encoding="utf-8", errors="replace")
-    toml = _load_toml(toml_text)
+    toml = load_toml(toml_text)
     if toml is None:
         return PublishManifest(
             ecosystem=target,

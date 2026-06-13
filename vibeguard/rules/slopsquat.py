@@ -35,27 +35,11 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import load_toml
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
-
-
-def _load_toml(text: str) -> dict[str, Any] | None:
-    """Parse TOML text, returning None if no parser is available or it is malformed."""
-    try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
-            return None
-    try:
-        return tomllib.loads(text)
-    except Exception:  # noqa: BLE001 — malformed TOML
-        return None
-
 
 # Manifest files we read declared dependencies from, keyed by ecosystem.
 _NODE_MANIFEST = "package.json"
@@ -311,7 +295,7 @@ class SlopsquatRule(Rule):
         return names
 
     def _pyproject_deps(self, path: Path) -> list[str]:
-        data = _load_toml(path.read_text(encoding="utf-8", errors="replace"))
+        data = load_toml(path.read_text(encoding="utf-8", errors="replace"))
         if data is None:
             return []
         raw = data.get("project", {}).get("dependencies", [])

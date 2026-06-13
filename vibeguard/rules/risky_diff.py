@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import is_comment_line, is_test_file
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -162,7 +163,7 @@ class RiskyDiffRule(Rule):
                 continue
 
             rel = self._rel(context, path)
-            is_test = _is_test_file(path)
+            is_test = is_test_file(path)
 
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -170,14 +171,9 @@ class RiskyDiffRule(Rule):
                 continue
 
             for lineno, line in enumerate(content.splitlines(), start=1):
-                # Skip comment lines (simple heuristic)
+                # Skip comment lines (shared heuristic — #178).
                 stripped = line.strip()
-                # "* " prefix is a block comment continuation (Javadoc, JSDoc, etc.)
-                if (
-                    stripped.startswith(("#", "//", "<!--"))
-                    or stripped.startswith("* ")
-                    or stripped == "*"
-                ):
+                if is_comment_line(stripped):
                     continue
 
                 for pat_id, label, pattern in _RISKY_PATTERNS:
@@ -312,19 +308,6 @@ class RiskyDiffRule(Rule):
             )
 
         return findings
-
-
-def _is_test_file(path: Path) -> bool:
-    name = path.name.lower()
-    return (
-        name.startswith("test_")
-        or name.endswith("_test.py")
-        or name.endswith(".test.js")
-        or name.endswith(".spec.ts")
-        or "test" in path.parts
-        or "tests" in path.parts
-        or "spec" in path.parts
-    )
 
 
 register_rule(
