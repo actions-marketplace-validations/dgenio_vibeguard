@@ -24,8 +24,10 @@ from vibeguard.rules.auth import AuthRule
 from vibeguard.rules.base import Rule
 from vibeguard.rules.ci_docker import CiDockerRule
 from vibeguard.rules.dependencies import DependenciesRule
+from vibeguard.rules.error_handling import ErrorHandlingRule
 from vibeguard.rules.go_rules import GoRulesRule
 from vibeguard.rules.iac import IaCRule
+from vibeguard.rules.lint_suppressions import LintSuppressionsRule
 from vibeguard.rules.packaging import PackagingRule
 from vibeguard.rules.prompt_injection import PromptInjectionRule
 from vibeguard.rules.risky_diff import RiskyDiffRule
@@ -33,6 +35,7 @@ from vibeguard.rules.secrets import SecretsRule
 from vibeguard.rules.slopsquat import SlopsquatRule
 from vibeguard.rules.sourcemaps import SourceMapsRule
 from vibeguard.rules.sql import SqlRule
+from vibeguard.rules.test_integrity import TestIntegrityRule
 from vibeguard.rules.tests import MissingTestsRule
 
 #: Built-in rule classes in scan/report order. Each class's ``id`` resolves to a
@@ -45,6 +48,9 @@ BUILTIN_RULES: tuple[type[Rule], ...] = (
     DependenciesRule,
     RiskyDiffRule,
     MissingTestsRule,
+    TestIntegrityRule,
+    ErrorHandlingRule,
+    LintSuppressionsRule,
     AIFootprintsRule,
     GoRulesRule,
     CiDockerRule,

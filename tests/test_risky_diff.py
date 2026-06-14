@@ -91,3 +91,50 @@ class TestRiskyDiffRule:
         findings = self.rule.scan(ctx)
         eval_findings = [f for f in findings if "EVALEXEC" in f.id and f.path == "app.py"]
         assert len(eval_findings) == 1
+
+
+class TestDebugArtifacts:
+    """#206: framework debug artifacts left enabled."""
+
+    rule = RiskyDiffRule()
+
+    def test_django_debug_true_detected(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "DEBUG = True\n"})
+        assert any(f.id == "RISK-DEBUGMODE" for f in self.rule.scan(ctx))
+
+    def test_flask_app_run_debug_detected(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "app.run(debug=True)\n"})
+        assert any(f.id == "RISK-DEBUGMODE" for f in self.rule.scan(ctx))
+
+    def test_allowed_hosts_wildcard_detected(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "ALLOWED_HOSTS = ['*']\n"})
+        assert any(f.id == "RISK-ALLOWEDHOSTSWILDCARD" for f in self.rule.scan(ctx))
+
+    def test_env_driven_debug_not_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "DEBUG = os.environ.get('DEBUG') == '1'\n"})
+        assert not any(f.id == "RISK-DEBUGMODE" for f in self.rule.scan(ctx))
+
+    def test_commented_debug_not_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "# DEBUG = True\n"})
+        assert not any(f.id == "RISK-DEBUGMODE" for f in self.rule.scan(ctx))
+
+    def test_settings_file_boosted_to_high(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"settings.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.HIGH
+
+    def test_non_settings_file_is_medium(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"app.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.MEDIUM
+
+    def test_config_module_boosted_to_high(self, tmp_path: Path):
+        # `config.py` is a framework settings file too — boosted like settings.py.
+        ctx = _ctx(tmp_path, {"config.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.HIGH
+
+    def test_config_directory_boosted_to_high(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"config/app.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.HIGH

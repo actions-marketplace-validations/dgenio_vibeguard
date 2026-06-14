@@ -219,6 +219,24 @@ class PromptInjectionConfig(BaseModel):
     enabled: bool = True
 
 
+class TestIntegrityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class LintSuppressionsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
+class ErrorHandlingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+
+
 class PublishCheckConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -381,6 +399,9 @@ class VibeGuardConfig(BaseModel):
     agent_memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig)
     slopsquat: SlopsquatConfig = Field(default_factory=SlopsquatConfig)
     prompt_injection: PromptInjectionConfig = Field(default_factory=PromptInjectionConfig)
+    test_integrity: TestIntegrityConfig = Field(default_factory=TestIntegrityConfig)
+    lint_suppressions: LintSuppressionsConfig = Field(default_factory=LintSuppressionsConfig)
+    error_handling: ErrorHandlingConfig = Field(default_factory=ErrorHandlingConfig)
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
@@ -547,6 +568,22 @@ slopsquat:
   registry_timeout_seconds: 3.0
 
 prompt_injection:
+  enabled: true
+
+# Flags diffs that delete/skip tests or lower coverage thresholds — the
+# "make CI green by disabling the check" failure mode.
+test_integrity:
+  enabled: true
+
+# Flags newly introduced blanket linter/type-checker suppressions
+# (bare `# noqa`, `# type: ignore`, `/* eslint-disable */`, `@ts-nocheck`,
+# bare `#nosec`/`//nolint`). Scoped suppressions with codes are not flagged.
+lint_suppressions:
+  enabled: true
+
+# Flags newly introduced swallowed errors (`except: pass`, empty `catch {}`,
+# discarded Go errors). `contextlib.suppress(...)` is treated as explicit.
+error_handling:
   enabled: true
 
 publish_check:
