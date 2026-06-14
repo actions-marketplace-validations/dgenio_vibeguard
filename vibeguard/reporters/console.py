@@ -8,23 +8,19 @@ from rich.table import Table
 from rich.text import Text
 
 from vibeguard.models import Finding, ScanResult, Severity
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
-_SEVERITY_COLORS = {
-    Severity.INFO: "dim white",
-    Severity.LOW: "cyan",
-    Severity.MEDIUM: "yellow",
-    Severity.HIGH: "red",
-    Severity.CRITICAL: "bold red",
-}
 
-_SEVERITY_ICONS = {
-    Severity.INFO: "ℹ",
-    Severity.LOW: "↓",
-    Severity.MEDIUM: "⚠",
-    Severity.HIGH: "✗",
-    Severity.CRITICAL: "☠",
-}
+def _severity_color(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].color
 
+
+def _severity_icon(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].icon
+
+
+# Health-score letter grades are a console-only concern (not a Severity), so the
+# grade palette stays local to this reporter.
 _GRADE_COLORS = {
     "A": "bold green",
     "B": "green",
@@ -74,8 +70,8 @@ def build_findings_table(result: ScanResult) -> Table:
     table.add_column("Title", min_width=20)
 
     for finding in sorted_findings:
-        color = _SEVERITY_COLORS[finding.severity]
-        icon = _SEVERITY_ICONS[finding.severity]
+        color = _severity_color(finding.severity)
+        icon = _severity_icon(finding.severity)
         sev_text = Text(f"{icon} {finding.severity.value.upper()}", style=color)
         loc = finding.path
         if finding.line:
@@ -121,7 +117,7 @@ def render_findings(result: ScanResult, verbose: bool = False) -> None:
 
 
 def _print_finding_detail(finding: Finding) -> None:
-    color = _SEVERITY_COLORS[finding.severity]
+    color = _severity_color(finding.severity)
     lines = [
         f"[bold]{finding.title}[/]",
         f"  {finding.description}",
@@ -147,7 +143,7 @@ def _print_stats(result: ScanResult) -> None:
     for sev in reversed(list(Severity)):
         c = counts[sev.value]
         if c:
-            color = _SEVERITY_COLORS[sev]
+            color = _severity_color(sev)
             parts.append(f"[{color}]{sev.value}: {c}[/]")
 
     summary = f"[bold]{total}[/] finding(s)"

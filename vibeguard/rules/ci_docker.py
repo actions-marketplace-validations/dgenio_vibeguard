@@ -109,6 +109,11 @@ class CiDockerRule(Rule):
     name = "Docker/CI Security"
     description = "Detects risky Dockerfile and GitHub Actions workflow patterns"
 
+    def is_applicable(self, path: Path) -> bool:
+        # Dockerfiles and GitHub Actions workflow files; mirrors scan's dispatch
+        # so scoping is a pure optimisation with no finding change (#193).
+        return _is_dockerfile(path) or _is_gha_workflow(path)
+
     def scan(self, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
         files_to_check = context.changed_files if context.diff_only else context.files

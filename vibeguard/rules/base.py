@@ -88,8 +88,24 @@ class Rule(ABC):
         The default implementation returns ``True`` for every path — most
         rules iterate over the full file set in :meth:`scan` and filter
         internally. Override this when a rule is strictly scoped to a file
-        family (e.g. Dockerfiles, Terraform). Currently not called by
-        the scanner; reserved for future per-file filtering optimisation.
+        family (e.g. Dockerfiles, Terraform) to skip unrelated files.
+
+        Contract (#193):
+
+        * The scanner calls this **once per candidate file per rule** and
+          removes any path for which it returns ``False`` from the
+          :class:`~vibeguard.models.ScanContext` that rule's :meth:`scan`
+          receives (both ``files`` and ``changed_files``). A rule that returns
+          ``False`` for a path is guaranteed never to see that path.
+        * ``path`` is the same absolute :class:`~pathlib.Path` the scanner
+          collected (resolved against the scan root); use ``path.name`` /
+          ``path.suffix`` / ``path.parts`` rather than assuming a relative form.
+        * Rules that inspect sibling files directly (e.g. file-level packaging
+          or dependency rules) should leave the default in place rather than
+          narrowing ``files``, since the scanner filters the whole context.
+        * Overriding is a pure scoping optimisation — it must never change which
+          findings a rule would otherwise produce. Keep it a conservative
+          superset of the files the rule's :meth:`scan` actually acts on.
         """
         del path  # unused in default implementation
         return True

@@ -63,9 +63,30 @@ list[Finding]`. The implementation:
 | Be fast (< 100 ms per file is the soft target)                | Mutate global state in ways that bleed across rules  |
 | Use a unique `id` and use it as the `rule` field on findings  | Reuse another rule's finding IDs                     |
 
-`is_applicable(self, path) -> bool` defaults to `True`. Override it when
-your rule only makes sense for a specific file family — the scanner can
-short-circuit on it.
+### `is_applicable(self, path) -> bool`
+
+Defaults to `True`. Override it when your rule only makes sense for a
+specific file family (e.g. Dockerfiles, Terraform, `*.go`) so the scanner
+skips unrelated files. The contract:
+
+- **When it's called:** once per candidate file, per rule, before
+  `scan()`. The scanner removes every path you return `False` for from the
+  `ScanContext` your `scan()` receives — both `context.files` and
+  `context.changed_files`. A path you reject is guaranteed never to reach
+  your `scan()`.
+- **What `path` is:** the absolute `pathlib.Path` the scanner collected
+  (resolved against the scan root). Match on `path.name`, `path.suffix`,
+  or `path.parts` — do not assume a repo-relative form.
+- **Keep it side-effect free and a superset.** Overriding is a pure
+  scoping optimisation; it must not change which findings your rule would
+  otherwise emit. If your rule inspects sibling files directly (not via
+  `context.files`), leave the default in place — the scanner filters the
+  whole context, so narrowing it could hide the siblings you rely on.
+- Rules that keep the default pay no cost: the scanner detects the
+  un-overridden hook and passes the shared context through unchanged.
+
+The built-in `go_rules`, `iac`, and `ci_docker` rules override it as
+reference examples.
 
 ## Registering metadata
 

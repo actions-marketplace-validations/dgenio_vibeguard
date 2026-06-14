@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import is_comment_line
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -96,8 +97,8 @@ class SqlRule(Rule):
 
             for lineno, line in enumerate(content.splitlines(), start=1):
                 stripped = line.strip()
-                # Skip comment lines
-                if stripped.startswith(("#", "//", "/*", "*")):
+                # Skip comment lines (shared heuristic — #178).
+                if is_comment_line(stripped):
                     continue
 
                 for finding_id, label, pattern in patterns:

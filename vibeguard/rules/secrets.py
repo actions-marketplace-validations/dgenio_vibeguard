@@ -6,6 +6,7 @@ import math
 import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import is_test_path
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -179,19 +180,6 @@ def _is_likely_placeholder(value: str) -> bool:
     return False
 
 
-def _is_test_path(rel: str) -> bool:
-    """Check if a path is in a test/fixture/example directory."""
-    parts = rel.replace("\\", "/").lower().split("/")
-    test_dirs = {"test", "tests", "__tests__", "spec", "fixtures", "fixture"}
-    return any(p in test_dirs for p in parts) or any(
-        p.startswith("test_")
-        or p.endswith("_test.py")
-        or p.endswith(".test.js")
-        or p.endswith(".spec.ts")
-        for p in parts
-    )
-
-
 class SecretsRule(Rule):
     id = "secrets"
     name = "Secrets Detection"
@@ -207,7 +195,7 @@ class SecretsRule(Rule):
             rel = self._rel(context, path)
             # Skip test fixtures and examples unless they look dangerous
             is_example = "example" in rel.lower() or "fixture" in rel.lower()
-            is_test = _is_test_path(rel)
+            is_test = is_test_path(rel)
 
             # Check sensitive filenames
             if path.name in _SENSITIVE_FILENAMES:
