@@ -17,7 +17,7 @@ This page is generated from the rule metadata registry (`vibeguard/rules/registr
 | [`error_handling`](#error-handling) | Swallowed Errors | `error_handling` | medium | medium | 3 | reliability, ai, error-handling | *.py, *.js, *.ts, *.go |
 | [`go_rules`](#go-rules) | Go Risky Patterns | `go_rules` | high | medium | 7 | security, go | *.go |
 | [`iac`](#iac) | Infrastructure-as-Code Security | `iac` | high | high | 10 | security, iac, terraform, kubernetes | *.tf, *.yaml, *.yml |
-| [`lint_suppressions`](#lint-suppressions) | Blanket Lint Suppressions | `lint_suppressions` | low | medium | 6 | developer-experience, testing, ai, lint-suppressions | *.cjs, *.go, *.js, *.jsx, *.mjs, *.py, *.pyi, *.ts, *.tsx |
+| [`lint_suppressions`](#lint-suppressions) | Blanket Lint Suppressions | `lint_suppressions` | medium | medium | 6 | developer-experience, testing, ai, lint-suppressions | *.cjs, *.go, *.js, *.jsx, *.mjs, *.py, *.pyi, *.ts, *.tsx |
 | [`packaging`](#packaging) | Packaging Hygiene | `packaging` | medium | high | 14 | packaging, supply-chain | package.json, pyproject.toml, MANIFEST.in, setup.cfg, .npmignore |
 | [`prompt_injection`](#prompt-injection) | Prompt Injection in Code | `prompt_injection` | high | medium | 4 | security, ai-security, prompt-injection | *.py, *.js, *.ts, *.md, *.yaml, *.json, *.txt |
 | [`risky_diff`](#risky-diff) | Risky Code Pattern | `risky_patterns` | medium | medium | 20 | security, risky-diff | *.py, *.js, *.ts, *.go, *.java, *.rb |
@@ -217,7 +217,7 @@ Detects risky patterns in Terraform (IAM wildcards, open security groups, public
 
 Flags newly introduced blanket linter/type-checker suppressions (bare # noqa, # type: ignore, eslint-disable, @ts-nocheck, #nosec, //nolint). Scoped suppressions with codes are not flagged.
 
-- **Default severity:** `low`
+- **Default severity:** `medium`
 - **Confidence:** `medium`
 - **Config section:** `lint_suppressions` (in `vibeguard.yaml`)
 - **Tags:** `developer-experience`, `testing`, `ai`, `lint-suppressions`

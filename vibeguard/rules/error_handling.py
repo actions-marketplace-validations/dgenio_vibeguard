@@ -100,7 +100,11 @@ class ErrorHandlingRule(Rule):
             if not match:
                 continue
             inline = match.group(1).strip()
-            body = inline if inline else (_first_body(lines, i) or "")
+            # An inline part that is empty *or* only a trailing comment
+            # (``except Exception:  # explain``) carries no body — look ahead to
+            # the real first statement instead of treating the comment as one.
+            has_inline_body = bool(inline) and not inline.startswith("#")
+            body = inline if has_inline_body else (_first_body(lines, i) or "")
             if _PY_EMPTY_BODY.match(body):
                 findings.append(
                     self._finding(
@@ -128,16 +132,15 @@ class ErrorHandlingRule(Rule):
             match = _JS_CATCH.search(stripped)
             if not match:
                 continue
-            after = match.group(1).strip()
-            if after:
-                # Inline body: empty `{}` or a single closing brace / only-log.
-                body = after.lstrip("{").strip()
-                if body in ("", "}") or _JS_ONLY_LOG.match(body):
-                    findings.append(self._js_finding(rel, i, stripped, severity))
+            statements, closed = _js_catch_body(lines, i, match.group(1))
+            if not closed:
+                # Block doesn't close within the lookahead window — it may rethrow
+                # or handle further down, so don't risk a false positive.
                 continue
-            # Opening brace with nothing after: inspect the next body line.
-            body = _first_body(lines, i) or ""
-            if body in ("", "}") or _JS_ONLY_LOG.match(body):
+            # Flag only a truly empty body or one that *only* logs. A catch that
+            # logs and then rethrows/handles (`console.error(e); throw e`) has a
+            # non-log statement and is left alone (see #205).
+            if not statements or all(_JS_ONLY_LOG.match(s) for s in statements):
                 findings.append(self._js_finding(rel, i, stripped, severity))
         return findings
 
@@ -235,6 +238,44 @@ def _first_body(lines: list[str], i: int, max_ahead: int = _MAX_LOOKAHEAD) -> st
         if stripped and not is_comment_line(stripped):
             return stripped
     return None
+
+
+def _split_stmts(text: str) -> list[str]:
+    """Split a snippet into individual statements on ``;``, dropping blanks."""
+    return [part.strip() for part in text.split(";") if part.strip()]
+
+
+def _js_catch_body(
+    lines: list[str], i: int, after_brace: str, max_ahead: int = _MAX_LOOKAHEAD
+) -> tuple[list[str], bool]:
+    """Return ``(statements, closed)`` for a JS/TS catch block opened on line ``i``.
+
+    ``after_brace`` is the text following the catch's ``{`` on the same line.
+    ``statements`` are the body statements up to the closing ``}`` (excluding
+    braces); ``closed`` is True once the closing ``}`` is seen within the
+    lookahead window. When the block does not close within ``max_ahead`` lines,
+    ``closed`` is False and the caller should not flag it (it may rethrow or
+    handle the error further down).
+    """
+    statements: list[str] = []
+
+    inline = after_brace.strip()
+    if inline:
+        brace = inline.find("}")
+        if brace != -1:
+            return _split_stmts(inline[:brace]), True
+        statements.extend(_split_stmts(inline))
+
+    for j in range(i + 1, min(i + 1 + max_ahead, len(lines))):
+        stripped = lines[j].strip()
+        if not stripped or is_comment_line(stripped):
+            continue
+        brace = stripped.find("}")
+        if brace != -1:
+            statements.extend(_split_stmts(stripped[:brace]))
+            return statements, True
+        statements.extend(_split_stmts(stripped))
+    return statements, False
 
 
 _REMEDIATIONS: dict[str, str] = {

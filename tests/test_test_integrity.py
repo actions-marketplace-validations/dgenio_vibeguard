@@ -13,7 +13,7 @@ def _ctx(
     tmp_path: Path,
     files: dict[str, str] | None = None,
     *,
-    diff_only: bool = False,
+    diff_only: bool | None = None,
     diff_text: str = "",
 ) -> ScanContext:
     files = files or {}
@@ -23,6 +23,10 @@ def _ctx(
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         paths.append(p)
+    # A diff_text only ever exists in a real diff scan, so default diff_only to
+    # match — keeping these test contexts consistent with the live scanner.
+    if diff_only is None:
+        diff_only = bool(diff_text)
     return ScanContext(
         root=tmp_path,
         config=VibeGuardConfig(),

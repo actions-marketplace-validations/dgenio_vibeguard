@@ -160,7 +160,10 @@ register_rule(
             "//nolint). Scoped suppressions with codes are not flagged."
         ),
         finding_ids=list(_REMEDIATIONS.keys()),
-        default_severity="low",
+        # Matches the rule's diff-mode severity (MEDIUM for non-test files);
+        # full-scan and test files report LOW. Mirrors the risky_diff convention
+        # where default_severity reflects the primary diff-mode finding.
+        default_severity="medium",
         confidence="medium",
         tags=["developer-experience", "testing", "ai", "lint-suppressions"],
         applies_to=sorted(f"*{ext}" for ext in _CODE_EXTENSIONS),

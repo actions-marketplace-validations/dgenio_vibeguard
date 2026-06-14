@@ -79,6 +79,14 @@ class TestPython:
             == []
         )
 
+    def test_trailing_comment_after_colon_then_pass_flagged(self, tmp_path: Path):
+        # `except Exception:  # explain` carries no real body — the lookahead
+        # must still see the `pass` on the next line.
+        findings = self.rule.scan(
+            _ctx(tmp_path, {"a.py": "try:\n    x()\nexcept Exception:  # ignore\n    pass\n"})
+        )
+        assert [f.id for f in findings] == ["ERR-BARE-EXCEPT-PASS"]
+
     def test_comment_then_pass_not_misread(self, tmp_path: Path):
         # The body line is a comment within lookahead, then real handling follows.
         assert (
@@ -113,6 +121,28 @@ class TestJavaScript:
         assert (
             self.rule.scan(
                 _ctx(tmp_path, {"a.js": "try {\n  risky()\n} catch (e) {\n  reportError(e)\n}\n"})
+            )
+            == []
+        )
+
+    def test_log_and_rethrow_not_flagged(self, tmp_path: Path):
+        # Logging then rethrowing is real handling — must not be flagged (#205).
+        assert (
+            self.rule.scan(
+                _ctx(
+                    tmp_path,
+                    {"a.ts": "try {\n  risky()\n} catch (e) {\n  console.error(e)\n  throw e\n}\n"},
+                )
+            )
+            == []
+        )
+
+    def test_inline_log_and_rethrow_not_flagged(self, tmp_path: Path):
+        assert (
+            self.rule.scan(
+                _ctx(
+                    tmp_path, {"a.js": "try { risky() } catch (e) { console.error(e); throw e }\n"}
+                )
             )
             == []
         )

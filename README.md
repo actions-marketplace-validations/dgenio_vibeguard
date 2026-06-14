@@ -403,7 +403,7 @@ suppress via `vibeguard.yaml`, or remap via `severity_overrides`.
 | `prompt_injection`| high             | Agent-directed prompt-injection planted in comments/docstrings/markdown/config: instruction overrides, exfiltration directives, hidden/zero-width Unicode, base64 payloads. |
 | `tests`           | low              | Source files changed without any corresponding test-file changes. |
 | `test_integrity`  | medium           | Changes that weaken the test suite: added skip/`.only` markers, deleted test files or functions, lowered coverage thresholds (`fail_under`, `--cov-fail-under`, Jest `coverageThreshold`). |
-| `lint_suppressions`| low             | Newly introduced *blanket* suppressions: bare `# noqa`, `# type: ignore`, `/* eslint-disable */`, `@ts-ignore`/`@ts-nocheck`, bare `#nosec`, bare `//nolint`. Scoped forms with codes are not flagged. |
+| `lint_suppressions`| medium           | Newly introduced *blanket* suppressions: bare `# noqa`, `# type: ignore`, `/* eslint-disable */`, `@ts-ignore`/`@ts-nocheck`, bare `#nosec`, bare `//nolint`. Scoped forms with codes are not flagged. (LOW in full-scan mode and for test files.) |
 | `error_handling`  | medium           | Newly introduced swallowed errors: `except: pass`/`except Exception: ...`, empty or log-only `catch {}`, discarded Go errors (`if err != nil {}`, `_ = err`). `contextlib.suppress` is treated as explicit. |
 
 Run `vibeguard explain <finding-id>` for the full remediation guidance for any specific finding (e.g. `vibeguard explain SEC-GITHUBTOKEN`).

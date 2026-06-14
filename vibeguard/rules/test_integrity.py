@@ -181,7 +181,11 @@ class TestIntegrityRule(Rule):
 
     # -- diff-only signals (deletions, coverage) ---------------------------
     def _scan_diff(self, context: ScanContext) -> list[Finding]:
-        if not context.diff_text:
+        # Gate on the explicit ``diff_only`` flag rather than merely a non-empty
+        # ``diff_text`` so the rule's behaviour doesn't depend on an implicit
+        # scanner invariant (a context built elsewhere could carry diff text
+        # without being a diff scan).
+        if not context.diff_only or not context.diff_text:
             return []
 
         findings: list[Finding] = []
