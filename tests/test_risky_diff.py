@@ -127,3 +127,14 @@ class TestDebugArtifacts:
         ctx = _ctx(tmp_path, {"app.py": "DEBUG = True\n"})
         debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
         assert debug and debug[0].severity == Severity.MEDIUM
+
+    def test_config_module_boosted_to_high(self, tmp_path: Path):
+        # `config.py` is a framework settings file too — boosted like settings.py.
+        ctx = _ctx(tmp_path, {"config.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.HIGH
+
+    def test_config_directory_boosted_to_high(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"config/app.py": "DEBUG = True\n"})
+        debug = [f for f in self.rule.scan(ctx) if f.id == "RISK-DEBUGMODE"]
+        assert debug and debug[0].severity == Severity.HIGH

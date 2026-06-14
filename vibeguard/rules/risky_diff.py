@@ -133,7 +133,8 @@ _DEBUG_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ),
 ]
 
-# Files where a debug artifact is production-affecting rather than incidental.
+# Filename stems / directory names where a debug artifact is
+# production-affecting rather than incidental (#206 severity boost).
 _SETTINGS_FILE_PATTERNS = ("settings", "config", "conf")
 
 # File extensions where risky patterns are meaningful
@@ -167,12 +168,14 @@ _SKIP_FILENAMES = {"package-lock.json", "yarn.lock", "poetry.lock", "Pipfile.loc
 def _is_settings_file(path: Path) -> bool:
     """Return True for framework settings/config files (#206 severity boost).
 
-    A debug artifact in ``settings.py`` or under a ``config/`` directory is
-    production-affecting; the same pattern in an arbitrary script is incidental.
+    A debug artifact in ``settings.py``/``config.py`` or under a ``config/``
+    directory is production-affecting; the same pattern in an arbitrary script
+    is incidental. Both the filename stem and any directory component are
+    matched against :data:`_SETTINGS_FILE_PATTERNS`.
     """
-    if path.name.lower().startswith("settings"):
+    if path.name.lower().startswith(_SETTINGS_FILE_PATTERNS):
         return True
-    return bool({p.lower() for p in path.parts} & {"config", "settings"})
+    return bool({p.lower() for p in path.parts} & set(_SETTINGS_FILE_PATTERNS))
 
 
 class RiskyDiffRule(Rule):
