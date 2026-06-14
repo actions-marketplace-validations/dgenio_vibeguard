@@ -12,7 +12,7 @@ Pack settings are merged in as **defaults**: any key you set in your own
 | Name | Use case | `fail_on` | Highlights |
 |---|---|---|---|
 | `oss-library` | Open-source library authors | `high` | `tests` rule disabled, `examples/` and `docs/` ignored |
-| `web-app` | Full-stack web apps | `medium` | All rules on; `auth`, `sql`, `risky_diff` promoted to `high` |
+| `web-app` | Full-stack web apps | `medium` | All rules on; `auth`, `sql`, `risky_diff` promoted to `high`; debug artifacts (`RISK-DEBUGMODE`, `RISK-ALLOWEDHOSTSWILDCARD`) elevated to `high` |
 | `strict-ci` | CI enforcement | `low` | `policy: strict`, every rule family promoted to `critical` |
 
 The full YAML for each pack is in [`vibeguard/policies/`](../vibeguard/policies/).

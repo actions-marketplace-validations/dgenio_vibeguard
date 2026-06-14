@@ -59,8 +59,16 @@ class TestPackContents:
         assert data["fail_on"] == "medium"
         # Auth/SQL/risky_diff must be promoted to high
         overrides = data["severity_overrides"]
-        promoted_rules = {o["rule_id"] for o in overrides if o["severity"] == "high"}
+        promoted_rules = {o.get("rule_id") for o in overrides if o["severity"] == "high"} - {None}
         assert {"auth", "sql", "risky_diff"} <= promoted_rules
+
+    def test_web_app_elevates_debug_artifacts(self):
+        # #206: debug artifacts are production-exposure bugs in a web app.
+        data = load_policy_pack("web-app")
+        promoted_findings = {
+            o.get("finding_id") for o in data["severity_overrides"] if o["severity"] == "high"
+        }
+        assert {"RISK-DEBUGMODE", "RISK-ALLOWEDHOSTSWILDCARD"} <= promoted_findings
 
     def test_strict_ci_defaults(self):
         data = load_policy_pack("strict-ci")

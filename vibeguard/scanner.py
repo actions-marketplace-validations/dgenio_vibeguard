@@ -104,6 +104,14 @@ def run_scan(
             if candidate.exists():
                 changed_paths.append(candidate)
 
+    # Resolve the unified diff once, up front, so rules that need before/after
+    # context (e.g. a deleted test file or a lowered coverage threshold) can
+    # read it from the context — and reuse the very same text for the
+    # changed-line filtering pass below (#24).
+    diff_text = ""
+    if diff_only and git_meta.is_available:
+        diff_text = get_diff_text(root, git_meta.base_branch)
+
     ctx = ScanContext(
         root=root,
         config=config,
@@ -111,6 +119,7 @@ def run_scan(
         changed_files=changed_paths,
         git=git_meta,
         diff_only=diff_only,
+        diff_text=diff_text,
     )
 
     # Instantiate every enabled built-in rule from the single source of truth
@@ -163,12 +172,10 @@ def run_scan(
             errors.append(f"Rule {rule.id} failed: {exc}")
 
     # Apply diff-line filtering (#24): in diff mode, restrict line-based findings
-    # to only those on changed lines
-    if diff_only and git_meta and git_meta.is_available:
-        diff_text = get_diff_text(root, git_meta.base_branch)
-        if diff_text:
-            changed_lines = parse_changed_lines(diff_text)
-            findings = _filter_by_changed_lines(findings, changed_lines)
+    # to only those on changed lines. Reuses the diff text resolved above.
+    if diff_only and git_meta and git_meta.is_available and diff_text:
+        changed_lines = parse_changed_lines(diff_text)
+        findings = _filter_by_changed_lines(findings, changed_lines)
 
     # Apply inline suppressions (#44)
     findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)

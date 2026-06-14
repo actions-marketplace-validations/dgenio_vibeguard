@@ -391,7 +391,7 @@ suppress via `vibeguard.yaml`, or remap via `severity_overrides`.
 | `sourcemaps`      | high             | `.map` files in `dist/`/`build/`, `sourceMappingURL` comments, `package.json` `files` entries that include source maps. |
 | `packaging`       | medium           | npm/PyPI manifests that would publish `.env`, tests, source maps, build configs; broad `MANIFEST.in` grafts, `.npmignore` negations. |
 | `dependencies`    | high             | git/URL/path dependencies, typosquatting heuristics, broad version ranges, lockfile drift, registry changes. |
-| `risky_diff`      | medium           | Changes to risk-sensitive areas (auth, crypto, eval/exec, shell, network, DB writes, payments, CORS, JWT, certs) plus diff-breadth/size signals. |
+| `risky_diff`      | medium           | Changes to risk-sensitive areas (auth, crypto, eval/exec, shell, network, DB writes, payments, CORS, JWT, certs), framework debug artifacts (`DEBUG=True`, `ALLOWED_HOSTS=*`, `app.run(debug=True)`), plus diff-breadth/size signals. |
 | `auth`            | high             | Commented-out auth, JWT `alg=none`, hardcoded admin passwords, `verify=False`, allow-all middlewares, auth functions that return `True`/`nil`. |
 | `sql`             | high             | f-string / concatenation / template-literal / `fmt.Sprintf` SQL construction that smells like injection. |
 | `ai_footprints`   | medium           | AI generation comments, placeholder credentials, trust-all-certs, CORS wildcards, temporary bypasses, skip-validation, hallucinated TODOs. |
@@ -402,6 +402,9 @@ suppress via `vibeguard.yaml`, or remap via `severity_overrides`.
 | `slopsquat`       | high             | AI-hallucinated dependencies: descriptive multi-token names absent from the lockfile, plus an opt-in registry existence/age check (network). |
 | `prompt_injection`| high             | Agent-directed prompt-injection planted in comments/docstrings/markdown/config: instruction overrides, exfiltration directives, hidden/zero-width Unicode, base64 payloads. |
 | `tests`           | low              | Source files changed without any corresponding test-file changes. |
+| `test_integrity`  | medium           | Changes that weaken the test suite: added skip/`.only` markers, deleted test files or functions, lowered coverage thresholds (`fail_under`, `--cov-fail-under`, Jest `coverageThreshold`). |
+| `lint_suppressions`| low             | Newly introduced *blanket* suppressions: bare `# noqa`, `# type: ignore`, `/* eslint-disable */`, `@ts-ignore`/`@ts-nocheck`, bare `#nosec`, bare `//nolint`. Scoped forms with codes are not flagged. |
+| `error_handling`  | medium           | Newly introduced swallowed errors: `except: pass`/`except Exception: ...`, empty or log-only `catch {}`, discarded Go errors (`if err != nil {}`, `_ = err`). `contextlib.suppress` is treated as explicit. |
 
 Run `vibeguard explain <finding-id>` for the full remediation guidance for any specific finding (e.g. `vibeguard explain SEC-GITHUBTOKEN`).
 

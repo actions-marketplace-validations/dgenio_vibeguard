@@ -169,3 +169,10 @@ class ScanContext(BaseModel):
     changed_files: list[Path] = Field(default_factory=list)
     git: GitMetadata = Field(default_factory=GitMetadata)
     diff_only: bool = False
+    #: Raw unified-diff text for the change set, populated by the scanner in
+    #: ``--diff`` mode (empty in full-scan mode). Rules that need before/after
+    #: information a single file snapshot cannot provide — e.g. detecting a
+    #: *lowered* coverage threshold or a *deleted* test file — read it here.
+    #: Line-scoped findings do not need it: the scanner already restricts them
+    #: to changed lines via the diff.
+    diff_text: str = ""

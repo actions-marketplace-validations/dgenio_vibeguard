@@ -36,11 +36,17 @@ agent_memory:
   enabled: true
 
 # Promote auth, SQL injection, and CORS-style risky diffs to high so they
-# trip the medium gate immediately.
+# trip the medium gate immediately. Debug artifacts (DEBUG=True,
+# ALLOWED_HOSTS=*) are explicitly elevated too — in a web app these are
+# production-exposure bugs, not incidental risk signals.
 severity_overrides:
   - rule_id: auth
     severity: high
   - rule_id: sql
     severity: high
   - rule_id: risky_diff
+    severity: high
+  - finding_id: RISK-DEBUGMODE
+    severity: high
+  - finding_id: RISK-ALLOWEDHOSTSWILDCARD
     severity: high

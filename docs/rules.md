@@ -14,15 +14,18 @@ This page is generated from the rule metadata registry (`vibeguard/rules/registr
 | [`auth`](#auth) | Auth/Authz Bypass Detection | `auth` | high | medium | 8 | security, auth | *.py, *.js, *.ts, *.go, *.rb, *.java, *.cs |
 | [`ci_docker`](#ci-docker) | Docker/CI Security | `ci_docker` | high | high | 11 | security, docker, ci, github-actions | Dockerfile, Dockerfile.*, *.dockerfile, .github/workflows/*.yml |
 | [`dependencies`](#dependencies) | Dependency Risk | `dependencies` | high | medium | 9 | security, supply-chain, dependencies | package.json, pyproject.toml, .npmrc, pip.conf |
+| [`error_handling`](#error-handling) | Swallowed Errors | `error_handling` | medium | medium | 3 | reliability, ai, error-handling | *.py, *.js, *.ts, *.go |
 | [`go_rules`](#go-rules) | Go Risky Patterns | `go_rules` | high | medium | 7 | security, go | *.go |
 | [`iac`](#iac) | Infrastructure-as-Code Security | `iac` | high | high | 10 | security, iac, terraform, kubernetes | *.tf, *.yaml, *.yml |
+| [`lint_suppressions`](#lint-suppressions) | Blanket Lint Suppressions | `lint_suppressions` | low | medium | 6 | developer-experience, testing, ai, lint-suppressions | *.cjs, *.go, *.js, *.jsx, *.mjs, *.py, *.pyi, *.ts, *.tsx |
 | [`packaging`](#packaging) | Packaging Hygiene | `packaging` | medium | high | 14 | packaging, supply-chain | package.json, pyproject.toml, MANIFEST.in, setup.cfg, .npmignore |
 | [`prompt_injection`](#prompt-injection) | Prompt Injection in Code | `prompt_injection` | high | medium | 4 | security, ai-security, prompt-injection | *.py, *.js, *.ts, *.md, *.yaml, *.json, *.txt |
-| [`risky_diff`](#risky-diff) | Risky Code Pattern | `risky_patterns` | medium | medium | 18 | security, risky-diff | *.py, *.js, *.ts, *.go, *.java, *.rb |
+| [`risky_diff`](#risky-diff) | Risky Code Pattern | `risky_patterns` | medium | medium | 20 | security, risky-diff | *.py, *.js, *.ts, *.go, *.java, *.rb |
 | [`secrets`](#secrets) | Secrets Detection | `secrets` | high | high | 12 | security, secrets | * |
 | [`slopsquat`](#slopsquat) | Slopsquatting / Hallucinated Dependency | `slopsquat` | high | low | 3 | security, supply-chain, dependencies, slopsquatting | package.json, pyproject.toml, requirements*.txt |
 | [`sourcemaps`](#sourcemaps) | Source Map Exposure | `sourcemaps` | high | high | 4 | security, sourcemaps, packaging | *.map, *.js, package.json |
 | [`sql`](#sql) | SQL Construction Risk | `sql` | high | medium | 6 | security, sql, injection | *.py, *.js, *.ts, *.go |
+| [`test_integrity`](#test-integrity) | Test Integrity | `test_integrity` | medium | high | 4 | testing, ai, test-integrity | *.py, *.js, *.ts, pyproject.toml, .coveragerc, package.json |
 | [`tests`](#tests) | Missing Tests | `tests` | low | medium | 1 | tests, coverage | *.py, *.js, *.ts |
 
 ## Rules
@@ -143,6 +146,24 @@ Detects risky dependency changes: typosquatting, git/URL deps, broad versions, l
 - `DEP-MANIFEST-NO-LOCK` — Commit a lockfile alongside the manifest. Without one, every install resolves transitives non-deterministically.
 - `DEP-REGISTRY-CHANGE` — Confirm the new registry/index URL is intentional and trusted. Document the change in the PR description and monitor build integrity logs after merge.
 
+<a id="error-handling"></a>
+
+### `error_handling` — Swallowed Errors
+
+Flags newly introduced error-swallowing (bare except: pass, empty catch blocks, discarded Go errors).
+
+- **Default severity:** `medium`
+- **Confidence:** `medium`
+- **Config section:** `error_handling` (in `vibeguard.yaml`)
+- **Tags:** `reliability`, `ai`, `error-handling`
+- **Applies to:** `*.py`, `*.js`, `*.ts`, `*.go`
+
+**Finding IDs**
+
+- `ERR-BARE-EXCEPT-PASS` — Handle the error (log it with context, retry, or re-raise) or narrow the except to the specific exception you expect. If suppression is genuinely intended, use `contextlib.suppress(SpecificError)` so the intent is explicit.
+- `ERR-EMPTY-CATCH` — Do something with the caught error: log it with context, surface it to the caller, or rethrow. An empty (or log-only) catch hides failures.
+- `ERR-DISCARDED-GO` — Check and handle the returned error rather than discarding it. Return it, wrap it with context (`fmt.Errorf("...: %w", err)`), or log it — do not drop it with `_ = err` or an empty `if err != nil {}` body.
+
 <a id="go-rules"></a>
 
 ### `go_rules` — Go Risky Patterns
@@ -189,6 +210,27 @@ Detects risky patterns in Terraform (IAM wildcards, open security groups, public
 - `K8S-NO-TLS` — Configure TLS for the ingress/service. Cluster-internal plaintext is a regression even on private networks.
 - `K8S-ALLOW-ALL` — Replace allow-all NetworkPolicy/RBAC with explicit ingress/egress rules and minimum RBAC verbs.
 - `K8S-ROOT-CONTAINER` — Set `runAsNonRoot: true` and pick a numeric UID. Running as root inside the container is unnecessary for almost every workload.
+
+<a id="lint-suppressions"></a>
+
+### `lint_suppressions` — Blanket Lint Suppressions
+
+Flags newly introduced blanket linter/type-checker suppressions (bare # noqa, # type: ignore, eslint-disable, @ts-nocheck, #nosec, //nolint). Scoped suppressions with codes are not flagged.
+
+- **Default severity:** `low`
+- **Confidence:** `medium`
+- **Config section:** `lint_suppressions` (in `vibeguard.yaml`)
+- **Tags:** `developer-experience`, `testing`, `ai`, `lint-suppressions`
+- **Applies to:** `*.cjs`, `*.go`, `*.js`, `*.jsx`, `*.mjs`, `*.py`, `*.pyi`, `*.ts`, `*.tsx`
+
+**Finding IDs**
+
+- `SUPPRESS-BARE-NOQA` — Scope the suppression to the specific rule(s): `# noqa: E501`. A bare `# noqa` hides every current and future lint error on the line.
+- `SUPPRESS-TYPE-IGNORE` — Add the specific error code: `# type: ignore[arg-type]`. A bare `# type: ignore` silences all type errors on the line, including future regressions.
+- `SUPPRESS-ESLINT-FILE` — Replace the file-wide `/* eslint-disable */` with a scoped disable for the specific rule(s), or fix the underlying issues.
+- `SUPPRESS-TS-NOCHECK` — Prefer `@ts-expect-error` (which fails when the error is fixed) over `@ts-ignore`/`@ts-nocheck`, and scope it to the single line that needs it.
+- `SUPPRESS-NOSEC-BARE` — Add the Bandit test ID so the suppression is auditable: `# nosec B101`. A bare `#nosec` disables every Bandit check on the line.
+- `SUPPRESS-NOLINT-BARE` — List the linter(s) the suppression applies to: `//nolint:errcheck`. A bare `//nolint` disables all linters on the line.
 
 <a id="packaging"></a>
 
@@ -267,6 +309,8 @@ Flags changes to risk-sensitive areas (auth, crypto, shell, network, etc.) and d
 - `RISK-JWTHANDLING` — Validate `alg`, `iss`, `aud`, and `exp` claims. Never accept the `none` algorithm. Pin the verification key to a known set of issuers.
 - `RISK-TRUSTCERTS` — Re-enable TLS certificate verification. Use a proper CA bundle (e.g. `certifi`) or pin the specific CA your environment trusts.
 - `RISK-PERMCHANGE` — File-permission changes should be narrow and explicit. Avoid world-writable bits (`0o777`) and document any setuid usage.
+- `RISK-DEBUGMODE` — Never ship debug mode to production. Drive the flag from an environment variable that defaults to off (e.g. `DEBUG = os.environ.get("DEBUG") == "1"`) and confirm the production configuration disables it.
+- `RISK-ALLOWEDHOSTSWILDCARD` — Replace the wildcard `ALLOWED_HOSTS = ['*']` with the explicit list of hostnames your app serves. A wildcard disables Django's Host-header validation.
 - `DIFF-BREADTH` — Split the change into smaller, reviewable PRs. Wide-breadth diffs hide regressions and slow down review.
 - `DIFF-SIZE` — Large diffs are hard to review carefully. Break the change into incremental PRs each with their own tests.
 - `DIFF-RISK-FILES` — This diff touches security-sensitive files. Request a security-aware reviewer and add tests covering the changed code paths.
@@ -355,6 +399,25 @@ Detects risk-sensitive SQL construction patterns (f-strings, concatenation, temp
 - `SQL-JS-TEMPLATE` — Use the database client's parameter binding API (`?`, `$1`, or prepared statements). Template literals concatenate user input directly into SQL.
 - `SQL-JS-CONCAT` — Replace string concatenation with parameterised queries via the driver. Even `+`-joined SQL with sanitisation drifts out of sync over time.
 - `SQL-GO-SPRINTF` — Use `db.QueryContext` / `db.ExecContext` with `?` placeholders. `fmt.Sprintf` to assemble SQL is the canonical Go injection pattern.
+
+<a id="test-integrity"></a>
+
+### `test_integrity` — Test Integrity
+
+Flags changes that weaken the test suite: added skip/only markers, deleted tests, and lowered coverage thresholds.
+
+- **Default severity:** `medium`
+- **Confidence:** `high`
+- **Config section:** `test_integrity` (in `vibeguard.yaml`)
+- **Tags:** `testing`, `ai`, `test-integrity`
+- **Applies to:** `*.py`, `*.js`, `*.ts`, `pyproject.toml`, `.coveragerc`, `package.json`
+
+**Finding IDs**
+
+- `TEST-SKIP-ADDED` — Re-enable the test or fix the underlying failure. A skip added to get CI green hides a regression; if the skip is genuinely needed, document why and link a tracking issue.
+- `TEST-ONLY-ADDED` — Remove the focused-test marker (`.only`/`fit`/`fdescribe`). It silently disables every other test in the file, so CI stops guarding the rest of the suite.
+- `TEST-DELETED` — Confirm the deleted tests are obsolete rather than removed to make a failing pipeline pass. Ensure the behaviour they covered is gone or still tested elsewhere.
+- `TEST-COVERAGE-LOWERED` — Restore the previous coverage threshold. If the reduction is deliberate, justify it in the PR description and track regaining the lost coverage.
 
 <a id="tests"></a>
 
