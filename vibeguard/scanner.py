@@ -202,11 +202,11 @@ def _context_for_rule(rule: Rule, ctx: ScanContext) -> ScanContext:
     cache: dict[Path, bool] = {}
 
     def applicable(path: Path) -> bool:
-        result = cache.get(path)
-        if result is None:
-            result = rule.is_applicable(path)
-            cache[path] = result
-        return result
+        # Membership test (not ``get(...) is None``) so a cached ``False`` is
+        # reused rather than re-evaluated — the hook runs at most once per path.
+        if path not in cache:
+            cache[path] = rule.is_applicable(path)
+        return cache[path]
 
     files = [p for p in ctx.files if applicable(p)]
     changed_files = [p for p in ctx.changed_files if applicable(p)]
