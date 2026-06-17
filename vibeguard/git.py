@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from vibeguard.models import GitMetadata
 
@@ -71,7 +72,9 @@ def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
         if resolved_base is None:
             resolved_base = _detect_base_branch(root)
 
-        diff_strategy = "merge-base" if resolved_base else "head-only"
+        diff_strategy: Literal["merge-base", "head-only"] = (
+            "merge-base" if resolved_base else "head-only"
+        )
         changed_files: list[str] = []
 
         if resolved_base:
