@@ -195,6 +195,30 @@ class TestGetDiffText:
         text = get_diff_text(root)
         assert "+y = 2" in text
 
+    def test_falls_back_to_head_when_base_diff_empty(self, repo: Path):
+        # On a branch with no commits ahead of the base but uncommitted edits,
+        # base...HEAD is empty; get_diff_text must mirror get_git_metadata's
+        # changed-file HEAD fallback so the two stay in sync (#258 review).
+        _git(repo, "checkout", "-q", "-b", "feature")
+        (repo / "app.py").write_text("x = 1\ny = 2\nz = 3\n", encoding="utf-8")  # uncommitted
+        meta = get_git_metadata(repo)
+        text = get_diff_text(repo, meta.base_branch)
+        assert text != ""
+        assert "+y = 2" in text
+
+    def test_changed_files_and_diff_text_stay_consistent(self, repo: Path):
+        # The desync Copilot flagged: base detected, base...HEAD empty, dirty
+        # working tree. changed_files and parse_changed_lines(diff_text) must
+        # describe the same comparison.
+        from vibeguard.git import parse_changed_lines
+
+        _git(repo, "checkout", "-q", "-b", "feature")
+        (repo / "app.py").write_text("x = 1\ny = 2\nz = 3\n", encoding="utf-8")
+        meta = get_git_metadata(repo)
+        ranges = parse_changed_lines(get_diff_text(repo, meta.base_branch))
+        assert set(meta.changed_files) == set(ranges)
+        assert "app.py" in ranges
+
     def test_diff_output_has_no_ansi_color(self, repo: Path):
         # color.diff=never is pinned, so output is plain even if a user sets
         # color.diff=always globally (we cannot here, but assert the contract).

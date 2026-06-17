@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from vibeguard.git import parse_changed_lines
+from vibeguard.git import _diff_target_path, parse_changed_lines
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "diffs"
 
@@ -59,3 +59,23 @@ def test_parse_changed_lines_matches_corpus(fixture: str) -> None:
     text = (_FIXTURE_DIR / fixture).read_text(encoding="utf-8", errors="replace")
     result = parse_changed_lines(text)
     assert result == _EXPECTED[fixture]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("b/normal.py", "normal.py"),
+        ("a/normal.py", "normal.py"),
+        ("/dev/null", None),
+        # git appends a disambiguating TAB after an unquoted path; strip only it.
+        ("b/my file.py\t", "my file.py"),
+        # A trailing space that belongs to the filename (tab-disambiguated) survives.
+        ("b/trailing .py\t", "trailing .py"),
+        # noprefix output: a leading space that is part of the name is preserved.
+        (" leading.py", " leading.py"),
+        # C-quoted unicode decodes back to its literal form.
+        (r'"b/caf\303\251.py"', "café.py"),
+    ],
+)
+def test_diff_target_path_whitespace_and_quoting(raw: str, expected: str | None) -> None:
+    assert _diff_target_path(raw) == expected

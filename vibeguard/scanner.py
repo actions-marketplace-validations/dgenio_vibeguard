@@ -192,8 +192,10 @@ def run_scan(
     # findings attributable to files that are NOT part of the diff (pre-existing
     # repository state) are dropped, so a PR gate reflects "findings introduced
     # or touched by this change" rather than blocking on unrelated history.
-    # Reuses the diff text resolved above.
-    if diff_only and git_meta and git_meta.is_available and diff_text:
+    # Reuses the diff text resolved above. Runs whenever git context is
+    # available in diff mode — even when ``diff_text`` is empty — so a clean or
+    # empty diff cannot leak unscoped full-scan findings (#258 review).
+    if diff_only and git_meta and git_meta.is_available:
         changed_lines = parse_changed_lines(diff_text)
         changed_set = {cf.replace("\\", "/") for cf in git_meta.changed_files}
         findings = _filter_by_changed_lines(findings, changed_lines, changed_set)

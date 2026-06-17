@@ -142,27 +142,39 @@ def _detect_base_branch(root: Path) -> str | None:
     return None
 
 
+def _diff_cmd(rev: str) -> list[str]:
+    """Build a ``git diff`` argv for ``rev`` with the pinned output contract."""
+    return [
+        "git",
+        *_DIFF_STABILISERS,
+        "diff",
+        "--no-ext-diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        rev,
+    ]
+
+
 def get_diff_text(root: Path, base_branch: str | None = None) -> str:
     """Get the unified diff text for changed files.
 
     The diff is requested with :data:`_DIFF_STABILISERS` plus explicit
     ``a/``/``b/`` prefixes so the output shape is independent of the user's git
     configuration and :func:`parse_changed_lines` can rely on it (#220).
+
+    Mirrors :func:`get_git_metadata`'s changed-file resolution exactly: try
+    ``base...HEAD`` first and fall back to ``git diff HEAD`` when that is empty
+    (no commits ahead of the base, e.g. scanning uncommitted work on the base
+    branch). Keeping the two in lockstep prevents ``changed_files`` and
+    ``diff_text`` from describing different comparisons, which would leave files
+    in the change set with no parsed line ranges (#258 review).
     """
     resolved_base = base_branch or _detect_base_branch(root)
-    rev = f"{resolved_base}...HEAD" if resolved_base else "HEAD"
-    return _run_git(
-        root,
-        [
-            "git",
-            *_DIFF_STABILISERS,
-            "diff",
-            "--no-ext-diff",
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
-            rev,
-        ],
-    )
+    if resolved_base:
+        text = _run_git(root, _diff_cmd(f"{resolved_base}...HEAD"))
+        if text:
+            return text
+    return _run_git(root, _diff_cmd("HEAD"))
 
 
 def parse_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
@@ -234,7 +246,12 @@ def _diff_target_path(raw: str) -> str | None:
     ``a/``/``b/`` prefix (absent under ``diff.noprefix``). Returns ``None`` for
     a deletion so the caller skips the (now non-existent) file.
     """
-    raw = _unquote_git_path(raw.strip())
+    # git appends a single TAB after an *unquoted* path when it needs
+    # disambiguation (e.g. the path has a trailing space). Strip only that tab —
+    # never a general ``.strip()``, which would discard leading/trailing spaces
+    # that are part of a pathological-but-valid filename (#258 review). A path
+    # containing a literal tab would have been C-quoted, so this is unambiguous.
+    raw = _unquote_git_path(raw.rstrip("\t"))
     if raw == "/dev/null":
         return None
     for prefix in ("a/", "b/"):

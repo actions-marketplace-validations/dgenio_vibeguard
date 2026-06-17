@@ -342,7 +342,8 @@ def scan(
             "--base",
             help=(
                 "Base ref for --diff comparisons (base...HEAD). Overrides the "
-                "default origin/main -> master detection and git.base_branch config. "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
                 'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
             ),
         ),
@@ -515,7 +516,8 @@ def gate(
             "--base",
             help=(
                 "Base ref for --diff comparisons (base...HEAD). Overrides the "
-                "default origin/main -> master detection and git.base_branch config. "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
                 'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
             ),
         ),
