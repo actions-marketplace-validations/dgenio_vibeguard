@@ -1,0 +1,14 @@
+diff --git a/old.py b/new.py
+similarity index 71%
+rename from old.py
+rename to new.py
+index b8cb000..8494ad8 100644
+--- a/old.py
++++ b/new.py
+@@ -1,5 +1,6 @@
+ l1
+ l2
++ADDED
+ l3
+ l4
+ l5

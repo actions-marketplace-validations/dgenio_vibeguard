@@ -162,3 +162,49 @@ class TestFilterByChangedLines:
         changed = {"src/app.py": [(1, 5), (14, 20)]}
         filtered = _filter_by_changed_lines(findings, changed)
         assert len(filtered) == 1
+
+
+class TestStrictDiffScope:
+    """Strict diff-scope filtering (#199): findings in unchanged files drop."""
+
+    def test_finding_in_unchanged_file_dropped(self):
+        findings = [_make_finding(path="pre_existing.py", line=5)]
+        changed_lines = {"src/app.py": [(1, 10)]}
+        changed_files = {"src/app.py"}
+        filtered = _filter_by_changed_lines(findings, changed_lines, changed_files)
+        assert filtered == []
+
+    def test_file_level_finding_in_unchanged_file_dropped(self):
+        # Even a file-level (line=None) finding is dropped when its file is not
+        # part of the diff — that is pre-existing repository state.
+        findings = [_make_finding(path="committed.env", line=None)]
+        filtered = _filter_by_changed_lines(findings, {}, {"src/app.py"})
+        assert filtered == []
+
+    def test_file_level_finding_in_changed_file_kept(self):
+        findings = [_make_finding(path="src/app.py", line=None)]
+        filtered = _filter_by_changed_lines(findings, {"src/app.py": []}, {"src/app.py"})
+        assert len(filtered) == 1
+
+    def test_line_finding_on_changed_line_kept(self):
+        findings = [_make_finding(path="src/app.py", line=5)]
+        filtered = _filter_by_changed_lines(findings, {"src/app.py": [(1, 10)]}, {"src/app.py"})
+        assert len(filtered) == 1
+
+    def test_line_finding_off_changed_line_dropped(self):
+        findings = [_make_finding(path="src/app.py", line=50)]
+        filtered = _filter_by_changed_lines(findings, {"src/app.py": [(1, 10)]}, {"src/app.py"})
+        assert filtered == []
+
+    def test_changed_file_without_parsed_ranges_kept(self):
+        # File is in the diff (e.g. rename/binary) but has no parseable ranges —
+        # keep conservatively so scoping never loses signal.
+        findings = [_make_finding(path="renamed.py", line=5)]
+        filtered = _filter_by_changed_lines(findings, {}, {"renamed.py"})
+        assert len(filtered) == 1
+
+    def test_diff_aggregate_finding_always_kept(self):
+        # DIFF-SIZE / DIFF-BREADTH carry path="." and must survive strict scope.
+        findings = [_make_finding(path=".", line=None)]
+        filtered = _filter_by_changed_lines(findings, {"src/app.py": [(1, 2)]}, {"src/app.py"})
+        assert len(filtered) == 1
