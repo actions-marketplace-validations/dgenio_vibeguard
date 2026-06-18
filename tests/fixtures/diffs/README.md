@@ -31,6 +31,7 @@ git -c color.diff=never -c core.quotePath=false diff \
 | `multi_file.diff` | Two files changed in a single diff. |
 | `quoted_unicode_paths.diff` | `core.quotePath=true`; a unicode filename (C-quoted) and a filename with a space (trailing-tab disambiguated). |
 | `noprefix_config.diff` | `diff.noprefix=true` (headers have no `a/`/`b/` prefix). |
+| `added_line_starts_with_plus.diff` | Added content lines whose text starts with `++` (render as `+++…`); they must be counted, not treated as stray headers (#258 review). |
 | `empty.diff` | Empty input (no changes). |
 
 To regenerate after changing the parser contract, reproduce the scenario in a

@@ -219,8 +219,14 @@ def parse_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
         if current_file is None or new_line is None:
             continue
 
-        # Skip stray file headers inside multi-file diffs
-        if line.startswith("+++") or line.startswith("---"):
+        # Skip the leftover old-file header (``--- a/path`` / ``--- /dev/null``)
+        # that precedes the next file's ``+++`` header; a removed content line
+        # ("--…") is skipped here too and, like any deletion, must not advance
+        # the new-file counter. The real ``+++ b/path`` header was already
+        # consumed by the ``is_file_header`` pairing above, so any ``+++`` line
+        # reaching this point is an *added* content line whose text starts with
+        # ``++`` — it must be counted, not skipped (#258 review).
+        if line.startswith("---"):
             continue
 
         if line.startswith("+"):

@@ -39,6 +39,10 @@ _EXPECTED: dict[str, dict[str, list[tuple[int, int]]]] = {
     "quoted_unicode_paths.diff": {"café.py": [(1, 1)], "my file.py": [(1, 1)]},
     # diff.noprefix=true: headers carry no a/ b/ prefix.
     "noprefix_config.diff": {"app.py": [(2, 2)]},
+    # An added line whose content starts with "++" renders as a "+++…" diff
+    # line; it must be counted (and advance the line counter), not mistaken for
+    # a stray file header (#258 review).
+    "added_line_starts_with_plus.diff": {"weird.py": [(2, 4)]},
     "empty.diff": {},
 }
 
