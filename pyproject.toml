@@ -20,11 +20,23 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Security",
     "Topic :: Software Development :: Quality Assurance",
 ]
+# Library-grade dependency policy (#121): VibeGuard co-installs into users'
+# existing environments and runs as a pre-commit hook / CI step, so it must
+# not force version conflicts on adopters. Runtime deps therefore use
+# lower bounds only (``>=``) — no exact pins (``==``) and no speculative
+# upper-bound caps. Any cap added later must carry an inline comment citing
+# the specific incompatibility. The ``constraints-min.txt`` floor job in CI
+# proves these lower bounds actually resolve and pass the suite.
 dependencies = [
-    "typer>=0.12.0",
+    # typer<0.16 can't build CLI options annotated ``X | None`` and pulls a
+    # click whose CliRunner mixes stderr into stdout; the floor job proves
+    # 0.16.0 is the real minimum.
+    "typer>=0.16.0",
     "rich>=13.0.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",

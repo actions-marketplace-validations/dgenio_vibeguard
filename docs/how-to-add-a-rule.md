@@ -178,24 +178,26 @@ register_rule(
 
 ## 4. Wire the rule into the scanner **and** the registry loader
 
-Built-in rules need to be wired in two places. Both are required, because
-they serve different call paths.
+Built-in rules are wired in **one place** — a single source of truth (#175).
 
-**4a. `vibeguard/scanner.py`** — this is what `vibeguard scan`/`gate`
-runs. Add two things:
+**`vibeguard/rules/builtin.py`** — import your rule class with the others
+at the top of the file, then add it to the `BUILTIN_RULES` tuple at the
+position you want it to run (the tuple order is the scan and report
+order). That one edit is enough:
 
-1. Import the rule class with the other rules at the top of the file.
-2. Add an `if config.<name>.enabled: rules.append(...)` block inside
-   `run_scan`, matching the pattern of the surrounding rules.
+- The scanner (`vibeguard scan`/`gate`) iterates `BUILTIN_RULES` and
+  enables each rule based on the `enabled` flag of the config section its
+  metadata points at — there is no per-rule `if` block to add.
+- `load_all_builtin_rules` imports `builtin.py`, which imports your
+  module and runs its `register_rule(...)` side effect, so `RULE_REGISTRY`
+  is populated for every non-scanner code path too (the CLI `rules list` /
+  `rules explain` / `explain` commands, `scripts/generate_rule_docs.py`,
+  plugin discovery, etc.).
 
-**4b. `vibeguard/rules/__init__.py:load_all_builtin_rules`** — this
-populates `RULE_REGISTRY` for code paths that don't go through the
-scanner (the CLI `rules list` / `rules explain` / `explain` commands,
-`scripts/generate_rule_docs.py`, plugin discovery, etc.). Add a single
-`import vibeguard.rules.<your_module>  # noqa: F401` line alongside the
-existing imports. The metadata in your module's `register_rule(...)`
-call only runs when the module is imported, so missing this step makes
-your rule invisible to every non-scanner code path.
+A consistency test (`tests/test_builtin_registry.py`) fails if a
+`BUILTIN_RULES` class has no registry metadata, or its `config_key`
+doesn't resolve to a real config section — so a half-wired rule is caught
+in CI rather than shipping invisible to `rules list`.
 
 If your rule needs a config toggle, also add a `XxxConfig` model to
 `vibeguard/config.py` and reference it from `VibeGuardConfig`. The

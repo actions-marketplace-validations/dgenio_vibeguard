@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.rules._util import is_comment_line, is_test_file
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -110,6 +111,32 @@ _RISKY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ),
 ]
 
+# Framework debug artifacts left enabled (#206). Kept separate from the generic
+# risk patterns above because they carry their own finding IDs and a
+# settings-file severity boost. Patterns are anchored to literal assignment
+# forms so env-driven config (``DEBUG = os.environ.get(...)``) does not match.
+_DEBUG_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
+    (
+        "RISK-DEBUGMODE",
+        "Debug mode enabled",
+        re.compile(
+            r"(?i)(?:^|[^.\w])DEBUG\s*=\s*True\b"  # Django/Flask DEBUG = True
+            r"|app\.run\([^)]*\bdebug\s*=\s*True"  # Flask app.run(debug=True)
+            r"|\.debug\s*=\s*True\b"  # app.debug = True
+            r"|FLASK_DEBUG\s*=\s*1\b"
+        ),
+    ),
+    (
+        "RISK-ALLOWEDHOSTSWILDCARD",
+        "Wildcard ALLOWED_HOSTS",
+        re.compile(r"ALLOWED_HOSTS\s*=\s*\[\s*['\"]\*['\"]"),
+    ),
+]
+
+# Filename stems / directory names where a debug artifact is
+# production-affecting rather than incidental (#206 severity boost).
+_SETTINGS_FILE_PATTERNS = ("settings", "config", "conf")
+
 # File extensions where risky patterns are meaningful
 _CODE_EXTENSIONS = {
     ".py",
@@ -138,6 +165,19 @@ _CODE_EXTENSIONS = {
 _SKIP_FILENAMES = {"package-lock.json", "yarn.lock", "poetry.lock", "Pipfile.lock"}
 
 
+def _is_settings_file(path: Path) -> bool:
+    """Return True for framework settings/config files (#206 severity boost).
+
+    A debug artifact in ``settings.py``/``config.py`` or under a ``config/``
+    directory is production-affecting; the same pattern in an arbitrary script
+    is incidental. Both the filename stem and any directory component are
+    matched against :data:`_SETTINGS_FILE_PATTERNS`.
+    """
+    if path.name.lower().startswith(_SETTINGS_FILE_PATTERNS):
+        return True
+    return bool({p.lower() for p in path.parts} & set(_SETTINGS_FILE_PATTERNS))
+
+
 class RiskyDiffRule(Rule):
     id = "risky_diff"
     name = "Risky Code Pattern"
@@ -162,7 +202,8 @@ class RiskyDiffRule(Rule):
                 continue
 
             rel = self._rel(context, path)
-            is_test = _is_test_file(path)
+            is_test = is_test_file(path)
+            is_settings = _is_settings_file(path)
 
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -170,15 +211,48 @@ class RiskyDiffRule(Rule):
                 continue
 
             for lineno, line in enumerate(content.splitlines(), start=1):
-                # Skip comment lines (simple heuristic)
+                # Skip comment lines (shared heuristic — #178).
                 stripped = line.strip()
-                # "* " prefix is a block comment continuation (Javadoc, JSDoc, etc.)
-                if (
-                    stripped.startswith(("#", "//", "<!--"))
-                    or stripped.startswith("* ")
-                    or stripped == "*"
-                ):
+                if is_comment_line(stripped):
                     continue
+
+                # Debug artifacts (#206): own finding IDs, settings-file boost.
+                for fid, label, pattern in _DEBUG_PATTERNS:
+                    key = (rel, fid)
+                    if key in seen:
+                        continue
+                    if pattern.search(line):
+                        seen.add(key)
+                        if is_test:
+                            sev = Severity.LOW
+                        elif is_settings:
+                            sev = Severity.HIGH
+                        else:
+                            sev = Severity.MEDIUM
+                        findings.append(
+                            Finding(
+                                id=fid,
+                                rule=self.id,
+                                title=f"Debug artifact left enabled: {label}",
+                                description=(
+                                    f"`{rel}` line {lineno} enables a framework debug "
+                                    f"artifact ({label}). Debug mode in production "
+                                    "exposes stack traces, interactive debuggers, and "
+                                    "secrets — confirm this is not shipped."
+                                ),
+                                severity=sev,
+                                path=rel,
+                                line=lineno,
+                                evidence=stripped[:120],
+                                recommendation=(
+                                    "Drive debug flags from an environment variable "
+                                    "defaulting to off, and ensure production config "
+                                    "disables them."
+                                ),
+                                tags=["risky-diff", "debug-artifact", fid.lower()],
+                                confidence=Confidence.MEDIUM,
+                            )
+                        )
 
                 for pat_id, label, pattern in _RISKY_PATTERNS:
                     key = (rel, pat_id)
@@ -314,19 +388,6 @@ class RiskyDiffRule(Rule):
         return findings
 
 
-def _is_test_file(path: Path) -> bool:
-    name = path.name.lower()
-    return (
-        name.startswith("test_")
-        or name.endswith("_test.py")
-        or name.endswith(".test.js")
-        or name.endswith(".spec.ts")
-        or "test" in path.parts
-        or "tests" in path.parts
-        or "spec" in path.parts
-    )
-
-
 register_rule(
     RuleMetadata(
         rule_id="risky_diff",
@@ -351,6 +412,8 @@ register_rule(
             "RISK-JWTHANDLING",
             "RISK-TRUSTCERTS",
             "RISK-PERMCHANGE",
+            "RISK-DEBUGMODE",
+            "RISK-ALLOWEDHOSTSWILDCARD",
             "DIFF-BREADTH",
             "DIFF-SIZE",
             "DIFF-RISK-FILES",
@@ -430,6 +493,17 @@ register_rule(
             "RISK-PERMCHANGE": (
                 "File-permission changes should be narrow and explicit. Avoid "
                 "world-writable bits (`0o777`) and document any setuid usage."
+            ),
+            "RISK-DEBUGMODE": (
+                "Never ship debug mode to production. Drive the flag from an "
+                "environment variable that defaults to off (e.g. "
+                '`DEBUG = os.environ.get("DEBUG") == "1"`) and confirm the '
+                "production configuration disables it."
+            ),
+            "RISK-ALLOWEDHOSTSWILDCARD": (
+                "Replace the wildcard `ALLOWED_HOSTS = ['*']` with the explicit "
+                "list of hostnames your app serves. A wildcard disables Django's "
+                "Host-header validation."
             ),
             "DIFF-BREADTH": (
                 "Split the change into smaller, reviewable PRs. Wide-breadth "

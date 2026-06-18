@@ -1,4 +1,4 @@
-.PHONY: help install-dev test lint format-check typecheck ci clean demo docs docs-check check-versions bench bench-small bench-medium bench-large bench-scenarios update-goldens
+.PHONY: help install-dev test lint format-check typecheck ci clean demo docs docs-check check-versions bench bench-small bench-medium bench-large bench-scenarios bench-precision bench-precision-check update-goldens
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -28,7 +28,7 @@ docs-check: ## Fail if docs/rules.md is out of date
 check-versions: ## Fail if README/docs/action version references have drifted
 	python scripts/check_doc_versions.py
 
-ci: lint format-check typecheck docs-check check-versions test ## Run full CI pipeline locally
+ci: lint format-check typecheck docs-check bench-precision-check check-versions test ## Run full CI pipeline locally
 
 clean: ## Remove build artifacts
 	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .coverage htmlcov/ .ruff_cache/ coverage.xml
@@ -51,6 +51,13 @@ bench-large: ## Generate and scan a large synthetic repo (~20 MB)
 
 bench-scenarios: ## Evaluate detection + false-positive baseline on scenario fixtures
 	python -m benchmarks.scenarios
+
+bench-precision: ## Measure precision/recall/F1 on the labeled corpus + refresh docs/precision-report.md
+	python -m benchmarks.precision
+	python -m benchmarks.precision --markdown
+
+bench-precision-check: ## Fail if docs/precision-report.md is out of date
+	python -m benchmarks.precision --check
 
 update-goldens: ## Regenerate golden reporter snapshots in tests/fixtures/golden/
 	PYTEST_UPDATE_GOLDENS=1 pytest tests/test_reporters_golden.py -q

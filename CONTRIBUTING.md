@@ -36,7 +36,9 @@ the roadmap. Maintainers cutting a release should follow
 
 ## Prerequisites
 
-- **Python 3.10 or newer.** CI tests against 3.10, 3.11, and 3.12.
+- **Python 3.10 or newer.** CI tests the full matrix 3.10 → 3.14, plus a
+  floor-deps job that installs the minimum declared dependency versions
+  (`constraints-min.txt`) on 3.10.
 - **git** with a clone of the repository.
 - Recommended: a fresh virtual environment (`python -m venv .venv && source .venv/bin/activate`)
   or a tool like [`pyenv`](https://github.com/pyenv/pyenv) /

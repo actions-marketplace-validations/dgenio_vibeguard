@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import os
 
-from vibeguard.models import Finding, ScanResult, Severity
-
-_SEVERITY_TO_COMMAND: dict[Severity, str] = {
-    Severity.CRITICAL: "error",
-    Severity.HIGH: "error",
-    Severity.MEDIUM: "warning",
-    Severity.LOW: "notice",
-    Severity.INFO: "notice",
-}
+from vibeguard.models import Finding, ScanResult
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
 
 def is_github_actions() -> bool:
@@ -47,7 +40,7 @@ def _escape_message(value: str) -> str:
 
 def _format_annotation(finding: Finding) -> str:
     """Format a single finding as a GitHub Actions workflow command."""
-    cmd = _SEVERITY_TO_COMMAND[finding.severity]
+    cmd = SEVERITY_PRESENTATION[finding.severity].annotation_command
     parts = [f"file={_escape_property(finding.path.replace(chr(92), '/'))}"]
     if finding.line and finding.line > 0:
         parts.append(f"line={finding.line}")

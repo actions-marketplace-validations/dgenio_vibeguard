@@ -184,10 +184,9 @@ def _checklist(rule_id: str, finding_prefix: str) -> list[str]:
     return [
         f"Implement detection in vibeguard/rules/{rule_id}.py (replace the TODO).",
         f"Complete the positive/negative fixtures in tests/test_{rule_id}.py.",
-        f"Wire the rule into vibeguard/scanner.py (import {class_name(rule_id)} + "
-        f"`if config.{rule_id}.enabled: rules.append(...)`).",
-        f"Add `import vibeguard.rules.{rule_id}  # noqa: F401` to "
-        "vibeguard/rules/__init__.py:load_all_builtin_rules.",
+        f"Register the rule in vibeguard/rules/builtin.py: import {class_name(rule_id)} "
+        "and add it to the BUILTIN_RULES tuple. This single edit wires the rule into "
+        "the scanner, `vibeguard rules list`, and the generated docs.",
         f"Add a {class_name(rule_id)[:-4]}Config model + field to "
         "vibeguard/config.py (and DEFAULT_CONFIG_YAML) if the rule needs a toggle.",
         "Add a row to the README 'What It Catches' and rule-reference tables.",

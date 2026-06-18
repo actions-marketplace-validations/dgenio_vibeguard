@@ -7,24 +7,21 @@ from typing import Any
 
 from vibeguard.baseline import compute_fingerprint
 from vibeguard.models import Finding, ScanResult, Severity
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
 _SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
 _SARIF_VERSION = "2.1.0"
 
-_SEVERITY_TO_LEVEL: dict[Severity, str] = {
-    Severity.CRITICAL: "error",
-    Severity.HIGH: "error",
-    Severity.MEDIUM: "warning",
-    Severity.LOW: "note",
-    Severity.INFO: "note",
-}
+
+def _sarif_level(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].sarif_level
 
 
 def _build_result(finding: Finding) -> dict[str, Any]:
     """Convert a Finding to a SARIF result object."""
     result: dict[str, Any] = {
         "ruleId": finding.id,
-        "level": _SEVERITY_TO_LEVEL[finding.severity],
+        "level": _sarif_level(finding.severity),
         "message": {"text": f"{finding.title}: {finding.description}"},
     }
 
@@ -58,7 +55,7 @@ def _build_rule(finding: Finding) -> dict[str, Any]:
         "id": finding.id,
         "shortDescription": {"text": finding.title},
         "fullDescription": {"text": finding.description},
-        "defaultConfiguration": {"level": _SEVERITY_TO_LEVEL[finding.severity]},
+        "defaultConfiguration": {"level": _sarif_level(finding.severity)},
         "properties": {
             "tags": finding.tags,
         },

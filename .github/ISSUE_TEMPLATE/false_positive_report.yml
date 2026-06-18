@@ -19,8 +19,10 @@ body:
         - auth
         - ci_docker
         - dependencies
+        - error_handling
         - go_rules
         - iac
+        - lint_suppressions
         - packaging
         - prompt_injection
         - risky_diff
@@ -28,6 +30,7 @@ body:
         - slopsquat
         - sourcemaps
         - sql
+        - test_integrity
         - tests
     validations:
       required: true

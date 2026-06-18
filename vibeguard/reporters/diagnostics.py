@@ -13,17 +13,17 @@ import json
 from typing import Any
 
 from vibeguard.models import Finding, ScanResult, Severity
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
 DIAGNOSTICS_SCHEMA = "vibeguard/diagnostics/v1"
 
 # VS Code DiagnosticSeverity numeric codes. Documented so IDE plugins can rely
-# on them without consulting the ``Severity`` enum.
+# on them without consulting the ``Severity`` enum. Derived from the shared
+# presentation table (#194) so the codes can never drift from the other
+# reporters; kept as a module-level name because it is part of this reporter's
+# documented surface (see docs/output-schemas.md).
 SEVERITY_TO_CODE: dict[Severity, int] = {
-    Severity.CRITICAL: 0,  # Error
-    Severity.HIGH: 0,  # Error
-    Severity.MEDIUM: 1,  # Warning
-    Severity.LOW: 2,  # Information
-    Severity.INFO: 3,  # Hint
+    sev: pres.diagnostic_code for sev, pres in SEVERITY_PRESENTATION.items()
 }
 
 _SOURCE = "vibeguard"

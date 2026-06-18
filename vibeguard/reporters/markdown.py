@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from vibeguard import __version__
 from vibeguard.models import Finding, ScanResult, Severity
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
-_SEV_EMOJI = {
-    Severity.INFO: "ℹ️",
-    Severity.LOW: "🔵",
-    Severity.MEDIUM: "🟡",
-    Severity.HIGH: "🔴",
-    Severity.CRITICAL: "💀",
-}
+
+def _severity_emoji(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].emoji
 
 
 def render_markdown(result: ScanResult) -> str:
@@ -28,14 +25,14 @@ def render_markdown(result: ScanResult) -> str:
         lines.append("✅ **No findings** — scan passed.\n")
     else:
         badges = " | ".join(
-            f"{_SEV_EMOJI.get(Severity(k), '')} **{k}**: {v}" for k, v in counts.items() if v > 0
+            f"{_severity_emoji(Severity(k))} **{k}**: {v}" for k, v in counts.items() if v > 0
         )
         lines.append(f"**{total} finding(s)** — {badges}\n")
 
         lines.append("| Severity | Rule | Path | Title |\n| --- | --- | --- | --- |")
 
         for finding in sorted(result.findings, key=lambda f: f.severity, reverse=True):
-            emoji = _SEV_EMOJI.get(finding.severity, "")
+            emoji = _severity_emoji(finding.severity)
             loc = finding.path + (f":{finding.line}" if finding.line else "")
             lines.append(
                 f"| {emoji} {finding.severity.value} | `{finding.rule}` "
@@ -52,7 +49,7 @@ def render_markdown(result: ScanResult) -> str:
 
 
 def _finding_detail(finding: Finding) -> list[str]:
-    emoji = _SEV_EMOJI.get(finding.severity, "")
+    emoji = _severity_emoji(finding.severity)
     loc = finding.path + (f":{finding.line}" if finding.line else "")
     lines = [
         f"#### {emoji} `{finding.id}` — {finding.title}",
@@ -114,7 +111,7 @@ def render_pr_comment(
     for sev in reversed(list(Severity)):
         count = counts.get(sev.value, 0)
         if count > 0:
-            emoji = _SEV_EMOJI.get(sev, "")
+            emoji = _severity_emoji(sev)
             lines.append(f"| {emoji} {sev.value.capitalize()} | {count} |")
     lines.append(f"| **Total** | **{total}** |")
     lines.append("")
@@ -163,7 +160,7 @@ def render_pr_comment(
 
 
 def _pr_finding_detail(finding: Finding) -> list[str]:
-    emoji = _SEV_EMOJI.get(finding.severity, "")
+    emoji = _severity_emoji(finding.severity)
     loc = finding.path + (f":{finding.line}" if finding.line else "")
     lines = [
         "<details>",

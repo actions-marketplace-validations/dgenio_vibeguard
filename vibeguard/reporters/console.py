@@ -8,23 +8,19 @@ from rich.table import Table
 from rich.text import Text
 
 from vibeguard.models import Finding, ScanResult, Severity
+from vibeguard.reporters._format import SEVERITY_PRESENTATION
 
-_SEVERITY_COLORS = {
-    Severity.INFO: "dim white",
-    Severity.LOW: "cyan",
-    Severity.MEDIUM: "yellow",
-    Severity.HIGH: "red",
-    Severity.CRITICAL: "bold red",
-}
 
-_SEVERITY_ICONS = {
-    Severity.INFO: "ℹ",
-    Severity.LOW: "↓",
-    Severity.MEDIUM: "⚠",
-    Severity.HIGH: "✗",
-    Severity.CRITICAL: "☠",
-}
+def _severity_color(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].color
 
+
+def _severity_icon(severity: Severity) -> str:
+    return SEVERITY_PRESENTATION[severity].icon
+
+
+# Health-score letter grades are a console-only concern (not a Severity), so the
+# grade palette stays local to this reporter.
 _GRADE_COLORS = {
     "A": "bold green",
     "B": "green",
@@ -34,6 +30,61 @@ _GRADE_COLORS = {
 }
 
 console = Console(stderr=False)
+
+
+def build_findings_table(result: ScanResult) -> Table:
+    """Build the Rich findings table.
+
+    Extracted so tests can render it at a fixed width (e.g. 80 columns)
+    without going through the module-level console. See #85.
+    """
+    # Sort by severity (critical first)
+    sorted_findings = sorted(result.findings, key=lambda f: f.severity, reverse=True)
+
+    table = Table(
+        title="VibeGuard Findings",
+        show_header=True,
+        header_style="bold magenta",
+        border_style="dim",
+        expand=False,
+    )
+    # Column sizing balances two constraints:
+    #
+    # 1. #85 — on narrow (80-col) terminals (tmux, SSH, GitHub Actions logs)
+    #    Rich otherwise steals width from every column proportionally,
+    #    dropping the severity icon entirely and truncating rule names to 3
+    #    chars. ``no_wrap`` + ``min_width`` pin Sev/Rule/Path so they stay
+    #    readable, and Title is left wrappable so Rich has a column it can
+    #    shrink to fit the table within the terminal — without a wrappable
+    #    column, an over-wide table is cropped and Sev collapses again.
+    # 2. The GitHub Actions problem matcher
+    #    (.github/problem-matchers/vibeguard.json) parses a finding row with
+    #    an anchored ``^│ … │$`` regex. Sev (width=10, holds "☠ CRITICAL"),
+    #    Rule and Path are ``no_wrap`` + ellipsis, so the severity, rule and
+    #    file:line captures always sit on one physical line. Only the
+    #    trailing message (Title) may wrap; the matcher still matches the
+    #    row's first line and captures file/line correctly.
+    table.add_column("Sev", style="bold", width=10, no_wrap=True)
+    table.add_column("Rule", min_width=10, no_wrap=True, overflow="ellipsis")
+    table.add_column("Path", min_width=12, no_wrap=True, overflow="ellipsis")
+    table.add_column("Title", min_width=20)
+
+    for finding in sorted_findings:
+        color = _severity_color(finding.severity)
+        icon = _severity_icon(finding.severity)
+        sev_text = Text(f"{icon} {finding.severity.value.upper()}", style=color)
+        loc = finding.path
+        if finding.line:
+            loc += f":{finding.line}"
+
+        table.add_row(
+            sev_text,
+            finding.rule,
+            loc,
+            finding.title,
+        )
+
+    return table
 
 
 def render_findings(result: ScanResult, verbose: bool = False) -> None:
@@ -49,40 +100,9 @@ def render_findings(result: ScanResult, verbose: bool = False) -> None:
         _print_stats(result)
         return
 
-    # Sort by severity (critical first)
     sorted_findings = sorted(result.findings, key=lambda f: f.severity, reverse=True)
 
-    table = Table(
-        title="VibeGuard Findings",
-        show_header=True,
-        header_style="bold magenta",
-        border_style="dim",
-        expand=False,
-    )
-    # Width=10 ensures "☠ CRITICAL" (the widest label) renders on a single
-    # line so the GitHub Actions problem matcher in
-    # .github/problem-matchers/vibeguard.json can match the row in one shot.
-    table.add_column("Sev", style="bold", width=10)
-    table.add_column("Rule", width=16)
-    table.add_column("Path", width=40)
-    table.add_column("Title", width=50)
-
-    for finding in sorted_findings:
-        color = _SEVERITY_COLORS[finding.severity]
-        icon = _SEVERITY_ICONS[finding.severity]
-        sev_text = Text(f"{icon} {finding.severity.value.upper()}", style=color)
-        loc = finding.path
-        if finding.line:
-            loc += f":{finding.line}"
-
-        table.add_row(
-            sev_text,
-            finding.rule,
-            loc[:40],
-            finding.title[:50],
-        )
-
-    console.print(table)
+    console.print(build_findings_table(result))
 
     if verbose:
         for finding in sorted_findings:
@@ -97,7 +117,7 @@ def render_findings(result: ScanResult, verbose: bool = False) -> None:
 
 
 def _print_finding_detail(finding: Finding) -> None:
-    color = _SEVERITY_COLORS[finding.severity]
+    color = _severity_color(finding.severity)
     lines = [
         f"[bold]{finding.title}[/]",
         f"  {finding.description}",
@@ -123,7 +143,7 @@ def _print_stats(result: ScanResult) -> None:
     for sev in reversed(list(Severity)):
         c = counts[sev.value]
         if c:
-            color = _SEVERITY_COLORS[sev]
+            color = _severity_color(sev)
             parts.append(f"[{color}]{sev.value}: {c}[/]")
 
     summary = f"[bold]{total}[/] finding(s)"

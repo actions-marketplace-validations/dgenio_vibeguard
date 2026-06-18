@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
 from vibeguard.rules.base import Rule
@@ -60,6 +61,10 @@ class GoRulesRule(Rule):
     id = "go_rules"
     name = "Go Risky Patterns"
     description = "Detects Go-specific risky patterns: TLS bypass, shell injection, SQL via Sprintf"
+
+    def is_applicable(self, path: Path) -> bool:
+        # Scoped to Go source files; matches the per-file filter in scan (#193).
+        return path.suffix.lower() == ".go"
 
     def scan(self, context: ScanContext) -> list[Finding]:
         findings: list[Finding] = []
