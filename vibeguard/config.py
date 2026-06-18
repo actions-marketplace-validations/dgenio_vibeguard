@@ -364,6 +364,21 @@ class GitConfig(BaseModel):
     base_branch: str | None = None
 
 
+class OutputConfig(BaseModel):
+    """Report-output settings shared by scan/gate/publish-check.
+
+    ``sarif_max_results`` caps the number of results in a single SARIF run so a
+    large scan stays under GitHub Code Scanning's documented per-run ingestion
+    limit (5,000). When exceeded, the SARIF reporter keeps the most severe
+    findings and records the overflow in a ``toolExecutionNotifications`` entry
+    (#227). Result sets at or below the cap are unaffected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sarif_max_results: int = Field(default=5000, ge=1)
+
+
 class PluginsConfig(BaseModel):
     """Controls third-party rule plugin discovery.
 
@@ -421,6 +436,7 @@ class VibeGuardConfig(BaseModel):
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     git: GitConfig = Field(default_factory=GitConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod

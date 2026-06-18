@@ -45,6 +45,52 @@ class Confidence(str, Enum):
     HIGH = "high"
 
 
+class RemediationKind(str, Enum):
+    """How a finding's suggested fix is applied (#238).
+
+    The kinds are deliberately mechanical and narrow — VibeGuard only attaches
+    structured remediation when the edit is safe to apply or propose without
+    re-deriving it from prose. ``MANUAL`` covers fixes that need human judgement
+    (the default when no precise edit is known).
+    """
+
+    DELETE_FILE = "delete-file"
+    ADD_LINE = "add-line"
+    REPLACE_SPAN = "replace-span"
+    ADD_IGNORE_ENTRY = "add-ignore-entry"
+    MANUAL = "manual"
+
+
+class Remediation(BaseModel):
+    """Structured, machine-actionable fix metadata for a :class:`Finding` (#238).
+
+    Optional and absent by default. When present it lets coding agents and
+    code-review bots apply or propose a fix without parsing the prose
+    ``recommendation``. The SARIF reporter maps the editable kinds
+    (``add-line``/``add-ignore-entry``/``replace-span``) to SARIF ``fixes``;
+    the JSON reporter emits the object verbatim. Apply logic itself is out of
+    scope here (deferred to the ``vibeguard fix`` work, #152) — this is the
+    shared data model both the export side and a future apply side consume.
+    """
+
+    kind: RemediationKind = Field(description="How the fix is applied")
+    target: str | None = Field(
+        default=None,
+        description="Relative path the fix edits (defaults to the finding path when omitted)",
+    )
+    line: int | None = Field(
+        default=None, description="1-based line the fix applies to, when known"
+    )
+    content: str | None = Field(
+        default=None, description="Suggested text to add or the replacement span"
+    )
+    description: str = Field(description="Human-readable summary of the fix")
+    confidence: Confidence = Field(
+        default=Confidence.MEDIUM,
+        description="How safe this fix is to apply automatically",
+    )
+
+
 class Finding(BaseModel):
     """A single finding produced by a VibeGuard rule."""
 
@@ -59,6 +105,10 @@ class Finding(BaseModel):
     recommendation: str = Field(description="How to fix or address this finding")
     tags: list[str] = Field(default_factory=list)
     confidence: Confidence = Confidence.MEDIUM
+    remediation: Remediation | None = Field(
+        default=None,
+        description="Optional structured, machine-actionable fix metadata (#238)",
+    )
 
     @field_validator("evidence", mode="before")
     @classmethod

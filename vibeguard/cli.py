@@ -25,11 +25,8 @@ from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack
 from vibeguard.publish import run_publish_check
 from vibeguard.reporters.annotations import emit_annotations, is_github_actions
 from vibeguard.reporters.console import render_findings
-from vibeguard.reporters.diagnostics import print_diagnostics
-from vibeguard.reporters.json_reporter import print_json
-from vibeguard.reporters.markdown import render_markdown, render_pr_comment
-from vibeguard.reporters.sarif import print_sarif
-from vibeguard.reporters.weaver import print_weaver
+from vibeguard.reporters.markdown import render_markdown
+from vibeguard.reporters.registry import MACHINE_FORMATS, render_format
 from vibeguard.scanner import run_scan
 
 if TYPE_CHECKING:
@@ -263,6 +260,8 @@ def _validate_output_options(
     pr_comment_output: bool = False,
     diagnostics_output: bool = False,
     weaver_output: bool = False,
+    rdjson_output: bool = False,
+    sonar_output: bool = False,
     annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
@@ -274,26 +273,165 @@ def _validate_output_options(
             pr_comment_output,
             diagnostics_output,
             weaver_output,
+            rdjson_output,
+            sonar_output,
         ]
     )
     if selected > 1:
         err_console.print(
-            "[red]Error: --json, --markdown, --sarif, --pr-comment, --diagnostics, and"
-            " --weaver are mutually exclusive. Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, --pr-comment, --diagnostics,"
+            " --weaver, --rdjson, and --sonar are mutually exclusive. Choose one"
+            " (or use repeated --report FORMAT=PATH for several files).[/]"
         )
         raise typer.Exit(2)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
-        # with structured output (JSON/SARIF/Markdown/diagnostics/weaver)
+        # with structured output (JSON/SARIF/Markdown/diagnostics/weaver/...)
         # interleaves them into the report and breaks downstream parsers.
         # Annotations still auto-enable in GitHub Actions when no structured
         # output is selected.
         err_console.print(
-            "[red]Error: --annotations cannot be combined with --json, --markdown,"
-            " --sarif, --pr-comment, --diagnostics, or --weaver (annotations would"
-            " corrupt the structured output).[/]"
+            "[red]Error: --annotations cannot be combined with a structured output"
+            " format (annotations would corrupt the structured output).[/]"
         )
         raise typer.Exit(2)
+
+
+def _active_format(
+    json_output: bool,
+    sarif_output: bool,
+    markdown_output: bool,
+    pr_comment_output: bool,
+    diagnostics_output: bool,
+    weaver_output: bool,
+    rdjson_output: bool,
+    sonar_output: bool,
+) -> str | None:
+    """Return the single selected machine-format name, or ``None`` for console.
+
+    ``_validate_output_options`` has already guaranteed at most one flag is set,
+    so a simple ordered scan resolves the active format.
+    """
+    for name, on in (
+        ("json", json_output),
+        ("sarif", sarif_output),
+        ("markdown", markdown_output),
+        ("pr-comment", pr_comment_output),
+        ("diagnostics", diagnostics_output),
+        ("weaver", weaver_output),
+        ("rdjson", rdjson_output),
+        ("sonar", sonar_output),
+    ):
+        if on:
+            return name
+    return None
+
+
+def _write_report(text: str, dest: str) -> None:
+    """Write rendered report ``text`` to ``dest`` (a path, or ``-`` for stdout).
+
+    A trailing newline is ensured so files end cleanly, matching the newline the
+    stdout reporters already emit. Unwritable destinations fail closed with exit
+    code 2 (consistent with the CLI error contract)."""
+    normalized = text if text.endswith("\n") else text + "\n"
+    if dest == "-":
+        typer.echo(text)
+        return
+    try:
+        Path(dest).write_text(normalized, encoding="utf-8")
+    except OSError as exc:
+        err_console.print(f"[red]Error: cannot write report to {escape(dest)}: {exc}[/]")
+        raise typer.Exit(2) from None
+
+
+def _parse_report_specs(reports: list[str]) -> list[tuple[str, str]]:
+    """Parse repeatable ``--report FORMAT=PATH`` specs, exiting 2 on bad input."""
+    specs: list[tuple[str, str]] = []
+    for spec in reports:
+        fmt, sep, dest = spec.partition("=")
+        fmt = fmt.strip()
+        dest = dest.strip()
+        if not sep or not fmt or not dest:
+            err_console.print(f"[red]Error: --report expects FORMAT=PATH, got {escape(spec)!r}.[/]")
+            raise typer.Exit(2)
+        if fmt not in MACHINE_FORMATS:
+            err_console.print(
+                f"[red]Error: unknown --report format {escape(fmt)!r}."
+                f" Valid formats: {', '.join(MACHINE_FORMATS)}.[/]"
+            )
+            raise typer.Exit(2)
+        specs.append((fmt, dest))
+    return specs
+
+
+def _emit_reports(
+    result: ScanResult,
+    *,
+    single_format: str | None,
+    output: Path | None,
+    reports: list[str],
+    gate_passed: bool,
+    threshold: Severity,
+    blocking: bool,
+    sarif_max_results: int,
+    verbose: bool,
+) -> bool:
+    """Render scan output to stdout and/or files.
+
+    Resolution order: repeatable ``--report FORMAT=PATH`` (multi-file) wins;
+    otherwise ``--output PATH`` writes the single selected format to a file;
+    otherwise the single format prints to stdout (byte-identical to the historic
+    reporters), or the Rich console table renders when no format is selected.
+
+    Returns ``True`` when a machine format was emitted (so callers can suppress
+    auto-annotations / the console table accordingly). Exits 2 on invalid
+    ``--output``/``--report`` combinations.
+    """
+
+    def _render(fmt: str) -> str:
+        return render_format(
+            fmt,
+            result,
+            gate_passed=gate_passed,
+            threshold=threshold,
+            blocking=blocking,
+            sarif_max_results=sarif_max_results,
+        )
+
+    report_specs = _parse_report_specs(reports)
+    if report_specs:
+        if single_format is not None or output is not None:
+            err_console.print(
+                "[red]Error: --report cannot be combined with --output or a single"
+                " format flag. Use repeated --report FORMAT=PATH for multiple files.[/]"
+            )
+            raise typer.Exit(2)
+        for fmt, dest in report_specs:
+            _write_report(_render(fmt), dest)
+            if dest != "-":
+                err_console.print(f"[dim]Wrote {fmt} report → {escape(dest)}[/]")
+        return True
+
+    if output is not None:
+        if single_format is None:
+            err_console.print(
+                "[red]Error: --output requires a format flag (--json, --sarif,"
+                " --markdown, --pr-comment, --diagnostics, --weaver, --rdjson,"
+                " --sonar).[/]"
+            )
+            raise typer.Exit(2)
+        dest = str(output)
+        _write_report(_render(single_format), dest)
+        if dest != "-":
+            err_console.print(f"[dim]Wrote {single_format} report → {escape(dest)}[/]")
+        return True
+
+    if single_format is None:
+        render_findings(result, verbose=verbose)
+        return False
+
+    typer.echo(_render(single_format))
+    return True
 
 
 def _validate_scan_path(path: Path) -> None:
@@ -378,6 +516,38 @@ def scan(
             help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
         ),
     ] = False,
+    rdjson_output: Annotated[
+        bool,
+        typer.Option("--rdjson", help="Output findings as reviewdog rdjson"),
+    ] = False,
+    sonar_output: Annotated[
+        bool,
+        typer.Option(
+            "--sonar",
+            help="Output findings as SonarQube Generic Issue Import JSON",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires a format flag."
+            ),
+        ),
+    ] = None,
+    report: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--report",
+            help=(
+                "Emit a report as FORMAT=PATH; repeatable to write several formats "
+                "from one scan (e.g. --report sarif=vg.sarif --report pr-comment=c.md)."
+            ),
+        ),
+    ] = None,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -424,6 +594,8 @@ def scan(
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -450,36 +622,39 @@ def scan(
     # Apply baseline filtering
     result = _apply_baseline(result, baseline_path, cfg)
 
-    # Determine annotation mode
-    emit_annot = _should_emit_annotations(
-        annotations,
+    single_fmt = _active_format(
         json_output,
-        markdown_output,
         sarif_output,
+        markdown_output,
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
+    )
+    reports = report or []
+
+    # Determine annotation mode (suppressed whenever machine output is in play).
+    emit_annot = _should_emit_annotations(
+        annotations,
+        structured_selected=(single_fmt is not None or bool(reports)),
     )
 
-    if json_output:
-        print_json(result)
-    elif sarif_output:
-        print_sarif(result)
-    elif pr_comment_output:
-        # scan still exits 0, but the PR-comment headline must reflect whether
-        # blocking findings exist — otherwise it claims PASS while listing them.
-        scan_gate_passed = not result.has_blocking(cfg.fail_on)
-        typer.echo(render_pr_comment(result, gate_passed=scan_gate_passed, threshold=cfg.fail_on))
-    elif markdown_output:
-        typer.echo(render_markdown(result))
-    elif diagnostics_output:
-        print_diagnostics(result)
-    elif weaver_output:
-        # scan is informational, so the report mode is advisory; the decision
-        # field still reflects whether blocking findings exist.
-        print_weaver(result, threshold=cfg.fail_on, blocking=False)
-    else:
-        render_findings(result, verbose=verbose)
+    # scan still exits 0, but the PR-comment headline / weaver decision must
+    # reflect whether blocking findings exist — otherwise it claims PASS while
+    # listing them. scan is informational, so the weaver report mode is advisory.
+    scan_gate_passed = not result.has_blocking(cfg.fail_on)
+    _emit_reports(
+        result,
+        single_format=single_fmt,
+        output=output,
+        reports=reports,
+        gate_passed=scan_gate_passed,
+        threshold=cfg.fail_on,
+        blocking=False,
+        sarif_max_results=cfg.output.sarif_max_results,
+        verbose=verbose,
+    )
 
     if emit_annot:
         emit_annotations(result)
@@ -552,6 +727,38 @@ def gate(
             help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
         ),
     ] = False,
+    rdjson_output: Annotated[
+        bool,
+        typer.Option("--rdjson", help="Output findings as reviewdog rdjson"),
+    ] = False,
+    sonar_output: Annotated[
+        bool,
+        typer.Option(
+            "--sonar",
+            help="Output findings as SonarQube Generic Issue Import JSON",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires a format flag."
+            ),
+        ),
+    ] = None,
+    report: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--report",
+            help=(
+                "Emit a report as FORMAT=PATH; repeatable to write several formats "
+                "from one scan (e.g. --report sarif=vg.sarif --report pr-comment=c.md)."
+            ),
+        ),
+    ] = None,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -594,6 +801,8 @@ def gate(
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
         annotations_explicit=(annotations is True),
     )
     cfg = _load_config(config, path, policy_pack=policy_pack)
@@ -623,32 +832,36 @@ def gate(
     threshold = cfg.fail_on
     gate_passed = not result.has_blocking(threshold)
 
-    # Determine annotation mode
-    emit_annot = _should_emit_annotations(
-        annotations,
+    single_fmt = _active_format(
         json_output,
-        markdown_output,
         sarif_output,
+        markdown_output,
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
+    )
+    reports = report or []
+
+    # Determine annotation mode (suppressed whenever machine output is in play).
+    emit_annot = _should_emit_annotations(
+        annotations,
+        structured_selected=(single_fmt is not None or bool(reports)),
     )
 
-    if json_output:
-        print_json(result)
-    elif sarif_output:
-        print_sarif(result)
-    elif pr_comment_output:
-        typer.echo(render_pr_comment(result, gate_passed=gate_passed, threshold=threshold))
-    elif markdown_output:
-        typer.echo(render_markdown(result))
-    elif diagnostics_output:
-        print_diagnostics(result)
-    elif weaver_output:
-        # gate enforces, so the report mode is blocking.
-        print_weaver(result, threshold=threshold, blocking=True)
-    else:
-        render_findings(result, verbose=verbose)
+    # gate enforces, so the weaver report mode is blocking.
+    _emit_reports(
+        result,
+        single_format=single_fmt,
+        output=output,
+        reports=reports,
+        gate_passed=gate_passed,
+        threshold=threshold,
+        blocking=True,
+        sarif_max_results=cfg.output.sarif_max_results,
+        verbose=verbose,
+    )
 
     if emit_annot:
         emit_annotations(result)
@@ -703,6 +916,17 @@ def publish_check(
         bool,
         typer.Option("--markdown", help="Output findings as Markdown"),
     ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires --json or --markdown."
+            ),
+        ),
+    ] = None,
     manifest_out: Annotated[
         Path | None,
         typer.Option(
@@ -753,6 +977,7 @@ def publish_check(
         manifest_out.write_text(manifest.to_json(), encoding="utf-8")
         err_console.print(f"[green]✓[/] Wrote manifest to [bold]{manifest_out}[/]")
 
+    output_text: str | None = None
     if json_output:
         import json as _json
 
@@ -760,10 +985,19 @@ def publish_check(
             "manifest": _json.loads(manifest.to_json()),
             "result": result.model_dump(mode="json"),
         }
-        typer.echo(_json.dumps(payload, indent=2, sort_keys=True))
+        output_text = _json.dumps(payload, indent=2, sort_keys=True)
     elif markdown_output:
-        typer.echo(render_markdown(result))
+        output_text = render_markdown(result)
+
+    if output_text is not None:
+        dest = str(output) if output is not None else "-"
+        _write_report(output_text, dest)
+        if dest != "-":
+            err_console.print(f"[dim]Wrote report → {escape(dest)}[/]")
     else:
+        if output is not None:
+            err_console.print("[red]Error: --output requires --json or --markdown.[/]")
+            raise typer.Exit(2)
         err_console.print(
             f"[bold]publish-check[/] ecosystem=[cyan]{manifest.ecosystem}[/] "
             f"files=[bold]{len(manifest.files)}[/] "
@@ -1002,30 +1236,21 @@ def _apply_baseline(
 
 def _should_emit_annotations(
     annotations_flag: bool | None,
-    json_output: bool,
-    markdown_output: bool,
-    sarif_output: bool,
-    pr_comment_output: bool,
-    diagnostics_output: bool = False,
-    weaver_output: bool = False,
+    structured_selected: bool,
 ) -> bool:
-    """Determine whether to emit GitHub Actions annotations."""
+    """Determine whether to emit GitHub Actions annotations.
+
+    ``structured_selected`` is True when any machine output (a format flag or a
+    ``--report``/``--output`` destination) is in play — annotations would
+    otherwise interleave with that output.
+    """
     # Explicit flag takes precedence
     if annotations_flag is True:
         return True
     if annotations_flag is False:
         return False
     # Auto-enable in GitHub Actions unless another structured output is selected
-    return is_github_actions() and not any(
-        [
-            json_output,
-            markdown_output,
-            sarif_output,
-            pr_comment_output,
-            diagnostics_output,
-            weaver_output,
-        ]
-    )
+    return is_github_actions() and not structured_selected
 
 
 # ---------------------------------------------------------------------------

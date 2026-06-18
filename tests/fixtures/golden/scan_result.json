@@ -15,6 +15,7 @@
         "aws-access-key"
       ],
       "confidence": "high",
+      "remediation": null,
       "fingerprint": "d1b5d6bf08a413854d43793d6a98ebdb96d880761b349a6fb0c08a5d61960e9a"
     },
     {
@@ -32,6 +33,7 @@
         "publish-leak"
       ],
       "confidence": "high",
+      "remediation": null,
       "fingerprint": "e377a5a0489abd8b8c869e9f66a56620f34542c97551401638606194ebecf7e4"
     },
     {
@@ -49,6 +51,7 @@
         "eval-exec"
       ],
       "confidence": "medium",
+      "remediation": null,
       "fingerprint": "57797c66d592508df66d4f459b5a618d990fd8747b78ba044c8b81c1b6bb7868"
     },
     {
@@ -66,6 +69,7 @@
         "coverage"
       ],
       "confidence": "medium",
+      "remediation": null,
       "fingerprint": "1d12aa99b83f4046f11ef40a5bc4f77fead0510d5ba9ccecf47c0f219845f304"
     },
     {
@@ -83,6 +87,7 @@
         "ai-generated"
       ],
       "confidence": "medium",
+      "remediation": null,
       "fingerprint": "410d4d6b1101e2bcae7aa863af26098b88a09bf83dd00efbda934b260c272b61"
     }
   ],

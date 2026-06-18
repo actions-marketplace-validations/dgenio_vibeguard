@@ -1,0 +1,114 @@
+{
+  "source": {
+    "name": "vibeguard",
+    "url": "https://github.com/dgenio/vibeguard"
+  },
+  "severity": "WARNING",
+  "diagnostics": [
+    {
+      "message": "AWS Access Key ID detected: A likely AWS Access Key ID was found in `src/config.py` at line 9. Committed secrets can be exploited by anyone with repo access.",
+      "location": {
+        "path": "src/config.py",
+        "range": {
+          "start": {
+            "line": 9,
+            "column": 1
+          }
+        }
+      },
+      "severity": "ERROR",
+      "code": {
+        "value": "SEC-AWSACCESSKEY",
+        "url": "https://github.com/dgenio/vibeguard/blob/main/docs/rules.md#secrets"
+      },
+      "source": {
+        "name": "vibeguard",
+        "url": "https://github.com/dgenio/vibeguard"
+      }
+    },
+    {
+      "message": "Source map file in publish directory: Source map `dist/app.js.map` is in a publish directory. Source maps reveal original source code if shipped to production.",
+      "location": {
+        "path": "dist/app.js.map",
+        "range": {
+          "start": {
+            "line": 1,
+            "column": 1
+          }
+        }
+      },
+      "severity": "ERROR",
+      "code": {
+        "value": "MAP-DIST",
+        "url": "https://github.com/dgenio/vibeguard/blob/main/docs/rules.md#sourcemaps"
+      },
+      "source": {
+        "name": "vibeguard",
+        "url": "https://github.com/dgenio/vibeguard"
+      }
+    },
+    {
+      "message": "Risk-sensitive area changed: eval() or exec() usage: `src/server.js` line 24 touches a risk-sensitive area (eval/exec). This is not a confirmed vulnerability \u2014 human review is recommended.",
+      "location": {
+        "path": "src/server.js",
+        "range": {
+          "start": {
+            "line": 24,
+            "column": 1
+          }
+        }
+      },
+      "severity": "WARNING",
+      "code": {
+        "value": "RISK-EVALEXEC",
+        "url": "https://github.com/dgenio/vibeguard/blob/main/docs/rules.md#risky-diff"
+      },
+      "source": {
+        "name": "vibeguard",
+        "url": "https://github.com/dgenio/vibeguard"
+      }
+    },
+    {
+      "message": "Source changes without test changes: 3 source file(s) changed but no test files were modified. Changed files include: `src/auth.py`, `src/server.py`, `src/db.py`",
+      "location": {
+        "path": "src/auth.py",
+        "range": {
+          "start": {
+            "line": 1,
+            "column": 1
+          }
+        }
+      },
+      "severity": "INFO",
+      "code": {
+        "value": "TEST-MISSING",
+        "url": "https://github.com/dgenio/vibeguard/blob/main/docs/rules.md#tests"
+      },
+      "source": {
+        "name": "vibeguard",
+        "url": "https://github.com/dgenio/vibeguard"
+      }
+    },
+    {
+      "message": "AI-generated code comment: `src/utils.js` line 1 contains a comment marking the file as AI-generated. Useful as provenance; informational only.",
+      "location": {
+        "path": "src/utils.js",
+        "range": {
+          "start": {
+            "line": 1,
+            "column": 1
+          }
+        }
+      },
+      "severity": "INFO",
+      "code": {
+        "value": "AI-AIGENERATED",
+        "url": "https://github.com/dgenio/vibeguard/blob/main/docs/rules.md#ai-footprints"
+      },
+      "source": {
+        "name": "vibeguard",
+        "url": "https://github.com/dgenio/vibeguard"
+      }
+    }
+  ]
+}

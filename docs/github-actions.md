@@ -115,7 +115,7 @@ jobs:
         run: pip install vibeguard-gate
 
       - name: Run VibeGuard scan (SARIF)
-        run: vibeguard scan --sarif > vibeguard.sarif
+        run: vibeguard scan --sarif --output vibeguard.sarif
         continue-on-error: true
 
       - name: Upload SARIF to Code Scanning
@@ -124,6 +124,19 @@ jobs:
           sarif_file: vibeguard.sarif
           category: vibeguard
 ```
+
+> **File output.** Use `--output PATH` (or `-o`) to write a report to a file
+> instead of redirecting stdout (`--sarif --output vibeguard.sarif`); pass `-`
+> for stdout. To emit several formats from a single scan, use the repeatable
+> `--report FORMAT=PATH`, e.g.
+> `vibeguard gate --diff --report sarif=vibeguard.sarif --report pr-comment=comment.md`.
+
+> **Large repositories.** GitHub Code Scanning caps SARIF at 5,000 results per
+> run. VibeGuard caps its SARIF output at that limit (configurable via
+> `output.sarif_max_results`), keeping the most severe findings and adding an
+> overflow notice rather than failing the upload. For a large legacy repo,
+> create a baseline first (section 4) and gate only new findings, so the diff
+> stays well under the cap. The full set is always available via `--json`.
 
 ## 3. PR Comment Workflow
 

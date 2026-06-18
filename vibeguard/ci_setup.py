@@ -100,7 +100,7 @@ jobs:
       # Inline code-scanning annotations on the PR diff. `--base` pins the diff
       # to the PR's target branch so scoping matches the merge base.
       - name: Scan (SARIF)
-        run: vibeguard scan --diff --base "origin/${{ github.base_ref }}" --sarif > vibeguard.sarif
+        run: vibeguard scan --diff --base "origin/${{ github.base_ref }}" --sarif --output vibeguard.sarif
         continue-on-error: true
 
       - name: Upload SARIF to code scanning
@@ -115,7 +115,7 @@ jobs:
         id: gate
         run: |
           set +e
-          vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on __FAIL_ON__ --pr-comment > vibeguard-comment.md
+          vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on __FAIL_ON__ --pr-comment --output vibeguard-comment.md
           echo "exit-code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Post / update PR comment
