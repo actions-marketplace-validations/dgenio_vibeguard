@@ -335,7 +335,10 @@ def _write_report(text: str, dest: str) -> None:
     code 2 (consistent with the CLI error contract)."""
     normalized = text if text.endswith("\n") else text + "\n"
     if dest == "-":
-        typer.echo(text)
+        # Emit the normalized text as-is (it already ends in exactly one
+        # newline) so stdout matches the file path byte-for-byte; nl=False stops
+        # ``echo`` from appending a second newline.
+        typer.echo(normalized, nl=False)
         return
     try:
         Path(dest).write_text(normalized, encoding="utf-8")

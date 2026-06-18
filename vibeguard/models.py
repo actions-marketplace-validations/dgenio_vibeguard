@@ -66,11 +66,13 @@ class Remediation(BaseModel):
 
     Optional and absent by default. When present it lets coding agents and
     code-review bots apply or propose a fix without parsing the prose
-    ``recommendation``. The SARIF reporter maps the editable kinds
-    (``add-line``/``add-ignore-entry``/``replace-span``) to SARIF ``fixes``;
-    the JSON reporter emits the object verbatim. Apply logic itself is out of
-    scope here (deferred to the ``vibeguard fix`` work, #152) — this is the
-    shared data model both the export side and a future apply side consume.
+    ``recommendation``. The SARIF reporter maps the precise in-file edit kinds
+    (``add-line``/``replace-span``) to SARIF ``fixes``; ``add-ignore-entry``,
+    ``delete-file`` and ``manual`` can't be expressed as an in-file region edit
+    and ride along in the JSON output only. The JSON reporter emits the object
+    verbatim for every kind. Apply logic itself is out of scope here (deferred
+    to the ``vibeguard fix`` work, #152) — this is the shared data model both
+    the export side and a future apply side consume.
     """
 
     kind: RemediationKind = Field(description="How the fix is applied")
