@@ -40,7 +40,8 @@ def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
     ``base_branch`` (from ``--base`` or ``git.base_branch`` config) takes
     precedence over automatic detection. An explicit ref that cannot be
     verified is **not** silently ignored: a warning is recorded and detection
-    falls back to the usual ``origin/main`` → ``master`` order (#208, #182).
+    falls back to the usual ``origin/main`` → ``origin/master`` → ``main`` →
+    ``master`` detection order (#208, #182).
     """
     warnings: list[str] = []
     try:
