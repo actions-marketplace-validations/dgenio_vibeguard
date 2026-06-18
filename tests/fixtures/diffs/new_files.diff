@@ -1,0 +1,11 @@
+diff --git a/created.py b/created.py
+new file mode 100644
+index 0000000..66a52ee
+--- /dev/null
++++ b/created.py
+@@ -0,0 +1,2 @@
++first
++second
+diff --git a/empty.py b/empty.py
+new file mode 100644
+index 0000000..e69de29

@@ -38,6 +38,14 @@ surfaces individually if you prefer to assemble the workflow by hand.
 
 The simplest setup: fail PRs that introduce high/critical findings.
 
+> **Diff base & `fetch-depth`.** `--diff` compares `base...HEAD`. Pass
+> `--base "origin/${{ github.base_ref }}"` so the diff is scoped to the PR's
+> target branch (works for `develop`/`trunk`/release bases, not just `main`),
+> and keep `fetch-depth: 0` so that base is fetched. Without a detectable base
+> VibeGuard degrades to `git diff HEAD` and prints a diagnostic — on a shallow
+> clone it also reminds you to set `fetch-depth: 0`. You can also set the base
+> in `vibeguard.yaml` under `git.base_branch`; the `--base` flag wins.
+
 ```yaml
 name: VibeGuard Gate
 on:
@@ -63,7 +71,7 @@ jobs:
         run: pip install vibeguard-gate
 
       - name: Run VibeGuard gate
-        run: vibeguard gate --diff --fail-on high
+        run: vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on high
 ```
 
 Or using the first-party action:

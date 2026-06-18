@@ -155,6 +155,25 @@ class TestScannerConfig:
             VibeGuardConfig.load(cfg_file)
 
 
+class TestGitConfig:
+    """Tests for the git.base_branch config section (#208)."""
+
+    def test_default_base_branch_is_none(self):
+        assert VibeGuardConfig().git.base_branch is None
+
+    def test_base_branch_loads(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("git:\n  base_branch: origin/develop\n")
+        cfg = VibeGuardConfig.load(cfg_file)
+        assert cfg.git.base_branch == "origin/develop"
+
+    def test_unknown_git_key_rejected(self, tmp_path: Path):
+        cfg_file = tmp_path / "vibeguard.yaml"
+        cfg_file.write_text("git:\n  nope: true\n")
+        with pytest.raises(ValidationError):
+            VibeGuardConfig.load(cfg_file)
+
+
 class TestLoadIgnorefile:
     """Tests for .vibeguardignore loading (#26)."""
 

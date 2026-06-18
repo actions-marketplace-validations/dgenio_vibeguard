@@ -156,6 +156,18 @@ class GitMetadata(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     is_available: bool = False
     error: str | None = None
+    #: How the changed-file/diff set was resolved in ``--diff`` mode.
+    #: ``"merge-base"`` means a base branch was found and the diff is
+    #: ``base...HEAD``; ``"head-only"`` means base detection failed and the
+    #: diff degraded to ``git diff HEAD`` (uncommitted/staged changes only) —
+    #: a narrower scope the scanner surfaces as a diagnostic (#182).
+    diff_strategy: Literal["merge-base", "head-only"] | None = None
+    #: True when the working copy is a shallow clone (``fetch-depth: 1``),
+    #: which commonly breaks base-branch detection in CI (#182).
+    is_shallow: bool = False
+    #: Non-fatal git-context warnings (e.g. an explicit ``--base`` ref that
+    #: could not be verified). Surfaced by the scanner alongside scan errors.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ScanContext(BaseModel):

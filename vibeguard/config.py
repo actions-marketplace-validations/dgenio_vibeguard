@@ -349,6 +349,21 @@ class ScannerConfig(BaseModel):
     max_file_size_kb: int = Field(default=1024, ge=1)
 
 
+class GitConfig(BaseModel):
+    """Git/diff-mode settings.
+
+    ``base_branch`` sets the ref that ``--diff`` compares against (``base...HEAD``)
+    instead of the automatic ``origin/main`` → ``origin/master`` → ``main`` →
+    ``master`` detection. The ``--base`` CLI flag overrides this value. Useful for
+    teams whose default branch is ``develop``/``trunk`` or for stacked-PR bases;
+    in GitHub Actions, pass ``--base "origin/${{ github.base_ref }}"``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_branch: str | None = None
+
+
 class PluginsConfig(BaseModel):
     """Controls third-party rule plugin discovery.
 
@@ -405,6 +420,7 @@ class VibeGuardConfig(BaseModel):
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
+    git: GitConfig = Field(default_factory=GitConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod
@@ -528,6 +544,13 @@ package_allowlist:
 
 scanner:
   max_file_size_kb: 1024  # skip files larger than this (KB)
+
+# git:
+#   # Base ref for --diff comparisons (base...HEAD). Overrides the default
+#   # origin/main -> origin/master -> main -> master detection. The --base
+#   # CLI flag wins over this value. In GitHub Actions, prefer passing
+#   # --base "origin/${{ github.base_ref }}" on the command line.
+#   base_branch: origin/develop
 
 secrets:
   enabled: true

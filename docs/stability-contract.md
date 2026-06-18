@@ -162,6 +162,29 @@ job. The following operational cases are guaranteed and test-backed:
 | `explain` / `rules explain` unknown ID | exit `2`, consistent message | `tests/test_cli.py`, `tests/test_cli_e2e.py` (#90) |
 | Plugin fails to load | scan continues; failure is reported, not swallowed | `tests/test_plugin_discovery.py` |
 | `git` unavailable in `--diff` mode | reported; does not crash the gate | diff-scope handling |
+| Base branch undetectable in `--diff` mode | scan degrades to `git diff HEAD` **and emits a diagnostic** (shallow clones get a `fetch-depth: 0` hint) — never a silent narrowing | `tests/test_diff_scope.py::TestDegradedGitDiagnostic` (#182) |
+| Unverifiable explicit `--base` / `git.base_branch` | warning recorded, falls back to detection — not silently ignored | `tests/test_git.py` (#208) |
+
+## Diff-mode scope semantics (`--diff`)
+
+`--diff` answers "what did *this change* introduce or touch", so its scope is
+the change set, not the whole repository:
+
+- A finding is reported only if its file is part of the diff. Findings
+  attributable to files **outside** the diff (pre-existing repository state) are
+  not reported, so a PR gate is never blocked by unrelated history.
+- Line-level findings are kept only when they fall on **added/changed lines**;
+  file-level findings on a changed file are kept.
+- If a changed file produces no parseable line ranges (rename, binary,
+  mode-only, parse gap), its findings are kept **conservatively** — scoping
+  never loses signal.
+- Diff-aggregate findings (`DIFF-SIZE`, `DIFF-BREADTH`, `DIFF-RISK-FILES`) are
+  always reported in diff mode.
+
+The base ref is resolved as `--base` → `git.base_branch` config → automatic
+detection (`origin/main` → `origin/master` → `main` → `master`). The diff text
+contract is pinned (`color.diff=never`, `core.quotePath=false`, `--no-ext-diff`,
+explicit `a/`/`b/` prefixes) so local git configuration cannot change scoping.
 
 ## What is *not* covered by this contract
 

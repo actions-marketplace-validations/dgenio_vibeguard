@@ -162,6 +162,22 @@ def run_scan(
     if diff_only and git_meta and not git_meta.is_available and git_meta.error:
         errors.append(f"Git context unavailable: {git_meta.error}")
 
+    # Surface degraded git context as diagnostics instead of silently scanning
+    # a narrower scope (#182). A "head-only" strategy in diff mode means base
+    # detection failed and the diff degraded to `git diff HEAD`, so a PR gate
+    # may report "0 findings" simply because the diff was nearly empty.
+    if diff_only and git_meta and git_meta.is_available:
+        errors.extend(git_meta.warnings)
+        if git_meta.diff_strategy == "head-only":
+            hint = (
+                "Could not detect a base branch; comparing against HEAD only — "
+                "diff-mode findings may be incomplete. Pass --base, set "
+                "git.base_branch, or fetch the base branch."
+            )
+            if git_meta.is_shallow:
+                hint += " This is a shallow clone; use fetch-depth: 0 in CI."
+            errors.append(hint)
+
     for rule in rules:
         try:
             rule_findings = rule.scan(_context_for_rule(rule, ctx))
@@ -171,11 +187,18 @@ def run_scan(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Rule {rule.id} failed: {exc}")
 
-    # Apply diff-line filtering (#24): in diff mode, restrict line-based findings
-    # to only those on changed lines. Reuses the diff text resolved above.
-    if diff_only and git_meta and git_meta.is_available and diff_text:
+    # Apply diff-scope filtering (#24, #199): in diff mode, restrict findings to
+    # the change set. Line-based findings are kept only on changed lines;
+    # findings attributable to files that are NOT part of the diff (pre-existing
+    # repository state) are dropped, so a PR gate reflects "findings introduced
+    # or touched by this change" rather than blocking on unrelated history.
+    # Reuses the diff text resolved above. Runs whenever git context is
+    # available in diff mode — even when ``diff_text`` is empty — so a clean or
+    # empty diff cannot leak unscoped full-scan findings (#258 review).
+    if diff_only and git_meta and git_meta.is_available:
         changed_lines = parse_changed_lines(diff_text)
-        findings = _filter_by_changed_lines(findings, changed_lines)
+        changed_set = {cf.replace("\\", "/") for cf in git_meta.changed_files}
+        findings = _filter_by_changed_lines(findings, changed_lines, changed_set)
 
     # Apply inline suppressions (#44)
     findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)
@@ -223,29 +246,50 @@ def _context_for_rule(rule: Rule, ctx: ScanContext) -> ScanContext:
 def _filter_by_changed_lines(
     findings: list[Finding],
     changed_lines: dict[str, list[tuple[int, int]]],
+    changed_files: set[str] | None = None,
 ) -> list[Finding]:
-    """Filter out line-based findings that are not on changed lines.
+    """Filter findings down to the diff scope.
 
-    File-level findings (line=None or line=0) are kept regardless.
+    Diff-mode semantics (#199): a finding survives only if it belongs to the
+    change set.
+
+    - When ``changed_files`` is given (real diff mode), a finding whose file is
+      not in that set is **dropped** — it is pre-existing repository state, not
+      something this change introduced. Diff-aggregate findings (path ``"."`` or
+      empty, e.g. ``DIFF-SIZE``) are exempt and always kept.
+    - File-level findings (line ``None``/``0``) on a changed file are kept.
+    - Line-level findings are kept only when their line falls on a changed
+      range. If the file changed but produced no parseable ranges (rename,
+      binary, parse gap), findings are kept conservatively so scoping never
+      *loses* signal.
+    - When ``changed_files`` is ``None`` (legacy/unit callers), the file is not
+      filtered — only the changed-line check applies.
     """
     filtered: list[Finding] = []
     for finding in findings:
-        # File-level findings always pass through
-        if not finding.line or finding.line == 0:
-            filtered.append(finding)
-            continue
-
         rel_path = finding.path.replace("\\", "/")
-        if rel_path not in changed_lines:
-            # File not in diff at all — keep finding (shouldn't happen in diff mode,
-            # but be conservative)
+
+        # Diff-aggregate findings carry no concrete file path; never filter them.
+        is_aggregate = rel_path in ("", ".")
+
+        if changed_files is not None and not is_aggregate and rel_path not in changed_files:
+            # Belongs to a file outside the diff — pre-existing state.
+            continue
+
+        # File-level findings (and aggregates) always pass through.
+        if is_aggregate or not finding.line:
             filtered.append(finding)
             continue
 
-        # Check if finding line falls within any changed range
+        if rel_path not in changed_lines:
+            # File is in the diff but has no parseable changed lines (rename,
+            # binary, mode-only, or a parse gap) — keep conservatively.
+            filtered.append(finding)
+            continue
+
+        # Keep only if the finding line falls within a changed range.
         ranges = changed_lines[rel_path]
-        in_range = any(start <= finding.line <= end for start, end in ranges)
-        if in_range:
+        if any(start <= finding.line <= end for start, end in ranges):
             filtered.append(finding)
 
     return filtered

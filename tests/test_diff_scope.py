@@ -7,6 +7,7 @@ from pathlib import Path
 from vibeguard.config import VibeGuardConfig
 from vibeguard.models import GitMetadata, ScanContext
 from vibeguard.rules.risky_diff import RiskyDiffRule
+from vibeguard.scanner import run_scan
 
 
 def _diff_ctx(tmp_path: Path, changed_files: list[str]) -> ScanContext:
@@ -89,3 +90,51 @@ class TestDiffScope:
         )
         findings = self.rule.scan(ctx)
         assert not any(f.id in ("DIFF-SIZE", "DIFF-BREADTH", "DIFF-RISK-FILES") for f in findings)
+
+
+class TestDegradedGitDiagnostic:
+    """Surfacing degraded git context as a scan diagnostic (#182)."""
+
+    def test_head_only_strategy_emits_warning(self, tmp_path: Path):
+        (tmp_path / "app.py").write_text("x = 1\n")
+        meta = GitMetadata(
+            is_available=True,
+            changed_files=[],
+            diff_strategy="head-only",
+        )
+        result = run_scan(tmp_path, VibeGuardConfig(), diff_only=True, git_meta=meta)
+        assert any("comparing against HEAD only" in e for e in result.errors)
+
+    def test_head_only_shallow_adds_fetch_depth_hint(self, tmp_path: Path):
+        (tmp_path / "app.py").write_text("x = 1\n")
+        meta = GitMetadata(
+            is_available=True,
+            changed_files=[],
+            diff_strategy="head-only",
+            is_shallow=True,
+        )
+        result = run_scan(tmp_path, VibeGuardConfig(), diff_only=True, git_meta=meta)
+        assert any("fetch-depth: 0" in e for e in result.errors)
+
+    def test_merge_base_strategy_is_quiet(self, tmp_path: Path):
+        (tmp_path / "app.py").write_text("x = 1\n")
+        meta = GitMetadata(
+            is_available=True,
+            base_branch="main",
+            changed_files=[],
+            diff_strategy="merge-base",
+        )
+        result = run_scan(tmp_path, VibeGuardConfig(), diff_only=True, git_meta=meta)
+        assert not any("comparing against HEAD only" in e for e in result.errors)
+
+    def test_git_warnings_are_surfaced(self, tmp_path: Path):
+        (tmp_path / "app.py").write_text("x = 1\n")
+        meta = GitMetadata(
+            is_available=True,
+            base_branch="main",
+            changed_files=[],
+            diff_strategy="merge-base",
+            warnings=["Requested base ref 'origin/nope' could not be verified; ..."],
+        )
+        result = run_scan(tmp_path, VibeGuardConfig(), diff_only=True, git_meta=meta)
+        assert any("origin/nope" in e for e in result.errors)

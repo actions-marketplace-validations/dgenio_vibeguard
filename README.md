@@ -199,6 +199,7 @@ Scans a repository and prints findings. **Always exits 0** (informational).
 vibeguard scan
 vibeguard scan --path .
 vibeguard scan --diff                  # only changed files (requires git)
+vibeguard scan --diff --base origin/develop  # compare against a non-default base
 vibeguard scan --json                  # machine-readable output
 vibeguard scan --markdown              # for PR comments
 vibeguard scan --verbose               # detailed descriptions
@@ -212,7 +213,19 @@ Same as `scan` but **exits 1** when findings meet or exceed the threshold.
 ```bash
 vibeguard gate --path . --fail-on high
 vibeguard gate --diff --fail-on medium
+vibeguard gate --diff --base origin/develop --fail-on medium
 ```
+
+#### Diff-mode scope
+
+In `--diff` mode VibeGuard reports only findings **introduced or touched by the
+change set** — findings whose file is not part of the diff (pre-existing
+repository state) are not reported, so a PR gate cannot be blocked by unrelated
+history. The base ref is resolved as: `--base` flag → `git.base_branch` config →
+automatic detection (`origin/main` → `origin/master` → `main` → `master`). When
+no base can be detected the scan degrades to `git diff HEAD` and emits a visible
+diagnostic — in CI use `fetch-depth: 0` (and/or `--base`) so the base branch is
+available. See [docs/stability-contract.md](docs/stability-contract.md).
 
 ### `vibeguard publish-check`
 

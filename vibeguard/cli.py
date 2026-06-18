@@ -336,6 +336,18 @@ def scan(
         bool,
         typer.Option("--diff", help="Scan only changed files (requires git)"),
     ] = False,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            help=(
+                "Base ref for --diff comparisons (base...HEAD). Overrides the "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
+                'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
+            ),
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output findings as JSON"),
@@ -420,7 +432,10 @@ def scan(
 
     git_meta = None
     if diff:
-        git_meta = get_git_metadata(path.resolve())
+        # --base flag wins over git.base_branch config; both are optional and
+        # fall back to automatic base detection inside get_git_metadata.
+        effective_base = base or cfg.git.base_branch
+        git_meta = get_git_metadata(path.resolve(), base_branch=effective_base)
         if not git_meta.is_available:
             err_console.print(
                 f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
@@ -495,6 +510,18 @@ def gate(
         bool,
         typer.Option("--diff", help="Scan only changed files (requires git)"),
     ] = False,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            help=(
+                "Base ref for --diff comparisons (base...HEAD). Overrides the "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
+                'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
+            ),
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output findings as JSON"),
@@ -575,7 +602,10 @@ def gate(
 
     git_meta = None
     if diff:
-        git_meta = get_git_metadata(path.resolve())
+        # --base flag wins over git.base_branch config; both are optional and
+        # fall back to automatic base detection inside get_git_metadata.
+        effective_base = base or cfg.git.base_branch
+        git_meta = get_git_metadata(path.resolve(), base_branch=effective_base)
         if not git_meta.is_available:
             err_console.print(
                 f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"

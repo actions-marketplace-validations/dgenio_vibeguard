@@ -3,14 +3,63 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from vibeguard.cli import app
 
 runner = CliRunner()
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+class TestGateDiffBaseFlag:
+    """`--base` for diff mode (#208), end-to-end through the CLI."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        if shutil.which("git") is None:
+            pytest.skip("git not installed")
+        root = tmp_path / "repo"
+        root.mkdir()
+        _git(root, "init", "-q", "-b", "trunk")
+        _git(root, "config", "user.email", "t@example.com")
+        _git(root, "config", "user.name", "t")
+        (root / "app.py").write_text("x = 1\n")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "init")
+        # A feature branch with a benign change off the non-default base.
+        _git(root, "checkout", "-q", "-b", "feature")
+        (root / "app.py").write_text("x = 1\ny = 2\n")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "edit")
+        return root
+
+    def test_diff_with_non_default_base_runs(self, repo: Path):
+        result = runner.invoke(app, ["gate", "--path", str(repo), "--diff", "--base", "trunk"])
+        # Benign change → gate passes (exit 0); the point is that an explicit
+        # non-main base resolves and is used without falling back/erroring.
+        assert result.exit_code == 0
+
+    def test_invalid_base_surfaces_warning_not_silent(self, repo: Path):
+        result = runner.invoke(
+            app, ["scan", "--path", str(repo), "--diff", "--base", "origin/nope"]
+        )
+        assert result.exit_code == 0  # scan is informational
+        assert "origin/nope" in result.output
 
 
 class TestScanE2ENodePackage:
