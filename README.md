@@ -338,6 +338,8 @@ policy: balanced
 fail_on: high
 
 ignore:
+  # gitignore-style patterns (same syntax as .vibeguardignore and .gitignore);
+  # multi-segment patterns like packages/*/build/ are supported.
   paths:
     - .git/
     - node_modules/
@@ -345,6 +347,14 @@ ignore:
     - dist/
     - build/
   findings: []        # suppress specific finding IDs
+
+scanner:
+  max_file_size_kb: 1024
+  # Honor the scan root's .gitignore by default. Git-tracked files are always
+  # scanned (so a committed .env still triggers SEC-ENV); set this to false to
+  # scan gitignored files too. Ignore precedence, lowest to highest:
+  #   ignore.paths -> .vibeguardignore -> .gitignore
+  respect_gitignore: true
 
 secrets:
   enabled: true
