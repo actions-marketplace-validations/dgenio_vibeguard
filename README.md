@@ -202,9 +202,21 @@ vibeguard scan --diff                  # only changed files (requires git)
 vibeguard scan --diff --base origin/develop  # compare against a non-default base
 vibeguard scan --json                  # machine-readable output
 vibeguard scan --markdown              # for PR comments
+vibeguard scan --sarif                 # GitHub code scanning
+vibeguard scan --rdjson                # reviewdog (GitHub/GitLab/Gerrit/Bitbucket)
+vibeguard scan --sonar                 # SonarQube generic issue import
 vibeguard scan --verbose               # detailed descriptions
 vibeguard scan --fail-on medium        # set threshold (informational only)
+
+vibeguard scan --sarif --output vibeguard.sarif   # write to a file (no shell redirection)
+vibeguard gate --report sarif=vg.sarif --report pr-comment=comment.md  # several reports, one scan
 ```
+
+Output formats can be written to a file with `--output PATH` (`-` = stdout), or
+emitted several at once from a single scan with the repeatable
+`--report FORMAT=PATH`. See [docs/output-schemas.md](docs/output-schemas.md) for
+every format (including the machine-actionable `remediation` metadata and the
+SARIF code-scanning result cap).
 
 ### `vibeguard gate`
 

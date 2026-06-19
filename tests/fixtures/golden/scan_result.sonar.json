@@ -1,0 +1,66 @@
+{
+  "issues": [
+    {
+      "engineId": "vibeguard",
+      "ruleId": "SEC-AWSACCESSKEY",
+      "type": "VULNERABILITY",
+      "severity": "BLOCKER",
+      "primaryLocation": {
+        "message": "AWS Access Key ID detected: A likely AWS Access Key ID was found in `src/config.py` at line 9. Committed secrets can be exploited by anyone with repo access.",
+        "filePath": "src/config.py",
+        "textRange": {
+          "startLine": 9,
+          "endLine": 9
+        }
+      }
+    },
+    {
+      "engineId": "vibeguard",
+      "ruleId": "MAP-DIST",
+      "type": "VULNERABILITY",
+      "severity": "CRITICAL",
+      "primaryLocation": {
+        "message": "Source map file in publish directory: Source map `dist/app.js.map` is in a publish directory. Source maps reveal original source code if shipped to production.",
+        "filePath": "dist/app.js.map"
+      }
+    },
+    {
+      "engineId": "vibeguard",
+      "ruleId": "RISK-EVALEXEC",
+      "type": "CODE_SMELL",
+      "severity": "MAJOR",
+      "primaryLocation": {
+        "message": "Risk-sensitive area changed: eval() or exec() usage: `src/server.js` line 24 touches a risk-sensitive area (eval/exec). This is not a confirmed vulnerability \u2014 human review is recommended.",
+        "filePath": "src/server.js",
+        "textRange": {
+          "startLine": 24,
+          "endLine": 24
+        }
+      }
+    },
+    {
+      "engineId": "vibeguard",
+      "ruleId": "TEST-MISSING",
+      "type": "CODE_SMELL",
+      "severity": "MINOR",
+      "primaryLocation": {
+        "message": "Source changes without test changes: 3 source file(s) changed but no test files were modified. Changed files include: `src/auth.py`, `src/server.py`, `src/db.py`",
+        "filePath": "src/auth.py"
+      }
+    },
+    {
+      "engineId": "vibeguard",
+      "ruleId": "AI-AIGENERATED",
+      "type": "CODE_SMELL",
+      "severity": "INFO",
+      "primaryLocation": {
+        "message": "AI-generated code comment: `src/utils.js` line 1 contains a comment marking the file as AI-generated. Useful as provenance; informational only.",
+        "filePath": "src/utils.js",
+        "textRange": {
+          "startLine": 1,
+          "endLine": 1
+        }
+      }
+    }
+  ]
+}

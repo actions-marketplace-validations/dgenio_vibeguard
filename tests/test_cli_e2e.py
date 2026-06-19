@@ -321,3 +321,101 @@ class TestVibeguardIgnore:
         # .log file should be excluded, .vibeguardignore and app.py counted
         finding_paths = [f["path"] for f in data["findings"]]
         assert not any("debug.log" in p for p in finding_paths)
+
+
+class TestOutputAndReport:
+    """`--output` / `--report` file destinations (#233)."""
+
+    pkg_path = str(EXAMPLES_DIR / "vulnerable-node-package")
+
+    def test_output_writes_sarif_file(self, tmp_path: Path) -> None:
+        dest = tmp_path / "vibeguard.sarif"
+        result = runner.invoke(
+            app, ["scan", "--path", self.pkg_path, "--sarif", "--output", str(dest)]
+        )
+        assert result.exit_code == 0
+        data = json.loads(dest.read_text())
+        assert data["version"] == "2.1.0"
+        # stdout must not also carry the SARIF (it went to the file).
+        assert "$schema" not in result.stdout
+
+    def test_output_json_byte_identical_to_stdout(self, tmp_path: Path) -> None:
+        dest = tmp_path / "out.json"
+        runner.invoke(app, ["scan", "--path", self.pkg_path, "--json", "--output", str(dest)])
+        stdout_result = runner.invoke(app, ["scan", "--path", self.pkg_path, "--json"])
+        # File content equals stdout (modulo the single trailing newline echo adds).
+        assert dest.read_text().rstrip("\n") == stdout_result.stdout.rstrip("\n")
+
+    def test_output_dash_means_stdout(self) -> None:
+        result = runner.invoke(app, ["scan", "--path", self.pkg_path, "--json", "--output", "-"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["findings"] is not None
+
+    def test_output_without_format_flag_errors(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app, ["scan", "--path", self.pkg_path, "--output", str(tmp_path / "x")]
+        )
+        assert result.exit_code == 2
+
+    def test_output_unwritable_path_fails_closed(self, tmp_path: Path) -> None:
+        bad = tmp_path / "nonexistent-dir" / "out.json"
+        result = runner.invoke(
+            app, ["scan", "--path", self.pkg_path, "--json", "--output", str(bad)]
+        )
+        assert result.exit_code == 2
+
+    def test_report_multi_format_single_scan(self, tmp_path: Path) -> None:
+        sarif = tmp_path / "vg.sarif"
+        comment = tmp_path / "comment.md"
+        result = runner.invoke(
+            app,
+            [
+                "gate",
+                "--path",
+                self.pkg_path,
+                "--fail-on",
+                "high",
+                "--report",
+                f"sarif={sarif}",
+                "--report",
+                f"pr-comment={comment}",
+            ],
+        )
+        # gate still enforces (the node package has high findings).
+        assert result.exit_code == 1
+        assert json.loads(sarif.read_text())["version"] == "2.1.0"
+        assert "VibeGuard" in comment.read_text()
+
+    def test_report_rejects_bad_spec(self, tmp_path: Path) -> None:
+        result = runner.invoke(app, ["scan", "--path", self.pkg_path, "--report", "sarif"])
+        assert result.exit_code == 2
+
+    def test_report_rejects_unknown_format(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app, ["scan", "--path", self.pkg_path, "--report", f"bogus={tmp_path / 'x'}"]
+        )
+        assert result.exit_code == 2
+
+    def test_report_cannot_mix_with_format_flag(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app,
+            ["scan", "--path", self.pkg_path, "--json", "--report", f"sarif={tmp_path / 'x'}"],
+        )
+        assert result.exit_code == 2
+
+    def test_publish_check_output_to_file(self, tmp_path: Path) -> None:
+        runner.invoke(
+            app,
+            [
+                "publish-check",
+                "--path",
+                str(EXAMPLES_DIR / "vulnerable-node-package"),
+                "--json",
+                "--output",
+                str(tmp_path / "pub.json"),
+            ],
+        )
+        # exit code depends on findings; the file must be valid JSON regardless.
+        assert (tmp_path / "pub.json").exists()
+        data = json.loads((tmp_path / "pub.json").read_text())
+        assert "manifest" in data and "result" in data

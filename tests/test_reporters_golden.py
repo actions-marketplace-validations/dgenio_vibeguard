@@ -32,7 +32,9 @@ from tests.fixtures.canonical_scan_result import build_canonical_result
 from vibeguard.reporters.console import build_findings_table
 from vibeguard.reporters.json_reporter import render_json
 from vibeguard.reporters.markdown import render_markdown
+from vibeguard.reporters.rdjson import render_rdjson
 from vibeguard.reporters.sarif import render_sarif
+from vibeguard.reporters.sonar import render_sonar
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "golden"
 UPDATE_ENV_VAR = "PYTEST_UPDATE_GOLDENS"
@@ -79,6 +81,16 @@ class TestGoldenReporters:
         result = build_canonical_result()
         rendered = render_sarif(result)
         _check_golden("scan_result.sarif", rendered)
+
+    def test_rdjson_reporter_matches_golden(self) -> None:
+        result = build_canonical_result()
+        rendered = render_rdjson(result)
+        _check_golden("scan_result.rdjson", rendered)
+
+    def test_sonar_reporter_matches_golden(self) -> None:
+        result = build_canonical_result()
+        rendered = render_sonar(result)
+        _check_golden("scan_result.sonar.json", rendered)
 
     def test_json_golden_is_valid_json(self) -> None:
         """Defence-in-depth: the JSON golden must parse and round-trip."""

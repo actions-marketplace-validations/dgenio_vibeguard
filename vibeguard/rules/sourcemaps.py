@@ -5,7 +5,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.models import (
+    Confidence,
+    Finding,
+    Remediation,
+    RemediationKind,
+    ScanContext,
+    Severity,
+)
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -51,6 +58,16 @@ class SourceMapsRule(Rule):
                             ),
                             tags=["sourcemaps", "packaging"],
                             confidence=Confidence.HIGH,
+                            remediation=Remediation(
+                                kind=RemediationKind.ADD_IGNORE_ENTRY,
+                                target=".npmignore",
+                                content="*.map",
+                                description=(
+                                    "Add `*.map` to `.npmignore` so source maps are excluded "
+                                    "from the published package."
+                                ),
+                                confidence=Confidence.HIGH,
+                            ),
                         )
                     )
                 else:
@@ -70,6 +87,16 @@ class SourceMapsRule(Rule):
                             ),
                             tags=["sourcemaps"],
                             confidence=Confidence.HIGH,
+                            remediation=Remediation(
+                                kind=RemediationKind.ADD_IGNORE_ENTRY,
+                                target=".npmignore",
+                                content="**/*.map",
+                                description=(
+                                    "Add `**/*.map` to `.npmignore` so source maps are excluded "
+                                    "from the published package."
+                                ),
+                                confidence=Confidence.HIGH,
+                            ),
                         )
                     )
                 continue
@@ -108,6 +135,21 @@ class SourceMapsRule(Rule):
                                 ),
                                 tags=["sourcemaps"],
                                 confidence=Confidence.HIGH,
+                                remediation=Remediation(
+                                    # The exact offending line is known, so this
+                                    # is a precise delete-the-comment edit that
+                                    # maps onto a SARIF `fix` / code-scanning
+                                    # suggestion.
+                                    kind=RemediationKind.REPLACE_SPAN,
+                                    target=rel,
+                                    line=lineno,
+                                    content="",
+                                    description=(
+                                        "Delete the `//# sourceMappingURL=` comment from the "
+                                        "published bundle."
+                                    ),
+                                    confidence=Confidence.HIGH,
+                                ),
                             )
                         )
                         break  # One finding per file is enough
@@ -136,6 +178,16 @@ class SourceMapsRule(Rule):
                             ),
                             tags=["sourcemaps", "npm"],
                             confidence=Confidence.HIGH,
+                            remediation=Remediation(
+                                kind=RemediationKind.ADD_IGNORE_ENTRY,
+                                target=".npmignore",
+                                content="*.map",
+                                description=(
+                                    "Add `*.map` to `.npmignore` (or drop `*.map` from the "
+                                    "`files` array) so source maps are excluded from publish."
+                                ),
+                                confidence=Confidence.MEDIUM,
+                            ),
                         )
                     )
 
