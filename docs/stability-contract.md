@@ -97,9 +97,14 @@ from a misconfiguration.
   all use gitignore syntax (via `pathspec`). Multi-segment patterns such as
   `packages/*/build/` work everywhere; bare directory names (`node_modules/`)
   match at any depth (#216).
-- **Precedence**, lowest to highest: `ignore.paths` → `.vibeguardignore` →
-  `.gitignore`. A `!` negation in a higher-precedence source re-includes a path
-  the lower source ignored.
+- **Two ignore layers.** The *hard-ignore* layer merges `ignore.paths` and
+  `.vibeguardignore` into one ordered gitignore spec; within it later patterns
+  win, so a `!` negation in `.vibeguardignore` can re-include a path
+  `ignore.paths` matched. Paths it matches are always skipped, and ignored
+  directories are pruned. `.gitignore` is a separate layer, applied only when
+  `respect_gitignore` is on: it can exclude additional **untracked** files but
+  cannot re-include a path the hard-ignore layer already excluded, and never
+  excludes a git-tracked file.
 - **`.gitignore` is honored by default** (`scanner.respect_gitignore: true`,
   #211). Gitignored, *untracked* files are skipped; **git-tracked files are
   always scanned**, so a committed-but-usually-ignored file (e.g. a checked-in

@@ -352,8 +352,9 @@ scanner:
   max_file_size_kb: 1024
   # Honor the scan root's .gitignore by default. Git-tracked files are always
   # scanned (so a committed .env still triggers SEC-ENV); set this to false to
-  # scan gitignored files too. Ignore precedence, lowest to highest:
-  #   ignore.paths -> .vibeguardignore -> .gitignore
+  # scan gitignored files too. config ignore.paths + .vibeguardignore form the
+  # hard-ignore layer applied first; .gitignore only excludes additional
+  # *untracked* files and cannot re-include a hard-ignored path.
   respect_gitignore: true
 
 secrets:

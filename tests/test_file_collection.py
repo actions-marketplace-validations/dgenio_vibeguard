@@ -76,6 +76,34 @@ def _commit_all(root: Path, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Ignore-file parsing (gitignore-faithful)
+# ---------------------------------------------------------------------------
+class TestIgnoreFileParsing:
+    def test_drops_blanks_and_first_char_comments_only(self, tmp_path: Path) -> None:
+        (tmp_path / ".gitignore").write_text(
+            "# a comment\n"  # first-char # -> comment
+            "\n"  # blank
+            "  \n"  # whitespace-only -> blank
+            "build/\n"
+            "  #indented\n"  # NOT a comment in git -> kept verbatim
+        )
+        assert load_gitignore(tmp_path) == ["build/", "  #indented"]
+
+    def test_pattern_text_preserved_verbatim(self, tmp_path: Path) -> None:
+        """Lines are passed to pathspec unstripped; pathspec applies gitignore's
+        own trailing-whitespace/escape rules rather than us pre-stripping."""
+        (tmp_path / ".vibeguardignore").write_text("logs/ \n")
+        assert load_ignorefile(tmp_path) == ["logs/ "]
+        # And the preserved pattern still prunes the directory (pathspec strips
+        # the insignificant trailing space itself).
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "logs/app.log").write_text("x\n")
+        (tmp_path / "keep.py").write_text("x = 1\n")
+        cfg = VibeGuardConfig(ignore={"paths": []})
+        assert _collect(tmp_path, cfg) == {"keep.py", ".vibeguardignore"}
+
+
+# ---------------------------------------------------------------------------
 # #216 — unified ignore-pattern semantics
 # ---------------------------------------------------------------------------
 class TestUnifiedIgnoreSemantics:

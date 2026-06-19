@@ -536,18 +536,22 @@ class VibeGuardConfig(BaseModel):
 
 
 def _read_ignore_lines(file_path: Path) -> list[str]:
-    """Return non-blank, non-comment lines from an ignore file.
+    r"""Return non-blank, non-comment lines from an ignore file, verbatim.
 
-    Shared by :func:`load_ignorefile` and :func:`load_gitignore`: blank lines
-    and ``#`` comments are dropped; negation (``!``) and directory patterns are
-    passed through unchanged for ``pathspec`` to interpret.
+    Shared by :func:`load_ignorefile` and :func:`load_gitignore`. Patterns are
+    passed through unchanged so ``pathspec`` can apply gitignore's own rules
+    (trailing whitespace is insignificant unless escaped with ``\``; ``\``
+    escapes). Only blank/whitespace-only lines are dropped, and a line counts as
+    a comment only when ``#`` is its first character — git does not treat an
+    indented ``#`` as a comment, and stripping each line first (as an earlier
+    version did) silently changed those edge cases.
     """
     if not file_path.exists():
         return []
     return [
-        line.strip()
+        line
         for line in file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        if line.strip() and not line.strip().startswith("#")
+        if line.strip() and not line.startswith("#")
     ]
 
 
@@ -608,8 +612,10 @@ package_allowlist:
 scanner:
   max_file_size_kb: 1024  # skip files larger than this (KB)
   # Honor the scan root's .gitignore (git-tracked files are always scanned).
-  # Set false to also scan gitignored files. Ignore precedence:
-  # ignore.paths -> .vibeguardignore -> .gitignore.
+  # Set false to also scan gitignored files. config ignore.paths +
+  # .vibeguardignore are the hard-ignore layer applied first; .gitignore only
+  # excludes additional *untracked* files and cannot re-include a hard-ignored
+  # path.
   respect_gitignore: true
 
 # git:
