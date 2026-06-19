@@ -52,10 +52,23 @@ def _build_fixes(finding: Finding) -> list[dict[str, Any]] | None:
             "deletedRegion": {"startLine": line, "startColumn": 1, "endColumn": 1},
             "insertedContent": {"text": (rem.content or "") + "\n"},
         }
-    else:  # REPLACE_SPAN
-        replacement = {"deletedRegion": {"startLine": line, "endLine": line}}
-        if rem.content:
-            replacement["insertedContent"] = {"text": rem.content}
+    elif rem.content:  # REPLACE_SPAN with replacement text
+        replacement = {
+            "deletedRegion": {"startLine": line, "endLine": line},
+            "insertedContent": {"text": rem.content},
+        }
+    else:  # REPLACE_SPAN with empty content == delete the whole line
+        # Span from column 1 of ``line`` to column 1 of the next line so the
+        # line and its trailing newline are removed, rather than blanking the
+        # line in place (which would leave an empty line behind).
+        replacement = {
+            "deletedRegion": {
+                "startLine": line,
+                "startColumn": 1,
+                "endLine": line + 1,
+                "endColumn": 1,
+            }
+        }
 
     return [
         {

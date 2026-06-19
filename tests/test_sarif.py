@@ -301,7 +301,12 @@ class TestSarifFixes:
         assert fix["description"]["text"] == "Delete the sourceMappingURL comment."
         change = fix["artifactChanges"][0]
         assert change["artifactLocation"]["uri"] == "dist/app.js"
-        assert change["replacements"][0]["deletedRegion"]["startLine"] == 42
+        # Empty content == delete the whole line: the region spans from column 1
+        # of the line to column 1 of the next line (removing the trailing
+        # newline too) and carries no insertedContent, so no blank line is left.
+        region = change["replacements"][0]["deletedRegion"]
+        assert region == {"startLine": 42, "startColumn": 1, "endLine": 43, "endColumn": 1}
+        assert "insertedContent" not in change["replacements"][0]
 
     def test_add_line_emits_insertion_fix(self) -> None:
         result = self._finding_with(

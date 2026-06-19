@@ -34,7 +34,10 @@ _SONAR_SEVERITY: dict[Severity, str] = {
 # Rule-family tags that mark a finding as a security vulnerability rather than a
 # maintainability smell. Anything carrying one of these tags is typed
 # VULNERABILITY; everything else is CODE_SMELL (VibeGuard never asserts a
-# confirmed runtime BUG).
+# confirmed runtime BUG). Some rules tag findings only with their family
+# (e.g. the IaC rule emits ``["iac", "terraform", <id>]`` without a generic
+# ``security`` tag), so security families are listed explicitly here rather
+# than relying on a single ``security`` tag being present on every finding.
 _VULNERABILITY_TAGS = frozenset(
     {
         "security",
@@ -48,6 +51,9 @@ _VULNERABILITY_TAGS = frozenset(
         "prompt-injection",
         "packaging",
         "sourcemaps",
+        "iac",
+        "terraform",
+        "kubernetes",
     }
 )
 

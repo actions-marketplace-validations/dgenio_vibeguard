@@ -61,6 +61,14 @@ class TestSonarReporter:
         assert json.loads(render_sonar(vuln))["issues"][0]["type"] == "VULNERABILITY"
         assert json.loads(render_sonar(smell))["issues"][0]["type"] == "CODE_SMELL"
 
+    def test_iac_family_tags_are_vulnerabilities(self) -> None:
+        # The IaC rule tags findings with their family (e.g. ``iac``/``terraform``)
+        # but not a generic ``security`` tag, so the family tags themselves must
+        # classify the finding as a VULNERABILITY rather than a CODE_SMELL.
+        for tags in (["iac", "terraform"], ["iac", "kubernetes"]):
+            result = ScanResult(findings=[_finding("IAC", Severity.HIGH, tags)])
+            assert json.loads(render_sonar(result))["issues"][0]["type"] == "VULNERABILITY"
+
     def test_no_textrange_when_line_missing(self) -> None:
         result = ScanResult(findings=[_finding("X", Severity.HIGH, ["secrets"], line=None)])
         issue = json.loads(render_sonar(result))["issues"][0]
