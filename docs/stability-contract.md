@@ -101,7 +101,10 @@ from a misconfiguration.
   `.vibeguardignore` into one ordered gitignore spec; within it later patterns
   win, so a `!` negation in `.vibeguardignore` can re-include a path
   `ignore.paths` matched. Paths it matches are always skipped, and ignored
-  directories are pruned. `.gitignore` is a separate layer, applied only when
+  directories are pruned — so, as with git, a `!` negation cannot re-include a
+  path whose parent directory the hard-ignore layer excluded, because that
+  directory is pruned during the walk and never descended. `.gitignore` is a
+  separate layer, applied only when
   `respect_gitignore` is on: it can exclude additional **untracked** files but
   cannot re-include a path the hard-ignore layer already excluded, and never
   excludes a git-tracked file.

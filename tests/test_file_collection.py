@@ -171,6 +171,21 @@ class TestDirectoryPruning:
         assert "b.secret" not in got  # still ignored by ignore.paths
         assert ".vibeguardignore" in got
 
+    def test_negation_cannot_reinclude_under_pruned_directory(self, tmp_path: Path) -> None:
+        """A ``!`` negation cannot re-include a file whose parent directory the
+        hard-ignore layer excluded: the directory is pruned during the walk and
+        never descended, so the file is never enumerated. This matches git's own
+        documented limitation and is asserted here so the stability contract's
+        caveat stays honest."""
+        cfg = VibeGuardConfig(ignore={"paths": ["build/"]})
+        (tmp_path / "app.py").write_text("x = 1\n")
+        (tmp_path / "build").mkdir()
+        (tmp_path / "build/keep.py").write_text("y = 2\n")
+        (tmp_path / ".vibeguardignore").write_text("!build/keep.py\n")
+        got = _collect(tmp_path, cfg)
+        assert "build/keep.py" not in got  # parent dir pruned before descent
+        assert "app.py" in got
+
     @pytest.mark.skipif(
         not hasattr(Path, "symlink_to"), reason="symlinks unsupported on this platform"
     )
