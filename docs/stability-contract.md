@@ -91,6 +91,34 @@ from a misconfiguration.
   **fails closed** with exit `2` rather than silently falling back
   (`tests/test_config.py`).
 
+### Ignore semantics and scan scope
+
+- **One pattern grammar.** `ignore.paths`, `.vibeguardignore`, and `.gitignore`
+  all use gitignore syntax (via `pathspec`). Multi-segment patterns such as
+  `packages/*/build/` work everywhere; bare directory names (`node_modules/`)
+  match at any depth (#216).
+- **Two ignore layers.** The *hard-ignore* layer merges `ignore.paths` and
+  `.vibeguardignore` into one ordered gitignore spec; within it later patterns
+  win, so a `!` negation in `.vibeguardignore` can re-include a path
+  `ignore.paths` matched. Paths it matches are always skipped, and ignored
+  directories are pruned — so, as with git, a `!` negation cannot re-include a
+  path whose parent directory the hard-ignore layer excluded, because that
+  directory is pruned during the walk and never descended. `.gitignore` is a
+  separate layer, applied only when
+  `respect_gitignore` is on: it can exclude additional **untracked** files but
+  cannot re-include a path the hard-ignore layer already excluded, and never
+  excludes a git-tracked file.
+- **`.gitignore` is honored by default** (`scanner.respect_gitignore: true`,
+  #211). Gitignored, *untracked* files are skipped; **git-tracked files are
+  always scanned**, so a committed-but-usually-ignored file (e.g. a checked-in
+  `.env`) still triggers `SEC-ENV`. This is a behavior change from earlier
+  releases — set `scanner.respect_gitignore: false` to restore scanning of
+  gitignored files. When `git` is unavailable the scan-root `.gitignore` is
+  still applied as a plain pattern file, without the tracked-file carve-out.
+- Scanning is otherwise unchanged: only regular, non-binary, size-limited files
+  are collected, and output ordering stays sorted
+  (`tests/test_file_collection.py`).
+
 ## Finding ID and rule metadata stability
 
 - **Finding IDs are stable identifiers.** Once a finding ID ships in a

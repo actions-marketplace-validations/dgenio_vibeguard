@@ -107,6 +107,26 @@ def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
         return GitMetadata(is_available=False, error=str(exc))
 
 
+def get_tracked_files(root: Path) -> set[str] | None:
+    """Return git-tracked paths (repo-relative to ``root``), or ``None`` if git is unavailable.
+
+    Used by the file collector's ``.gitignore`` carve-out (#211): a file git
+    already tracks is scanned even when a ``.gitignore`` rule would otherwise
+    exclude it, so a committed-but-usually-ignored file — e.g. the checked-in
+    ``.env`` in the demo fixtures — still triggers ``SEC-ENV``.
+
+    Returns an empty set for a git repo with no tracked files, and ``None`` when
+    ``root`` is not inside a working tree, letting the caller fall back to pure
+    ``pathspec`` matching with the carve-out disabled. ``core.quotePath=false``
+    keeps unicode paths literal so they line up with the collector's relative
+    paths (#220).
+    """
+    if not _run_git(root, ["git", "rev-parse", "--git-dir"]):
+        return None
+    raw = _run_git(root, ["git", "-c", "core.quotePath=false", "ls-files"])
+    return {line for line in raw.splitlines() if line}
+
+
 def _run_git(root: Path, cmd: list[str]) -> str:
     try:
         result = subprocess.run(

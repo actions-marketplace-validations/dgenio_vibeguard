@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pathspec
 
-from vibeguard.config import VibeGuardConfig, load_ignorefile
-from vibeguard.git import get_diff_text, get_git_metadata, parse_changed_lines
+from vibeguard.config import (
+    VibeGuardConfig,
+    compile_pathspec,
+    load_gitignore,
+    load_ignorefile,
+)
+from vibeguard.git import (
+    get_diff_text,
+    get_git_metadata,
+    get_tracked_files,
+    parse_changed_lines,
+)
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
 from vibeguard.rules.base import Rule
 from vibeguard.rules.builtin import BUILTIN_RULES
@@ -34,45 +45,88 @@ def _is_binary(path: Path) -> bool | None:
 def _collect_files(
     root: Path,
     config: VibeGuardConfig,
-    ignore_spec: pathspec.PathSpec | None = None,
+    ignore_spec: pathspec.PathSpec,
+    gitignore_spec: pathspec.PathSpec | None = None,
+    tracked: set[str] | None = None,
 ) -> tuple[list[Path], list[str]]:
-    """Walk the root directory and return non-ignored, non-binary, size-limited files."""
+    """Walk ``root`` and return non-ignored, non-binary, size-limited files.
+
+    Directory pruning (#219): ignored directories (``node_modules/``, ``.venv/``,
+    …) are skipped *during* the walk by mutating ``dirnames`` in place, so their
+    contents are never enumerated or stat'd — the cost that dominates scans of
+    real JS/Python repos. Only the hard ignore set (``ignore.paths`` config +
+    ``.vibeguardignore``, unified under gitignore semantics — #216) prunes
+    directories; ``.gitignore`` (#211) is applied per file so a git-tracked file
+    living under a gitignored directory is still scanned.
+
+    ``.gitignore`` handling (#211): when ``gitignore_spec`` is given, a file it
+    matches is skipped unless it is in ``tracked``. ``tracked`` is ``None`` when
+    git is unavailable, which disables the carve-out.
+
+    The final ``sorted(files)`` order is preserved regardless of walk order.
+    """
     files: list[Path] = []
     skipped: list[str] = []
     max_bytes = config.scanner.max_file_size_kb * 1024
+    gitignored_skipped = 0
 
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        rel_str = str(rel).replace("\\", "/")
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = Path(dirpath).relative_to(root)
 
-        if config.is_path_ignored(rel_str):
-            continue
-        if ignore_spec and ignore_spec.match_file(rel_str):
-            continue
+        # Prune ignored directories in place so os.walk never descends into them
+        # (#219). A directory matches a gitignore pattern only when its path
+        # carries a trailing slash, so append one before testing.
+        dirnames[:] = [
+            d for d in dirnames if not ignore_spec.match_file((rel_dir / d).as_posix() + "/")
+        ]
 
-        # Size check
-        try:
-            size = path.stat().st_size
-        except OSError:
-            skipped.append(f"Cannot stat: {rel_str}")
-            continue
+        for name in filenames:
+            rel_str = (rel_dir / name).as_posix()
 
-        if size > max_bytes:
-            skipped.append(f"Skipped (>{config.scanner.max_file_size_kb} KB): {rel_str}")
-            continue
+            if ignore_spec.match_file(rel_str):
+                continue
+            if (
+                gitignore_spec is not None
+                and gitignore_spec.match_file(rel_str)
+                and (tracked is None or rel_str not in tracked)
+            ):
+                gitignored_skipped += 1
+                continue
 
-        # Binary check
-        binary = _is_binary(path)
-        if binary is None:
-            skipped.append(f"Cannot read: {rel_str}")
-            continue
-        if binary:
-            skipped.append(f"Skipped (binary): {rel_str}")
-            continue
+            path = Path(dirpath) / name
+            # os.walk lists symlinks-to-files (and the odd special entry) under
+            # filenames; keep the previous rglob behaviour of scanning only
+            # regular files.
+            if not path.is_file():
+                continue
 
-        files.append(path)
+            # Size check
+            try:
+                size = path.stat().st_size
+            except OSError:
+                skipped.append(f"Cannot stat: {rel_str}")
+                continue
+
+            if size > max_bytes:
+                skipped.append(f"Skipped (>{config.scanner.max_file_size_kb} KB): {rel_str}")
+                continue
+
+            # Binary check
+            binary = _is_binary(path)
+            if binary is None:
+                skipped.append(f"Cannot read: {rel_str}")
+                continue
+            if binary:
+                skipped.append(f"Skipped (binary): {rel_str}")
+                continue
+
+            files.append(path)
+
+    if gitignored_skipped:
+        skipped.append(
+            f"Skipped {gitignored_skipped} gitignored file(s); "
+            "set scanner.respect_gitignore: false to include them"
+        )
 
     return sorted(files), skipped
 
@@ -89,13 +143,25 @@ def run_scan(
     if git_meta is None:
         git_meta = get_git_metadata(root) if diff_only else GitMetadata(is_available=False)
 
-    # Load .vibeguardignore patterns
-    ignore_patterns = load_ignorefile(root)
-    ignore_spec = (
-        pathspec.PathSpec.from_lines("gitignore", ignore_patterns) if ignore_patterns else None
-    )
+    # Build the unified hard-ignore spec: config ``ignore.paths`` followed by
+    # ``.vibeguardignore``, both gitignore-syntax (#216). Order matters — a
+    # ``!`` negation in ``.vibeguardignore`` can re-include a path the config
+    # ignores.
+    ignore_spec = compile_pathspec((*config.ignore.paths, *load_ignorefile(root)))
 
-    all_files, skipped = _collect_files(root, config, ignore_spec)
+    # Optionally honor ``.gitignore`` (#211), with a git-tracked carve-out so a
+    # committed-but-usually-ignored file (e.g. a checked-in ``.env``) is still
+    # scanned. The carve-out (and the git call) is skipped when there is no
+    # ``.gitignore`` at the scan root.
+    gitignore_spec: pathspec.PathSpec | None = None
+    tracked: set[str] | None = None
+    if config.scanner.respect_gitignore:
+        gitignore_patterns = load_gitignore(root)
+        if gitignore_patterns:
+            gitignore_spec = compile_pathspec(tuple(gitignore_patterns))
+            tracked = get_tracked_files(root)
+
+    all_files, skipped = _collect_files(root, config, ignore_spec, gitignore_spec, tracked)
 
     changed_paths: list[Path] = []
     if git_meta.is_available and git_meta.changed_files:
