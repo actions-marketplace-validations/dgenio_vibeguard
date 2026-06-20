@@ -5,6 +5,7 @@ IDE extensions, AI coding agents — depend on:
 
 1. **Finding fingerprints** (`Finding.fingerprint`)
 2. **Repo health score** (`ScanResult.health_score`)
+2a. **Scan diagnostics** (`ScanResult.diagnostics` / `errors`)
 3. **Machine-readable diagnostics** (`vibeguard scan --diagnostics`)
 4. **Structured remediation metadata** (`Finding.remediation`, SARIF `fixes`)
 5. **SARIF ingestion safeguards** (result cap for code scanning)
@@ -114,6 +115,53 @@ Weights (locked constants in `vibeguard/scoring.py`):
 
 `weights` is included in the output so a consumer can re-derive the score
 without consulting this document.
+
+---
+
+## 2a. Scan diagnostics (`ScanResult.diagnostics`)
+
+Separate from the editor-facing `--diagnostics` reporter below, every scan
+result carries a list of **scan diagnostics** — the non-finding events that
+happened while scanning. They appear in `--json` output as
+`diagnostics` (structured) alongside the legacy `errors` array (#195).
+
+```json
+"diagnostics": [
+  {
+    "category": "rule_error",
+    "severity": "error",
+    "message": "Rule secrets failed: ...",
+    "path": null,
+    "rule": "secrets",
+    "detail": "..."
+  }
+],
+"errors": ["Rule secrets failed: ..."]
+```
+
+* **`category`** — one of a small, stable taxonomy. New categories may be
+  **added** in a minor release; existing ones are never renamed:
+
+  | Category | Meaning |
+  |---|---|
+  | `skipped_file` | A file was not scanned (binary, oversize, gitignored, or unreadable). |
+  | `plugin_load` | A third-party rule plugin failed to load (scan continued). |
+  | `git_context` | Degraded git context in `--diff` mode (e.g. no base branch; HEAD-only diff). |
+  | `rule_error` | A rule raised an exception and was skipped (scan continued). |
+  | `network` | An opt-in networked check (slopsquat registry lookup) could not complete (#191). |
+
+* **`severity`** — `info` (routine, e.g. a binary skip), `warning`, or `error`.
+  This separates expected noise from a genuinely degraded scan.
+* **`message`** — a single human-readable line. The `errors` array is exactly
+  `[d.message for d in diagnostics]`, kept as a backward-compatible flat view;
+  prefer `diagnostics` for anything that needs to react per category.
+* **`path` / `rule` / `detail`** — optional context when available.
+
+`gate --strict-errors` (and `gate.strict_errors: true`) consumes this model: it
+fails the gate when any **degraded** diagnostic is present — every category
+except a routine (`info`) `skipped_file` — so a partially-broken scan cannot
+show a green check (#218). See the [Exit codes](stability-contract.md#exit-codes)
+contract.
 
 ---
 

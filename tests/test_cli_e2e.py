@@ -193,6 +193,22 @@ class TestMutualExclusionOutput:
         assert result.exit_code == 2
 
 
+class TestMalformedConfigErrorContext:
+    """A malformed config must exit 2 and name the underlying cause (#183)."""
+
+    def test_invalid_config_value_reports_cause_and_exits_2(self, tmp_path: Path):
+        # `policy` only accepts relaxed/balanced/strict; an unknown value is a
+        # validation error whose detail should reach the operator.
+        (tmp_path / "vibeguard.yaml").write_text("policy: chaotic\n")
+        (tmp_path / "f.py").write_text("x = 1\n")
+        result = runner.invoke(app, ["gate", "--path", str(tmp_path), "--fail-on", "high"])
+        assert result.exit_code == 2
+        combined = result.stdout + (result.stderr or "")
+        assert "Invalid config" in combined
+        # The pydantic detail (the offending key) must be surfaced, not swallowed.
+        assert "policy" in combined
+
+
 class TestPathValidation:
     """`--path` must fail closed on a missing or non-directory input (#81, #83)."""
 

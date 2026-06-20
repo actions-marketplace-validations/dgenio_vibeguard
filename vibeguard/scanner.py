@@ -19,7 +19,7 @@ from vibeguard.git import (
     get_tracked_files,
     parse_changed_lines,
 )
-from vibeguard.models import Finding, GitMetadata, ScanContext, ScanResult
+from vibeguard.models import Finding, GitMetadata, ScanContext, ScanDiagnostic, ScanResult
 from vibeguard.rules.base import Rule
 from vibeguard.rules.builtin import BUILTIN_RULES
 from vibeguard.rules.plugins import discover_plugin_rules
@@ -211,29 +211,60 @@ def run_scan(
         rules.append(plugin.rule)
 
     findings: list[Finding] = []
-    errors: list[str] = []
+    # Structured scan diagnostics (#195): every non-finding event is recorded
+    # as a categorized ``ScanDiagnostic`` so consumers can react per category
+    # (and ``gate --strict-errors`` can fail closed on a degraded scan, #218).
+    # ``ScanResult.errors`` is then derived from these as the flat string view.
+    diagnostics: list[ScanDiagnostic] = []
 
-    # Surface plugin load failures as scan errors so they appear in
-    # console / JSON output without being fatal.
+    # Surface plugin load failures so they appear in console / JSON output
+    # without being fatal.
     for failure in plugin_failures:
-        errors.append(
-            f"Plugin '{failure.name}' "
-            f"({failure.distribution or 'unknown dist'}) failed to load: {failure.reason}"
+        diagnostics.append(
+            ScanDiagnostic(
+                category="plugin_load",
+                severity="error",
+                message=(
+                    f"Plugin '{failure.name}' "
+                    f"({failure.distribution or 'unknown dist'}) failed to load: {failure.reason}"
+                ),
+                rule=failure.name,
+                detail=failure.reason,
+            )
         )
 
-    # Report skipped files
-    errors.extend(skipped)
+    # Report skipped files. Routine skips (binary/oversize/gitignored) are
+    # ``info`` and never fail strict mode; unreadable/un-stattable files
+    # ("Cannot read"/"Cannot stat") are ``warning`` so a degraded scan is loud.
+    for note in skipped:
+        diagnostics.append(
+            ScanDiagnostic(
+                category="skipped_file",
+                severity="warning" if note.startswith("Cannot ") else "info",
+                message=note,
+            )
+        )
 
-    # Propagate git errors so callers know git context was degraded
+    # Propagate git errors so callers know git context was degraded.
     if diff_only and git_meta and not git_meta.is_available and git_meta.error:
-        errors.append(f"Git context unavailable: {git_meta.error}")
+        diagnostics.append(
+            ScanDiagnostic(
+                category="git_context",
+                severity="warning",
+                message=f"Git context unavailable: {git_meta.error}",
+                detail=git_meta.error,
+            )
+        )
 
     # Surface degraded git context as diagnostics instead of silently scanning
     # a narrower scope (#182). A "head-only" strategy in diff mode means base
     # detection failed and the diff degraded to `git diff HEAD`, so a PR gate
     # may report "0 findings" simply because the diff was nearly empty.
     if diff_only and git_meta and git_meta.is_available:
-        errors.extend(git_meta.warnings)
+        for warning in git_meta.warnings:
+            diagnostics.append(
+                ScanDiagnostic(category="git_context", severity="warning", message=warning)
+            )
         if git_meta.diff_strategy == "head-only":
             hint = (
                 "Could not detect a base branch; comparing against HEAD only — "
@@ -242,7 +273,9 @@ def run_scan(
             )
             if git_meta.is_shallow:
                 hint += " This is a shallow clone; use fetch-depth: 0 in CI."
-            errors.append(hint)
+            diagnostics.append(
+                ScanDiagnostic(category="git_context", severity="warning", message=hint)
+            )
 
     for rule in rules:
         try:
@@ -251,7 +284,15 @@ def run_scan(
             rule_findings = [f for f in rule_findings if f.id not in config.ignore.findings]
             findings.extend(rule_findings)
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"Rule {rule.id} failed: {exc}")
+            diagnostics.append(
+                ScanDiagnostic(
+                    category="rule_error",
+                    severity="error",
+                    message=f"Rule {rule.id} failed: {exc}",
+                    rule=rule.id,
+                    detail=str(exc),
+                )
+            )
 
     # Apply diff-scope filtering (#24, #199): in diff mode, restrict findings to
     # the change set. Line-based findings are kept only on changed lines;
@@ -270,13 +311,21 @@ def run_scan(
     findings, suppression_warnings = _apply_inline_suppressions(findings, all_files, root)
     findings.extend(suppression_warnings)
 
+    # Collect diagnostics rules emitted via the shared context sink (#191) —
+    # e.g. slopsquat's aggregated registry-network failure notice. Appended
+    # after the scanner-level diagnostics so the existing ordering is preserved.
+    diagnostics.extend(ctx.diagnostics)
+
     return ScanResult(
         findings=findings,
         scanned_files=len(all_files),
         changed_files=len(changed_paths),
         scan_path=str(root),
         policy=config.policy,
-        errors=errors,
+        diagnostics=diagnostics,
+        # Backward-compatible flat string view, derived from the structured
+        # diagnostics so the two can never drift (#195).
+        errors=[d.message for d in diagnostics],
     )
 
 

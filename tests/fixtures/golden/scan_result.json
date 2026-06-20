@@ -95,6 +95,7 @@
   "changed_files": 4,
   "scan_path": "/repo",
   "policy": "balanced",
+  "diagnostics": [],
   "errors": [],
   "health_score": {
     "total": 61,

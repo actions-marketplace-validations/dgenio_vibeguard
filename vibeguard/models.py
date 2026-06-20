@@ -170,6 +170,46 @@ class HealthScore(BaseModel):
     )
 
 
+class ScanDiagnostic(BaseModel):
+    """A non-finding event recorded during a scan (#195).
+
+    Distinguishes the operationally different things that used to be flattened
+    into ``ScanResult.errors`` strings — a routine binary-file skip versus a
+    rule crash versus a degraded git context versus a failed network lookup — so
+    machine consumers (CI wrappers, the weaver export, ``gate --strict-errors``)
+    can react per category instead of regex-matching prose. The taxonomy is
+    deliberately small (five categories) and is extended, never renamed, once
+    published; see ``docs/output-schemas.md``.
+
+    ``severity`` separates routine information (``info`` — e.g. a binary file
+    skipped, which is expected) from a degraded run (``warning``/``error`` — e.g.
+    an unreadable file or a crashed rule). ``gate --strict-errors`` keys off this
+    distinction so routine skips never fail a build (#218).
+    """
+
+    category: Literal["skipped_file", "plugin_load", "git_context", "rule_error", "network"] = (
+        Field(description="What kind of event this diagnostic records")
+    )
+    severity: Literal["info", "warning", "error"] = Field(
+        default="warning", description="Operational severity of the diagnostic"
+    )
+    message: str = Field(description="Human-readable, single-line summary")
+    path: str | None = Field(default=None, description="Relative file path, when the event has one")
+    rule: str | None = Field(default=None, description="Rule or plugin id, when applicable")
+    detail: str | None = Field(default=None, description="Machine-friendly cause/category detail")
+
+
+#: Diagnostic categories that mean the scan ran *degraded* — the tool could not
+#: run as intended (a rule crashed, a plugin failed to load, the git context was
+#: unavailable in ``--diff`` mode, or an opt-in registry lookup failed). Routine
+#: ``skipped_file`` diagnostics are excluded here and judged by severity instead
+#: (an unreadable file is degraded; a binary/oversize skip is not). ``gate
+#: --strict-errors`` fails closed when any degraded diagnostic is present (#218).
+STRICT_FAIL_CATEGORIES: frozenset[str] = frozenset(
+    {"plugin_load", "git_context", "rule_error", "network"}
+)
+
+
 class ScanResult(BaseModel):
     """Aggregated results from a full scan."""
 
@@ -178,6 +218,12 @@ class ScanResult(BaseModel):
     changed_files: int = 0
     scan_path: str = "."
     policy: Literal["relaxed", "balanced", "strict"] = "balanced"
+    #: Structured, categorized scan diagnostics (#195). The single source of
+    #: truth for non-finding events; ``errors`` is the derived string view.
+    diagnostics: list[ScanDiagnostic] = Field(default_factory=list)
+    #: Backward-compatible flat list of diagnostic messages (#195). Populated by
+    #: the scanner as ``[d.message for d in diagnostics]`` so existing consumers
+    #: keep working unchanged while ``diagnostics`` carries the structured form.
     errors: list[str] = Field(default_factory=list)
 
     def by_severity(self, severity: Severity) -> list[Finding]:
@@ -185,6 +231,23 @@ class ScanResult(BaseModel):
 
     def has_blocking(self, threshold: Severity) -> bool:
         return any(f.severity >= threshold for f in self.findings)
+
+    def degraded_diagnostics(self) -> list[ScanDiagnostic]:
+        """Diagnostics that indicate the scan ran degraded (#218).
+
+        Used by ``gate --strict-errors`` to decide whether to fail closed. A
+        diagnostic is degraded when its category is in
+        :data:`STRICT_FAIL_CATEGORIES`, or when it is a ``skipped_file`` that is
+        more serious than routine (severity above ``info`` — e.g. an unreadable
+        or un-stattable file, as opposed to an expected binary/oversize skip).
+        """
+        out: list[ScanDiagnostic] = []
+        for d in self.diagnostics:
+            if d.category in STRICT_FAIL_CATEGORIES or (
+                d.category == "skipped_file" and d.severity != "info"
+            ):
+                out.append(d)
+        return out
 
     def counts(self) -> dict[str, int]:
         return {s.value: len(self.by_severity(s)) for s in Severity}
@@ -240,3 +303,12 @@ class ScanContext(BaseModel):
     #: Line-scoped findings do not need it: the scanner already restricts them
     #: to changed lines via the diff.
     diff_text: str = ""
+    #: Sink for rule-emitted scan diagnostics (#191). Rules MUST NOT raise and
+    #: normally only return :class:`Finding` objects, but a rule with an opt-in
+    #: networked check (the reference case is ``slopsquat``'s registry lookup)
+    #: may append a :class:`ScanDiagnostic` here to report a degraded run — e.g.
+    #: registry lookups that timed out — so the degradation is visible instead
+    #: of silently looking like "found nothing". The scanner merges these into
+    #: :class:`ScanResult.diagnostics` after all rules run. The same list object
+    #: is shared with the per-rule context view, so appends are always seen.
+    diagnostics: list[ScanDiagnostic] = Field(default_factory=list)
