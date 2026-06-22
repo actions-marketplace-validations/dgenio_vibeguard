@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import pathspec
 
@@ -48,7 +49,7 @@ def _collect_files(
     ignore_spec: pathspec.PathSpec,
     gitignore_spec: pathspec.PathSpec | None = None,
     tracked: set[str] | None = None,
-) -> tuple[list[Path], list[str]]:
+) -> tuple[list[Path], list[tuple[str, Literal["info", "warning", "error"]]]]:
     """Walk ``root`` and return non-ignored, non-binary, size-limited files.
 
     Directory pruning (#219): ignored directories (``node_modules/``, ``.venv/``,
@@ -66,7 +67,12 @@ def _collect_files(
     The final ``sorted(files)`` order is preserved regardless of walk order.
     """
     files: list[Path] = []
-    skipped: list[str] = []
+    # Each skip note carries its operational severity at the point it is
+    # generated (#218): the walker knows whether a skip is routine (``info`` —
+    # binary/oversize/gitignored) or degraded (``warning`` — an unreadable or
+    # un-stattable file). Recording it here, rather than re-deriving it from the
+    # message text later, keeps ``gate --strict-errors`` from depending on prose.
+    skipped: list[tuple[str, Literal["info", "warning", "error"]]] = []
     max_bytes = config.scanner.max_file_size_kb * 1024
     gitignored_skipped = 0
 
@@ -104,28 +110,33 @@ def _collect_files(
             try:
                 size = path.stat().st_size
             except OSError:
-                skipped.append(f"Cannot stat: {rel_str}")
+                skipped.append((f"Cannot stat: {rel_str}", "warning"))
                 continue
 
             if size > max_bytes:
-                skipped.append(f"Skipped (>{config.scanner.max_file_size_kb} KB): {rel_str}")
+                skipped.append(
+                    (f"Skipped (>{config.scanner.max_file_size_kb} KB): {rel_str}", "info")
+                )
                 continue
 
             # Binary check
             binary = _is_binary(path)
             if binary is None:
-                skipped.append(f"Cannot read: {rel_str}")
+                skipped.append((f"Cannot read: {rel_str}", "warning"))
                 continue
             if binary:
-                skipped.append(f"Skipped (binary): {rel_str}")
+                skipped.append((f"Skipped (binary): {rel_str}", "info"))
                 continue
 
             files.append(path)
 
     if gitignored_skipped:
         skipped.append(
-            f"Skipped {gitignored_skipped} gitignored file(s); "
-            "set scanner.respect_gitignore: false to include them"
+            (
+                f"Skipped {gitignored_skipped} gitignored file(s); "
+                "set scanner.respect_gitignore: false to include them",
+                "info",
+            )
         )
 
     return sorted(files), skipped
@@ -233,15 +244,17 @@ def run_scan(
             )
         )
 
-    # Report skipped files. Routine skips (binary/oversize/gitignored) are
-    # ``info`` and never fail strict mode; unreadable/un-stattable files
-    # ("Cannot read"/"Cannot stat") are ``warning`` so a degraded scan is loud.
-    for note in skipped:
+    # Report skipped files. The walker tags each skip with its severity at the
+    # point it is generated (#218): routine skips (binary/oversize/gitignored)
+    # are ``info`` and never fail strict mode; unreadable/un-stattable files are
+    # ``warning`` so a degraded scan is loud. Severity is no longer inferred from
+    # the message text, so a new degraded skip can't silently classify as info.
+    for message, severity in skipped:
         diagnostics.append(
             ScanDiagnostic(
                 category="skipped_file",
-                severity="warning" if note.startswith("Cannot ") else "info",
-                message=note,
+                severity=severity,
+                message=message,
             )
         )
 

@@ -35,6 +35,23 @@ class TestScanDiagnosticModel:
         result = ScanResult(diagnostics=diags, errors=[d.message for d in diags])
         assert result.errors == ["Rule x failed: boom", "Skipped (binary): a"]
 
+    def test_mismatched_errors_are_overridden_from_diagnostics(self):
+        # The model validator enforces the no-drift contract (#195): when
+        # diagnostics are present, errors is derived from them regardless of
+        # what a caller passed, so the two channels can never disagree.
+        diags = [
+            ScanDiagnostic(category="network", severity="warning", message="registry timed out"),
+        ]
+        result = ScanResult(diagnostics=diags, errors=["stale", "mismatched", "values"])
+        assert result.errors == ["registry timed out"]
+
+    def test_legacy_errors_only_preserved_without_diagnostics(self):
+        # Backward-compatible construction: with no diagnostics, an explicit
+        # errors list is left untouched so existing callers keep working.
+        result = ScanResult(errors=["legacy message"])
+        assert result.diagnostics == []
+        assert result.errors == ["legacy message"]
+
     def test_degraded_excludes_routine_skips_but_keeps_unreadable(self):
         result = ScanResult(
             diagnostics=[

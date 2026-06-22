@@ -261,7 +261,7 @@ class TestRespectGitignore:
         _, skipped = _collect_files(
             tmp_path, VibeGuardConfig(), ignore_spec, gitignore_spec, tracked
         )
-        assert any("1 gitignored file(s)" in line for line in skipped)
+        assert any("1 gitignored file(s)" in message for message, _severity in skipped)
 
     def test_no_git_directory_falls_back_to_pathspec(self, tmp_path: Path) -> None:
         """Without git, the carve-out is disabled: .gitignore is applied as a
