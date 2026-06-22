@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 class Severity(str, Enum):
@@ -225,6 +225,21 @@ class ScanResult(BaseModel):
     #: the scanner as ``[d.message for d in diagnostics]`` so existing consumers
     #: keep working unchanged while ``diagnostics`` carries the structured form.
     errors: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _derive_errors_from_diagnostics(self) -> ScanResult:
+        """Keep ``errors`` as the flat view of ``diagnostics`` (#195).
+
+        The two fields must never drift: ``errors`` is documented as
+        ``[d.message for d in diagnostics]``. Enforce that at the model boundary
+        so any caller — not just the scanner — gets a consistent ``ScanResult``.
+        When ``diagnostics`` is non-empty, ``errors`` is derived from it
+        (overriding any mismatched value). Legacy ``errors``-only construction
+        (no diagnostics) is preserved so existing callers keep working.
+        """
+        if self.diagnostics:
+            object.__setattr__(self, "errors", [d.message for d in self.diagnostics])
+        return self
 
     def by_severity(self, severity: Severity) -> list[Finding]:
         return [f for f in self.findings if f.severity == severity]
