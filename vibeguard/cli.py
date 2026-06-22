@@ -484,11 +484,145 @@ def _validate_scan_path(path: Path) -> None:
         raise typer.Exit(EXIT_USAGE)
 
 
+def _resolve_scan_targets(
+    paths: list[Path] | None,
+    path: Path,
+    *,
+    diff: bool,
+    staged: bool,
+    patch: Path | None,
+) -> list[Path]:
+    """Validate scan inputs and return the target paths (#213, #209, #153).
+
+    Positional ``paths`` take precedence over ``--path``; either may name files
+    or directories for a full scan (#213). The scope modes ``--diff`` /
+    ``--staged`` / ``--patch`` are mutually exclusive, and the git-backed modes
+    scope a single repository directory. For ``--patch`` the returned targets are
+    unused — the file set comes from the diff itself.
+    """
+    active = [
+        name
+        for name, on in (("--diff", diff), ("--staged", staged), ("--patch", patch is not None))
+        if on
+    ]
+    if len(active) > 1:
+        err_console.print(
+            f"[red]Error: {', '.join(active)} are mutually exclusive; choose one scan scope.[/]"
+        )
+        raise typer.Exit(EXIT_USAGE)
+
+    targets = list(paths) if paths else [path]
+
+    if patch is not None:
+        if paths:
+            err_console.print(
+                "[red]Error: --patch reads its file list from the diff itself; "
+                "do not also pass path arguments.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        return targets
+
+    if diff or staged:
+        mode = "--staged" if staged else "--diff"
+        if len(targets) > 1:
+            err_console.print(
+                f"[red]Error: {mode} scans a single repository; pass one directory, "
+                f"not {len(targets)} paths.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        # Git-backed modes need a repository directory; reuse the fail-closed
+        # path guard (#81/#83) that rejects a missing path or a single file.
+        _validate_scan_path(targets[0])
+        return targets
+
+    # Full scan: positional targets may be files or directories (#213). Validate
+    # existence so a typo'd path fails closed instead of silently scanning 0.
+    for target in targets:
+        if not target.exists():
+            err_console.print(
+                f"[red]Error: path does not exist: {escape(str(target))}[/]\n"
+                "Pass a file or directory to scan."
+            )
+            raise typer.Exit(EXIT_USAGE)
+    return targets
+
+
+def _read_patch_text(patch: Path) -> str:
+    """Read a unified diff from a file, or stdin when ``patch`` is ``-`` (#153)."""
+    if str(patch) == "-":
+        return sys.stdin.read()
+    try:
+        return patch.read_text(encoding="utf-8")
+    except OSError as exc:
+        err_console.print(f"[red]Error: cannot read --patch file {escape(str(patch))}: {exc}[/]")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+
+def _config_search_root(targets: list[Path], patch: Path | None, path: Path) -> Path:
+    """Pick the directory to auto-discover ``vibeguard.yaml`` in.
+
+    For ``--patch`` there is no real tree, so fall back to ``--path`` (cwd by
+    default). Otherwise use the first target — or its parent when it is a file —
+    so ``vibeguard scan src/app.py`` still finds the repo's config.
+    """
+    if patch is not None:
+        return path
+    first = targets[0]
+    return first if first.is_dir() else first.parent
+
+
+def _execute_scan(
+    targets: list[Path],
+    cfg: VibeGuardConfig,
+    *,
+    base: str | None,
+    diff: bool,
+    staged: bool,
+    patch: Path | None,
+    config_root: Path,
+) -> ScanResult:
+    """Resolve the selected scope mode into a :class:`ScanResult`.
+
+    Shared by ``scan`` and ``gate`` so both expose identical positional-path
+    (#213), ``--staged`` (#209), and ``--patch`` (#153) semantics. Mode
+    exclusivity/validation has already been enforced by
+    :func:`_resolve_scan_targets`.
+    """
+    if patch is not None:
+        return run_scan(config_root, cfg, patch_text=_read_patch_text(patch))
+
+    if diff or staged:
+        root = targets[0].resolve()
+        # --base wins over git.base_branch config; both fall back to automatic
+        # base detection (and --staged ignores the base entirely).
+        effective_base = base or cfg.git.base_branch
+        git_meta = get_git_metadata(root, base_branch=effective_base, staged=staged)
+        if not git_meta.is_available:
+            err_console.print(
+                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
+            )
+            return run_scan(targets, cfg)
+        return run_scan(root, cfg, diff_only=diff, git_meta=git_meta, staged=staged)
+
+    return run_scan(targets, cfg)
+
+
 @app.command()
 def scan(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help=(
+                "Files or directories to scan (default: current directory). "
+                "Multiple paths are allowed. Ignored when --patch is used."
+            ),
+        ),
+    ] = None,
     path: Annotated[
         Path,
-        typer.Option("--path", "-p", help="Repository or directory to scan"),
+        typer.Option(
+            "--path", "-p", help="Repository or directory to scan (alias for a path argument)"
+        ),
     ] = Path("."),
     config: Annotated[
         Path | None,
@@ -496,8 +630,25 @@ def scan(
     ] = None,
     diff: Annotated[
         bool,
-        typer.Option("--diff", help="Scan only changed files (requires git)"),
+        typer.Option("--diff", help="Scan only changed files vs the base branch (requires git)"),
     ] = False,
+    staged: Annotated[
+        bool,
+        typer.Option(
+            "--staged",
+            help="Scan only git-staged changes (git diff --cached) — the fast pre-commit gate",
+        ),
+    ] = False,
+    patch: Annotated[
+        Path | None,
+        typer.Option(
+            "--patch",
+            help=(
+                "Scan a unified diff from FILE (or '-' for stdin) standalone, "
+                "before it is applied. Mutually exclusive with --diff/--staged."
+            ),
+        ),
+    ] = None,
     base: Annotated[
         str | None,
         typer.Option(
@@ -610,7 +761,7 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
-    _validate_scan_path(path)
+    targets = _resolve_scan_targets(paths, path, diff=diff, staged=staged, patch=patch)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -622,23 +773,14 @@ def scan(
         sonar_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path, policy_pack=policy_pack)
+    config_root = _config_search_root(targets, patch, path)
+    cfg = _load_config(config, config_root, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
-    git_meta = None
-    if diff:
-        # --base flag wins over git.base_branch config; both are optional and
-        # fall back to automatic base detection inside get_git_metadata.
-        effective_base = base or cfg.git.base_branch
-        git_meta = get_git_metadata(path.resolve(), base_branch=effective_base)
-        if not git_meta.is_available:
-            err_console.print(
-                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
-            )
-            diff = False
-
-    result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
+    result = _execute_scan(
+        targets, cfg, base=base, diff=diff, staged=staged, patch=patch, config_root=config_root
+    )
 
     # Apply severity overrides and policy suppressions
     result = _apply_policy(result, cfg)
@@ -697,9 +839,20 @@ def scan(
 
 @app.command()
 def gate(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help=(
+                "Files or directories to scan (default: current directory). "
+                "Multiple paths are allowed. Ignored when --patch is used."
+            ),
+        ),
+    ] = None,
     path: Annotated[
         Path,
-        typer.Option("--path", "-p", help="Repository or directory to scan"),
+        typer.Option(
+            "--path", "-p", help="Repository or directory to scan (alias for a path argument)"
+        ),
     ] = Path("."),
     config: Annotated[
         Path | None,
@@ -707,8 +860,25 @@ def gate(
     ] = None,
     diff: Annotated[
         bool,
-        typer.Option("--diff", help="Scan only changed files (requires git)"),
+        typer.Option("--diff", help="Scan only changed files vs the base branch (requires git)"),
     ] = False,
+    staged: Annotated[
+        bool,
+        typer.Option(
+            "--staged",
+            help="Scan only git-staged changes (git diff --cached) — the fast pre-commit gate",
+        ),
+    ] = False,
+    patch: Annotated[
+        Path | None,
+        typer.Option(
+            "--patch",
+            help=(
+                "Gate a unified diff from FILE (or '-' for stdin) standalone, "
+                "before it is applied. Mutually exclusive with --diff/--staged."
+            ),
+        ),
+    ] = None,
     base: Annotated[
         str | None,
         typer.Option(
@@ -829,7 +999,7 @@ def gate(
     ] = None,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
-    _validate_scan_path(path)
+    targets = _resolve_scan_targets(paths, path, diff=diff, staged=staged, patch=patch)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -841,23 +1011,14 @@ def gate(
         sonar_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path, policy_pack=policy_pack)
+    config_root = _config_search_root(targets, patch, path)
+    cfg = _load_config(config, config_root, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
-    git_meta = None
-    if diff:
-        # --base flag wins over git.base_branch config; both are optional and
-        # fall back to automatic base detection inside get_git_metadata.
-        effective_base = base or cfg.git.base_branch
-        git_meta = get_git_metadata(path.resolve(), base_branch=effective_base)
-        if not git_meta.is_available:
-            err_console.print(
-                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
-            )
-            diff = False
-
-    result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
+    result = _execute_scan(
+        targets, cfg, base=base, diff=diff, staged=staged, patch=patch, config_root=config_root
+    )
 
     # Apply severity overrides and policy suppressions
     result = _apply_policy(result, cfg)

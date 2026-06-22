@@ -22,6 +22,20 @@
   always_run: true
   require_serial: true
 
+- id: vibeguard-gate-staged
+  name: VibeGuard staged gate (fast)
+  description: >-
+    Fast pre-commit gate that scans only the staged changes (git diff --cached)
+    instead of the whole tree. Exits non-zero if findings at or above --fail-on
+    are present in what you are about to commit.
+  entry: vibeguard gate --staged
+  language: python
+  types: [text]
+  args: [--fail-on, high]
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+
 - id: vibeguard-scan
   name: VibeGuard scan (informational)
   description: >-

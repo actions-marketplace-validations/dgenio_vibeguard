@@ -42,9 +42,12 @@ class TestPreCommitHooksManifest:
 
     def test_ships_expected_hook_ids(self, hooks: list[dict]):
         ids = {h.get("id") for h in hooks}
-        assert ids == {"vibeguard-gate", "vibeguard-scan", "vibeguard-validate-config"}, (
-            f"Unexpected hook id set: {sorted(ids)}"
-        )
+        assert ids == {
+            "vibeguard-gate",
+            "vibeguard-gate-staged",
+            "vibeguard-scan",
+            "vibeguard-validate-config",
+        }, f"Unexpected hook id set: {sorted(ids)}"
 
     def test_every_hook_has_required_fields(self, hooks: list[dict]):
         required = {"id", "name", "description", "entry", "language"}

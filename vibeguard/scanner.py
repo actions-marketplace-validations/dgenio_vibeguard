@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +21,7 @@ from vibeguard.git import (
     get_git_metadata,
     get_tracked_files,
     parse_changed_lines,
+    reconstruct_patch_files,
 )
 from vibeguard.models import Finding, GitMetadata, ScanContext, ScanDiagnostic, ScanResult
 from vibeguard.rules.base import Rule
@@ -43,14 +46,48 @@ def _is_binary(path: Path) -> bool | None:
         return None
 
 
+# A skip note pairs the human message with its operational severity at the point
+# it is generated (#218): routine skips (binary/oversize/gitignored) are ``info``
+# and never fail ``gate --strict-errors``; an unreadable/un-stattable file is a
+# ``warning`` so a degraded scan stays loud. Recording severity here, rather than
+# re-deriving it from the message text later, keeps strict mode off prose.
+_SkipNote = tuple[str, Literal["info", "warning", "error"]]
+
+
+def _size_binary_skip(path: Path, rel_str: str, max_bytes: int, max_kb: int) -> _SkipNote | None:
+    """Apply the size + binary content checks to one file.
+
+    Returns a skip note when the file should be excluded, or ``None`` when it is
+    a scannable text file. Shared by the directory walker and explicit-file
+    targets (#213) so both apply identical size/binary rules.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return (f"Cannot stat: {rel_str}", "warning")
+    if size > max_bytes:
+        return (f"Skipped (>{max_kb} KB): {rel_str}", "info")
+    binary = _is_binary(path)
+    if binary is None:
+        return (f"Cannot read: {rel_str}", "warning")
+    if binary:
+        return (f"Skipped (binary): {rel_str}", "info")
+    return None
+
+
 def _collect_files(
-    root: Path,
+    walk_root: Path,
+    rel_root: Path,
     config: VibeGuardConfig,
     ignore_spec: pathspec.PathSpec,
     gitignore_spec: pathspec.PathSpec | None = None,
     tracked: set[str] | None = None,
-) -> tuple[list[Path], list[tuple[str, Literal["info", "warning", "error"]]]]:
-    """Walk ``root`` and return non-ignored, non-binary, size-limited files.
+) -> tuple[list[Path], list[_SkipNote]]:
+    """Walk ``walk_root`` and return non-ignored, non-binary, size-limited files.
+
+    Paths are relativised to ``rel_root`` (which may be an ancestor of
+    ``walk_root`` when several targets are scanned under a common base — #213),
+    so ignore patterns and finding paths stay anchored to one consistent root.
 
     Directory pruning (#219): ignored directories (``node_modules/``, ``.venv/``,
     …) are skipped *during* the walk by mutating ``dirnames`` in place, so their
@@ -64,20 +101,16 @@ def _collect_files(
     matches is skipped unless it is in ``tracked``. ``tracked`` is ``None`` when
     git is unavailable, which disables the carve-out.
 
-    The final ``sorted(files)`` order is preserved regardless of walk order.
+    The returned ``files`` are ``sorted`` so the order is preserved regardless of
+    walk order.
     """
     files: list[Path] = []
-    # Each skip note carries its operational severity at the point it is
-    # generated (#218): the walker knows whether a skip is routine (``info`` —
-    # binary/oversize/gitignored) or degraded (``warning`` — an unreadable or
-    # un-stattable file). Recording it here, rather than re-deriving it from the
-    # message text later, keeps ``gate --strict-errors`` from depending on prose.
-    skipped: list[tuple[str, Literal["info", "warning", "error"]]] = []
+    skipped: list[_SkipNote] = []
     max_bytes = config.scanner.max_file_size_kb * 1024
     gitignored_skipped = 0
 
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = Path(dirpath).relative_to(root)
+    for dirpath, dirnames, filenames in os.walk(walk_root):
+        rel_dir = Path(dirpath).relative_to(rel_root)
 
         # Prune ignored directories in place so os.walk never descends into them
         # (#219). A directory matches a gitignore pattern only when its path
@@ -106,28 +139,10 @@ def _collect_files(
             if not path.is_file():
                 continue
 
-            # Size check
-            try:
-                size = path.stat().st_size
-            except OSError:
-                skipped.append((f"Cannot stat: {rel_str}", "warning"))
+            note = _size_binary_skip(path, rel_str, max_bytes, config.scanner.max_file_size_kb)
+            if note is not None:
+                skipped.append(note)
                 continue
-
-            if size > max_bytes:
-                skipped.append(
-                    (f"Skipped (>{config.scanner.max_file_size_kb} KB): {rel_str}", "info")
-                )
-                continue
-
-            # Binary check
-            binary = _is_binary(path)
-            if binary is None:
-                skipped.append((f"Cannot read: {rel_str}", "warning"))
-                continue
-            if binary:
-                skipped.append((f"Skipped (binary): {rel_str}", "info"))
-                continue
-
             files.append(path)
 
     if gitignored_skipped:
@@ -142,17 +157,102 @@ def _collect_files(
     return sorted(files), skipped
 
 
+def _normalize_targets(path: Path | Sequence[Path]) -> list[Path]:
+    """Resolve the scan input into a non-empty list of absolute target paths (#213)."""
+    targets = [Path(path)] if isinstance(path, (str, Path)) else [Path(p) for p in path]
+    if not targets:
+        targets = [Path(".")]
+    return [t.resolve() for t in targets]
+
+
+def _relativization_root(targets: list[Path]) -> Path:
+    """Pick the root that finding paths are reported relative to (#213).
+
+    A single directory target keeps the historic behaviour (the directory is the
+    root). For a single file, the root is its parent. For several targets it is
+    their common ancestor, so ``scan src/ tests/`` reports ``src/...`` /
+    ``tests/...`` rather than absolute paths.
+    """
+    if len(targets) == 1 and targets[0].is_dir():
+        return targets[0]
+    dirs = [t if t.is_dir() else t.parent for t in targets]
+    return Path(os.path.commonpath([str(d) for d in dirs]))
+
+
+def _collect_targets(
+    targets: list[Path],
+    rel_root: Path,
+    config: VibeGuardConfig,
+    ignore_spec: pathspec.PathSpec,
+    gitignore_spec: pathspec.PathSpec | None = None,
+    tracked: set[str] | None = None,
+) -> tuple[list[Path], list[_SkipNote]]:
+    """Collect scannable files across one or more targets (files and dirs — #213).
+
+    Directory targets are walked (honouring all ignore layers); a file named
+    explicitly is an intentional request, so it bypasses the ignore layers and
+    is excluded only by the size/binary checks every file is subject to. Results
+    are de-duplicated and ``sorted`` so the scan order is deterministic
+    regardless of target order.
+    """
+    max_bytes = config.scanner.max_file_size_kb * 1024
+    files: list[Path] = []
+    skipped: list[_SkipNote] = []
+
+    for target in targets:
+        if target.is_dir():
+            t_files, t_skipped = _collect_files(
+                target, rel_root, config, ignore_spec, gitignore_spec, tracked
+            )
+            files.extend(t_files)
+            skipped.extend(t_skipped)
+        elif target.is_file():
+            rel_str = target.relative_to(rel_root).as_posix()
+            note = _size_binary_skip(target, rel_str, max_bytes, config.scanner.max_file_size_kb)
+            if note is not None:
+                skipped.append(note)
+            else:
+                files.append(target)
+
+    return sorted(set(files)), skipped
+
+
 def run_scan(
-    path: Path,
+    path: Path | Sequence[Path],
     config: VibeGuardConfig,
     diff_only: bool = False,
     git_meta: GitMetadata | None = None,
+    *,
+    staged: bool = False,
+    patch_text: str | None = None,
 ) -> ScanResult:
-    """Run all enabled rules and return a ScanResult."""
-    root = path.resolve()
+    """Run all enabled rules and return a ScanResult.
+
+    ``path`` is one directory (the historic single-root scan) or, since #213, a
+    sequence of files and/or directories to scan together; finding paths are
+    reported relative to their common ancestor.
+
+    Scope is otherwise selected by exactly one of the modes below — the CLI
+    guarantees they are mutually exclusive (see ``docs/scan-scope.md``):
+
+    * ``diff_only`` — restrict findings to the git change set (``base...HEAD``).
+    * ``staged`` — restrict to the git index (``git diff --cached``), the fast
+      pre-commit gate (#209). Implies diff-scope filtering.
+    * ``patch_text`` — scan a unified diff standalone, gating a change before it
+      is applied (#153); ``path`` is ignored.
+    """
+    if patch_text is not None:
+        return _run_patch_scan(patch_text, config)
+
+    targets = _normalize_targets(path)
+    root = _relativization_root(targets)
 
     if git_meta is None:
-        git_meta = get_git_metadata(root) if diff_only else GitMetadata(is_available=False)
+        git_meta = (
+            get_git_metadata(root, staged=staged)
+            if (diff_only or staged)
+            else GitMetadata(is_available=False)
+        )
 
     # Build the unified hard-ignore spec: config ``ignore.paths`` followed by
     # ``.vibeguardignore``, both gitignore-syntax (#216). Order matters — a
@@ -172,7 +272,9 @@ def run_scan(
             gitignore_spec = compile_pathspec(tuple(gitignore_patterns))
             tracked = get_tracked_files(root)
 
-    all_files, skipped = _collect_files(root, config, ignore_spec, gitignore_spec, tracked)
+    all_files, skipped = _collect_targets(
+        targets, root, config, ignore_spec, gitignore_spec, tracked
+    )
 
     changed_paths: list[Path] = []
     if git_meta.is_available and git_meta.changed_files:
@@ -184,10 +286,10 @@ def run_scan(
     # Resolve the unified diff once, up front, so rules that need before/after
     # context (e.g. a deleted test file or a lowered coverage threshold) can
     # read it from the context — and reuse the very same text for the
-    # changed-line filtering pass below (#24).
+    # changed-line filtering pass below (#24). ``staged`` selects the index diff.
     diff_text = ""
-    if diff_only and git_meta.is_available:
-        diff_text = get_diff_text(root, git_meta.base_branch)
+    if (diff_only or staged) and git_meta.is_available:
+        diff_text = get_diff_text(root, git_meta.base_branch, staged=staged)
 
     ctx = ScanContext(
         root=root,
@@ -195,9 +297,99 @@ def run_scan(
         files=all_files,
         changed_files=changed_paths,
         git=git_meta,
-        diff_only=diff_only,
+        diff_only=diff_only or staged,
         diff_text=diff_text,
     )
+
+    # Diff-scope filtering runs whenever a change set is known and git context is
+    # available — diff and staged modes alike (#199, #209).
+    do_diff_filter = (diff_only or staged) and git_meta.is_available
+    changed_set = (
+        {cf.replace("\\", "/") for cf in git_meta.changed_files} if do_diff_filter else None
+    )
+    changed_lines = parse_changed_lines(diff_text) if do_diff_filter else {}
+
+    return _execute(
+        ctx,
+        skipped,
+        do_diff_filter=do_diff_filter,
+        changed_set=changed_set,
+        changed_lines=changed_lines,
+    )
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    """Return True when ``path`` is ``root`` or a descendant of it."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _run_patch_scan(patch_text: str, config: VibeGuardConfig) -> ScanResult:
+    """Scan a unified diff standalone, before it is applied (#153).
+
+    The new-side of every file in the patch is reconstructed
+    (:func:`reconstruct_patch_files`) into a throwaway temporary tree and scanned
+    with the change-set restricted to the patch's added lines, so a finding is
+    reported only on content the patch actually introduces. The temp tree is
+    removed before returning; findings already carry repo-relative paths.
+    """
+    reconstructed = reconstruct_patch_files(patch_text)
+    changed_lines = parse_changed_lines(patch_text)
+
+    with tempfile.TemporaryDirectory(prefix="vibeguard-patch-") as td:
+        root = Path(td).resolve()
+        all_files: list[Path] = []
+        for rel, content in reconstructed.items():
+            dest = (root / rel).resolve()
+            # A crafted diff could name "b/../../etc/passwd"; never write outside
+            # the sandbox even though it is a throwaway directory.
+            if not _is_within(dest, root):
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            all_files.append(dest)
+        all_files.sort()
+
+        changed_set = {p.replace("\\", "/") for p in reconstructed}
+        ctx = ScanContext(
+            root=root,
+            config=config,
+            files=all_files,
+            changed_files=all_files,
+            git=GitMetadata(is_available=False),
+            diff_only=True,
+            diff_text=patch_text,
+        )
+        return _execute(
+            ctx,
+            [],
+            do_diff_filter=True,
+            changed_set=changed_set,
+            changed_lines=changed_lines,
+        )
+
+
+def _execute(
+    ctx: ScanContext,
+    skipped: list[_SkipNote],
+    *,
+    do_diff_filter: bool,
+    changed_set: set[str] | None,
+    changed_lines: dict[str, list[tuple[int, int]]],
+) -> ScanResult:
+    """Run the enabled rules over ``ctx`` and assemble the :class:`ScanResult`.
+
+    Shared by the directory/diff/staged scan (:func:`run_scan`) and the
+    standalone patch scan (:func:`_run_patch_scan`) so every scope produces an
+    identical diagnostics pipeline and finding-filtering contract.
+    """
+    config = ctx.config
+    root = ctx.root
+    all_files = ctx.files
+    git_meta = ctx.git
 
     # Instantiate every enabled built-in rule from the single source of truth
     # (#175): iterate the canonical ordered list and gate each rule on the
@@ -259,7 +451,7 @@ def run_scan(
         )
 
     # Propagate git errors so callers know git context was degraded.
-    if diff_only and git_meta and not git_meta.is_available and git_meta.error:
+    if ctx.diff_only and git_meta and not git_meta.is_available and git_meta.error:
         diagnostics.append(
             ScanDiagnostic(
                 category="git_context",
@@ -273,7 +465,7 @@ def run_scan(
     # a narrower scope (#182). A "head-only" strategy in diff mode means base
     # detection failed and the diff degraded to `git diff HEAD`, so a PR gate
     # may report "0 findings" simply because the diff was nearly empty.
-    if diff_only and git_meta and git_meta.is_available:
+    if ctx.diff_only and git_meta and git_meta.is_available:
         for warning in git_meta.warnings:
             diagnostics.append(
                 ScanDiagnostic(category="git_context", severity="warning", message=warning)
@@ -312,12 +504,11 @@ def run_scan(
     # findings attributable to files that are NOT part of the diff (pre-existing
     # repository state) are dropped, so a PR gate reflects "findings introduced
     # or touched by this change" rather than blocking on unrelated history.
-    # Reuses the diff text resolved above. Runs whenever git context is
-    # available in diff mode — even when ``diff_text`` is empty — so a clean or
-    # empty diff cannot leak unscoped full-scan findings (#258 review).
-    if diff_only and git_meta and git_meta.is_available:
-        changed_lines = parse_changed_lines(diff_text)
-        changed_set = {cf.replace("\\", "/") for cf in git_meta.changed_files}
+    # Reuses the change set resolved by the caller. Runs whenever a diff/staged/
+    # patch scope is active (``do_diff_filter``) — even when ``changed_lines`` is
+    # empty — so a clean or empty diff cannot leak unscoped full-scan findings
+    # (#258 review).
+    if do_diff_filter:
         findings = _filter_by_changed_lines(findings, changed_lines, changed_set)
 
     # Apply inline suppressions (#44)
@@ -332,7 +523,7 @@ def run_scan(
     return ScanResult(
         findings=findings,
         scanned_files=len(all_files),
-        changed_files=len(changed_paths),
+        changed_files=len(ctx.changed_files),
         scan_path=str(root),
         policy=config.policy,
         diagnostics=diagnostics,

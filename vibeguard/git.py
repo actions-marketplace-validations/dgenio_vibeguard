@@ -34,7 +34,9 @@ _DIFF_STABILISERS: list[str] = [
 ]
 
 
-def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
+def get_git_metadata(
+    root: Path, base_branch: str | None = None, *, staged: bool = False
+) -> GitMetadata:
     """Collect git metadata and changed file list.
 
     ``base_branch`` (from ``--base`` or ``git.base_branch`` config) takes
@@ -42,6 +44,11 @@ def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
     verified is **not** silently ignored: a warning is recorded and detection
     falls back to the usual ``origin/main`` → ``origin/master`` → ``main`` →
     ``master`` detection order (#208, #182).
+
+    ``staged`` (``--staged`` mode, #209) ignores ``base_branch`` entirely and
+    scopes the scan to the git index (``git diff --cached``). This is the fast
+    pre-commit gate: it reflects exactly what a commit would record, regardless
+    of which branch the work targets.
     """
     warnings: list[str] = []
     try:
@@ -59,6 +66,23 @@ def get_git_metadata(root: Path, base_branch: str | None = None) -> GitMetadata:
         branch = _run_git(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
         commit = _run_git(root, ["git", "rev-parse", "--short", "HEAD"])
         is_shallow = _is_shallow(root)
+
+        # Staged mode (#209): the scope is the index, not a branch comparison.
+        # No base resolution and no head-only fallback — an empty index simply
+        # means "nothing staged", which the gate treats as a clean scan.
+        if staged:
+            raw = _run_git(root, ["git", *_DIFF_STABILISERS, "diff", "--cached", "--name-only"])
+            staged_files = [f for f in raw.splitlines() if f.strip()] if raw else []
+            return GitMetadata(
+                branch=branch or None,
+                base_branch=None,
+                commit=commit or None,
+                changed_files=staged_files,
+                is_available=True,
+                diff_strategy="staged",
+                is_shallow=is_shallow,
+                warnings=warnings,
+            )
 
         # Resolve the base ref: explicit request (validated) wins over detection.
         resolved_base: str | None = None
@@ -176,7 +200,7 @@ def _diff_cmd(rev: str) -> list[str]:
     ]
 
 
-def get_diff_text(root: Path, base_branch: str | None = None) -> str:
+def get_diff_text(root: Path, base_branch: str | None = None, *, staged: bool = False) -> str:
     """Get the unified diff text for changed files.
 
     The diff is requested with :data:`_DIFF_STABILISERS` plus explicit
@@ -189,7 +213,12 @@ def get_diff_text(root: Path, base_branch: str | None = None) -> str:
     branch). Keeping the two in lockstep prevents ``changed_files`` and
     ``diff_text`` from describing different comparisons, which would leave files
     in the change set with no parsed line ranges (#258 review).
+
+    ``staged`` (#209) returns ``git diff --cached`` so the diff text matches the
+    staged file list from :func:`get_git_metadata` with ``staged=True``.
     """
+    if staged:
+        return _run_git(root, _diff_cmd("--cached"))
     resolved_base = base_branch or _detect_base_branch(root)
     if resolved_base:
         text = _run_git(root, _diff_cmd(f"{resolved_base}...HEAD"))
@@ -263,6 +292,81 @@ def parse_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
             new_line += 1
 
     return {path: _coalesce_lines(lines) for path, lines in added.items()}
+
+
+def reconstruct_patch_files(diff_text: str) -> dict[str, str]:
+    """Reconstruct each file's new-side text from a unified diff (#153).
+
+    Returns a mapping of repo-relative path → reconstructed file content, built
+    from the added (``+``) and context lines of every hunk and positioned by the
+    hunk's new-file line numbers. Lines absent from the diff (gaps between hunks,
+    or anything before the first hunk) are left blank, so the line number of
+    every reconstructed line matches the diff's new-side numbering exactly and a
+    finding maps back to a real line. Pure-deletion targets (``+++ /dev/null``)
+    and files with no new-side lines are omitted.
+
+    This is what powers ``vibeguard ... --patch``: it lets the scanner inspect a
+    change standalone — gating a patch *before* it is applied — without the
+    files needing to exist on disk. The caller materialises the result into a
+    temporary tree and restricts findings to the added lines via
+    :func:`parse_changed_lines`, so context lines provide structure for
+    multi-line rules but are never themselves reported.
+
+    Mirrors :func:`parse_changed_lines`' parsing contract (#220, #226): the
+    ``+++`` header is only honoured when preceded by ``---`` so an added content
+    line beginning ``+++`` is not mistaken for a header, and C-quoted/``/dev/null``
+    targets are normalised by :func:`_diff_target_path`.
+    """
+    contents: dict[str, dict[int, str]] = {}
+    current_file: str | None = None
+    new_line: int | None = None
+    prev_line = ""
+
+    for line in diff_text.splitlines():
+        is_file_header = line.startswith("+++ ") and prev_line.startswith("--- ")
+        prev_line = line
+
+        if is_file_header:
+            current_file = _diff_target_path(line[4:])
+            if current_file is not None:
+                contents.setdefault(current_file, {})
+            new_line = None
+            continue
+
+        if line.startswith("@@") and current_file is not None:
+            match = _HUNK_RE.match(line)
+            new_line = int(match.group(1)) if match else None
+            continue
+
+        if current_file is None or new_line is None:
+            continue
+
+        # Leftover old-file header / removed content line: no new-side text.
+        if line.startswith("---"):
+            continue
+
+        if line.startswith("+"):
+            contents[current_file][new_line] = line[1:]
+            new_line += 1
+        elif line.startswith("-"):
+            # Removed line — does not advance the new-file counter.
+            pass
+        elif line.startswith("\\"):
+            # "\ No newline at end of file" — metadata, skip.
+            pass
+        else:
+            # Context line (leading space) — keep it so multi-line rules see the
+            # surrounding code, and advance the counter to stay line-aligned.
+            contents[current_file][new_line] = line[1:] if line.startswith(" ") else line
+            new_line += 1
+
+    out: dict[str, str] = {}
+    for path, line_map in contents.items():
+        if not line_map:
+            continue
+        highest = max(line_map)
+        out[path] = "\n".join(line_map.get(n, "") for n in range(1, highest + 1)) + "\n"
+    return out
 
 
 def _diff_target_path(raw: str) -> str | None:

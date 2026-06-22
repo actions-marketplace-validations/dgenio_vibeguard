@@ -291,7 +291,9 @@ class GitMetadata(BaseModel):
     #: ``base...HEAD``; ``"head-only"`` means base detection failed and the
     #: diff degraded to ``git diff HEAD`` (uncommitted/staged changes only) —
     #: a narrower scope the scanner surfaces as a diagnostic (#182).
-    diff_strategy: Literal["merge-base", "head-only"] | None = None
+    #: ``"staged"`` means ``--staged`` mode (``git diff --cached``): the scope
+    #: is exactly the git index, independent of any base branch (#209).
+    diff_strategy: Literal["merge-base", "head-only", "staged"] | None = None
     #: True when the working copy is a shallow clone (``fetch-depth: 1``),
     #: which commonly breaks base-branch detection in CI (#182).
     is_shallow: bool = False

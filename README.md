@@ -565,6 +565,9 @@ VibeGuard is meant to be enforced in CI, so its behaviour is contractual:
   surfaces are stable (CLI, exit codes, finding IDs, JSON/SARIF), how
   `scan` and `gate` differ, the versioning policy, and the fail-closed
   guarantees for bad paths, malformed config, and empty scans.
+- **[docs/scan-scope.md](docs/scan-scope.md)** — what gets scanned in each
+  mode (full, `--diff`, `--staged`, `--patch`), how file/directory targets
+  resolve, and the precedence rules.
 - **[docs/roadmap.md](docs/roadmap.md)** — where the project is heading
   (trust before breadth), the label taxonomy, what makes a good rule, and
   when to ship a plugin instead of a core rule.
