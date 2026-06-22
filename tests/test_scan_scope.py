@@ -187,6 +187,41 @@ class TestPatchMode:
         result = runner.invoke(app, ["scan", "--patch", str(tmp_path / "nope.diff")])
         assert result.exit_code == 2
 
+    def test_patch_scan_path_does_not_leak_temp_dir(self) -> None:
+        result = runner.invoke(app, ["scan", "--patch", "-", "--json"], input=_PATCH_NEW_FILE)
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["scan_path"] == "<patch>"
+
+    def test_multi_file_patch_not_corrupted_by_metadata(self) -> None:
+        # A realistic git diff carries per-file `diff --git`/`index` metadata
+        # between files; it must not be injected into the previous file's
+        # reconstructed content (only added/context lines count).
+        patch = (
+            "diff --git a/f1.py b/f1.py\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/f1.py\n"
+            "+++ b/f1.py\n"
+            "@@ -1 +1,2 @@\n"
+            " x = 1\n"
+            "+y = 2\n"
+            "diff --git a/f2.py b/f2.py\n"
+            "index 3333333..4444444 100644\n"
+            "--- a/f2.py\n"
+            "+++ b/f2.py\n"
+            "@@ -1 +1,2 @@\n"
+            " a = 1\n"
+            '+key = "AKIAIOSFODNN7EXAMPLE"\n'
+        )
+        files = reconstruct_patch_files(patch)
+        assert files == {
+            "f1.py": "x = 1\ny = 2\n",
+            "f2.py": 'a = 1\nkey = "AKIAIOSFODNN7EXAMPLE"\n',
+        }
+        # And end-to-end the secret on f2 is still found, on its real line.
+        result = runner.invoke(app, ["scan", "--patch", "-", "--json"], input=patch)
+        assert result.exit_code == 0
+        assert _paths(result.stdout) == {"f2.py"}
+
 
 class TestReconstructPatchFiles:
     def test_reconstructs_new_side_with_line_numbers(self) -> None:
@@ -203,6 +238,20 @@ class TestReconstructPatchFiles:
         files = reconstruct_patch_files(patch)
         # Line 3 is the added line; lines 1-2 are blank padding so numbers align.
         assert files["m.py"] == "\n\nadded = 1\n"
+
+    def test_trailing_metadata_not_injected(self) -> None:
+        # `diff --git`/`index` lines after a file's last hunk must be dropped,
+        # not appended to the file's reconstructed content.
+        patch = (
+            "--- a/f.py\n"
+            "+++ b/f.py\n"
+            "@@ -1 +1,2 @@\n"
+            " x = 1\n"
+            "+y = 2\n"
+            "diff --git a/g.py b/g.py\n"
+            "index aaa..bbb 100644\n"
+        )
+        assert reconstruct_patch_files(patch) == {"f.py": "x = 1\ny = 2\n"}
 
 
 # ---------------------------------------------------------------------------

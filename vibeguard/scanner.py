@@ -342,18 +342,26 @@ def _run_patch_scan(patch_text: str, config: VibeGuardConfig) -> ScanResult:
     with tempfile.TemporaryDirectory(prefix="vibeguard-patch-") as td:
         root = Path(td).resolve()
         all_files: list[Path] = []
+        written_rels: set[str] = set()
+        skipped: list[_SkipNote] = []
         for rel, content in reconstructed.items():
             dest = (root / rel).resolve()
             # A crafted diff could name "b/../../etc/passwd"; never write outside
-            # the sandbox even though it is a throwaway directory.
+            # the sandbox even though it is a throwaway directory. A refused path
+            # is a degraded scan (error severity) so it is visible and trips
+            # ``gate --strict-errors`` rather than silently scanning fewer files.
             if not _is_within(dest, root):
+                skipped.append((f"Refused patch path outside sandbox: {rel}", "error"))
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content, encoding="utf-8")
             all_files.append(dest)
+            written_rels.add(rel.replace("\\", "/"))
         all_files.sort()
 
-        changed_set = {p.replace("\\", "/") for p in reconstructed}
+        # Scope to the files actually materialised, not every path named in the
+        # diff, so a refused path can't leave a changed_set entry with no file.
+        changed_set = written_rels
         ctx = ScanContext(
             root=root,
             config=config,
@@ -365,10 +373,13 @@ def _run_patch_scan(patch_text: str, config: VibeGuardConfig) -> ScanResult:
         )
         return _execute(
             ctx,
-            [],
+            skipped,
             do_diff_filter=True,
             changed_set=changed_set,
             changed_lines=changed_lines,
+            # Patch scans run in a throwaway temp tree; report a stable,
+            # deterministic path instead of leaking the temp directory.
+            scan_path="<patch>",
         )
 
 
@@ -379,12 +390,17 @@ def _execute(
     do_diff_filter: bool,
     changed_set: set[str] | None,
     changed_lines: dict[str, list[tuple[int, int]]],
+    scan_path: str | None = None,
 ) -> ScanResult:
     """Run the enabled rules over ``ctx`` and assemble the :class:`ScanResult`.
 
     Shared by the directory/diff/staged scan (:func:`run_scan`) and the
     standalone patch scan (:func:`_run_patch_scan`) so every scope produces an
     identical diagnostics pipeline and finding-filtering contract.
+
+    ``scan_path`` overrides the reported :attr:`ScanResult.scan_path` (defaults
+    to the resolved root); the patch scan passes a stable placeholder so its
+    output never leaks the throwaway temp directory.
     """
     config = ctx.config
     root = ctx.root
@@ -524,7 +540,7 @@ def _execute(
         findings=findings,
         scanned_files=len(all_files),
         changed_files=len(ctx.changed_files),
-        scan_path=str(root),
+        scan_path=scan_path if scan_path is not None else str(root),
         policy=config.policy,
         diagnostics=diagnostics,
         # Backward-compatible flat string view, derived from the structured

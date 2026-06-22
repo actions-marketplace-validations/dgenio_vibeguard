@@ -341,24 +341,25 @@ def reconstruct_patch_files(diff_text: str) -> dict[str, str]:
         if current_file is None or new_line is None:
             continue
 
-        # Leftover old-file header / removed content line: no new-side text.
-        if line.startswith("---"):
-            continue
-
         if line.startswith("+"):
+            # Added line (its text may itself start with "+", e.g. "+++x"); the
+            # real "+++ b/path" header was already consumed by the pairing above.
             contents[current_file][new_line] = line[1:]
             new_line += 1
-        elif line.startswith("-"):
-            # Removed line — does not advance the new-file counter.
-            pass
-        elif line.startswith("\\"):
-            # "\ No newline at end of file" — metadata, skip.
-            pass
-        else:
-            # Context line (leading space) — keep it so multi-line rules see the
-            # surrounding code, and advance the counter to stay line-aligned.
-            contents[current_file][new_line] = line[1:] if line.startswith(" ") else line
+        elif line.startswith(" "):
+            # Context line — keep it so multi-line rules see the surrounding
+            # code, and advance the counter to stay line-aligned.
+            contents[current_file][new_line] = line[1:]
             new_line += 1
+        else:
+            # Anything else inside a file section is not new-side content and
+            # must not be injected into the reconstructed file: a removed line
+            # ("-"), the leftover "--- " old-file header, the "\ No newline"
+            # marker, or trailing per-file metadata that precedes the next
+            # file's header ("diff --git …", "index …", mode/rename lines).
+            # Skipping these (rather than treating them as context) keeps a
+            # multi-file diff from corrupting the previous file's content.
+            continue
 
     out: dict[str, str] = {}
     for path, line_map in contents.items():
