@@ -128,6 +128,16 @@ Gate your CI (exits 1 if blocking findings found):
 vibeguard gate --diff --fail-on high
 ```
 
+For security-sensitive repositories, add `--strict-errors` so the gate also
+fails closed when the scan itself ran degraded (a rule crashed, a plugin failed
+to load, git context was unavailable, or a registry lookup failed) instead of
+showing a green check on a partial scan. Routine binary/oversize skips never
+trip it:
+
+```bash
+vibeguard gate --diff --fail-on high --strict-errors
+```
+
 ---
 
 ## Try it in 30 seconds

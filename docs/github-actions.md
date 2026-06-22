@@ -74,6 +74,16 @@ jobs:
         run: vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on high
 ```
 
+For security-sensitive repositories, add `--strict-errors` so the gate fails
+closed when the scan itself ran degraded (a crashed rule, a failed plugin load,
+unavailable git context, or a failed registry lookup) rather than passing on a
+partial scan. Routine binary/oversize skips never trip it:
+
+```yaml
+      - name: Run VibeGuard gate (fail-closed on degraded scans)
+        run: vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on high --strict-errors
+```
+
 Or using the first-party action:
 
 ```yaml

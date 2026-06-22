@@ -1,4 +1,19 @@
-"""VibeGuard CLI — entry point."""
+"""VibeGuard CLI — entry point.
+
+Exit-code contract (stable; mirrored in ``docs/stability-contract.md``). These
+codes are exposed as the named constants below so the contract lives in one
+place instead of scattered integer literals (#183):
+
+* ``EXIT_OK`` (0)      — the command ran to completion with no blocking outcome.
+  ``scan`` is informational and always returns this on findings; ``gate`` /
+  ``publish-check`` return it when nothing meets ``--fail-on``.
+* ``EXIT_BLOCKED`` (1) — ``gate`` / ``publish-check`` found blocking findings, or
+  ``gate --strict-errors`` ran on a degraded scan (#218). ``validate`` also uses
+  ``1`` to report that a config file is invalid.
+* ``EXIT_USAGE`` (2)   — operational/usage error (bad path, malformed config,
+  unknown ID); every command fails closed here so CI can tell "the tool could
+  not run as asked" apart from "the gate failed".
+"""
 
 from __future__ import annotations
 
@@ -40,6 +55,12 @@ app = typer.Typer(
 )
 err_console = Console(stderr=True)
 
+# Exit-code contract (#183). See the module docstring and
+# ``docs/stability-contract.md`` for the meaning of each value.
+EXIT_OK = 0
+EXIT_BLOCKED = 1
+EXIT_USAGE = 2
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -80,14 +101,14 @@ def init(
     config_path = path / "vibeguard.yaml"
     if config_path.exists():
         err_console.print(f"[yellow]vibeguard.yaml already exists at {config_path}. Skipping.[/]")
-        raise typer.Exit(0)
+        raise typer.Exit(EXIT_OK)
 
     if policy_pack is not None:
         try:
             load_policy_pack(policy_pack)
         except ValueError as exc:
             err_console.print(f"[red]{exc}[/]")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
     body = render_config_body(policy_pack)
 
     path.mkdir(parents=True, exist_ok=True)
@@ -164,7 +185,7 @@ def setup_github_actions_cmd(
         )
     except SetupError as exc:
         err_console.print(f"[red]{escape(str(exc))}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
     if dry_run:
         err_console.print("[bold]Dry run — no files written.[/] Would create:")
@@ -231,7 +252,7 @@ def validate(
     config_path = config or (path / "vibeguard.yaml")
     if not config_path.exists():
         err_console.print(f"[red]Config file not found: {config_path}[/]")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_BLOCKED)
 
     try:
         VibeGuardConfig.load(config_path)
@@ -240,10 +261,10 @@ def validate(
         for error in exc.errors():
             loc = " → ".join(str(p) for p in error["loc"])
             err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-        raise typer.Exit(1) from None
+        raise typer.Exit(EXIT_BLOCKED) from exc
     except Exception as exc:
         err_console.print(f"[red]Error reading config: {exc}[/]")
-        raise typer.Exit(1) from None
+        raise typer.Exit(EXIT_BLOCKED) from exc
 
     typer.echo(f"✓ Config is valid: {config_path}")
 
@@ -283,7 +304,7 @@ def _validate_output_options(
             " --weaver, --rdjson, and --sonar are mutually exclusive. Choose one"
             " (or use repeated --report FORMAT=PATH for several files).[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
         # with structured output (JSON/SARIF/Markdown/diagnostics/weaver/...)
@@ -294,7 +315,7 @@ def _validate_output_options(
             "[red]Error: --annotations cannot be combined with a structured output"
             " format (annotations would corrupt the structured output).[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
 
 def _active_format(
@@ -344,7 +365,7 @@ def _write_report(text: str, dest: str) -> None:
         Path(dest).write_text(normalized, encoding="utf-8")
     except OSError as exc:
         err_console.print(f"[red]Error: cannot write report to {escape(dest)}: {exc}[/]")
-        raise typer.Exit(2) from None
+        raise typer.Exit(EXIT_USAGE) from exc
 
 
 def _parse_report_specs(reports: list[str]) -> list[tuple[str, str]]:
@@ -356,13 +377,13 @@ def _parse_report_specs(reports: list[str]) -> list[tuple[str, str]]:
         dest = dest.strip()
         if not sep or not fmt or not dest:
             err_console.print(f"[red]Error: --report expects FORMAT=PATH, got {escape(spec)!r}.[/]")
-            raise typer.Exit(2)
+            raise typer.Exit(EXIT_USAGE)
         if fmt not in MACHINE_FORMATS:
             err_console.print(
                 f"[red]Error: unknown --report format {escape(fmt)!r}."
                 f" Valid formats: {', '.join(MACHINE_FORMATS)}.[/]"
             )
-            raise typer.Exit(2)
+            raise typer.Exit(EXIT_USAGE)
         specs.append((fmt, dest))
     return specs
 
@@ -408,7 +429,7 @@ def _emit_reports(
                 "[red]Error: --report cannot be combined with --output or a single"
                 " format flag. Use repeated --report FORMAT=PATH for multiple files.[/]"
             )
-            raise typer.Exit(2)
+            raise typer.Exit(EXIT_USAGE)
         for fmt, dest in report_specs:
             _write_report(_render(fmt), dest)
             if dest != "-":
@@ -422,7 +443,7 @@ def _emit_reports(
                 " --markdown, --pr-comment, --diagnostics, --weaver, --rdjson,"
                 " --sonar).[/]"
             )
-            raise typer.Exit(2)
+            raise typer.Exit(EXIT_USAGE)
         dest = str(output)
         _write_report(_render(single_format), dest)
         if dest != "-":
@@ -454,13 +475,13 @@ def _validate_scan_path(path: Path) -> None:
             f"[red]Error: --path does not exist: {shown}[/]\n"
             "Pass the repository root you want to scan."
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
     if not path.is_dir():
         err_console.print(
             f"[red]Error: --path must be a directory, but got a file: {shown}[/]\n"
             "Pass the repository root (a directory), not an individual file."
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
 
 @app.command()
@@ -794,6 +815,18 @@ def gate(
         bool,
         typer.Option("--verbose", "-v", help="Show detailed finding descriptions"),
     ] = False,
+    strict_errors: Annotated[
+        bool | None,
+        typer.Option(
+            "--strict-errors/--no-strict-errors",
+            help=(
+                "Fail the gate when the scan itself ran degraded — a rule crashed, "
+                "a plugin failed to load, git context was unavailable in --diff mode, "
+                "a registry lookup failed, or a file was unreadable. Routine "
+                "binary/oversize skips never trip it. Overrides gate.strict_errors."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
     _validate_scan_path(path)
@@ -834,6 +867,13 @@ def gate(
 
     threshold = cfg.fail_on
     gate_passed = not result.has_blocking(threshold)
+
+    # Strict mode (#218): the CLI flag overrides gate.strict_errors config. When
+    # on, a degraded scan (rule crash, plugin/git/registry failure, unreadable
+    # file) fails the gate even with zero blocking findings — a safety gate must
+    # not show green on a scan that never fully ran.
+    strict = cfg.gate.strict_errors if strict_errors is None else strict_errors
+    degraded = result.degraded_diagnostics() if strict else []
 
     single_fmt = _active_format(
         json_output,
@@ -878,12 +918,20 @@ def gate(
             f"\n[bold red]✗ Gate failed:[/] findings at or above "
             f"[bold]{threshold.value}[/] severity detected.\n"
         )
-        raise typer.Exit(1)
-    else:
+        raise typer.Exit(EXIT_BLOCKED)
+    if degraded:
+        # Findings passed, but strict mode fails closed on a degraded scan. The
+        # individual diagnostics were already printed above via result.errors.
+        kinds = ", ".join(sorted({d.category for d in degraded}))
         err_console.print(
-            f"\n[bold green]✓ Gate passed:[/] no findings at or above "
-            f"[bold]{threshold.value}[/] severity.\n"
+            f"\n[bold red]✗ Gate failed (--strict-errors):[/] the scan ran degraded "
+            f"({len(degraded)} diagnostic(s): {kinds}). Findings may be incomplete.\n"
         )
+        raise typer.Exit(EXIT_BLOCKED)
+    err_console.print(
+        f"\n[bold green]✓ Gate passed:[/] no findings at or above "
+        f"[bold]{threshold.value}[/] severity.\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -958,7 +1006,7 @@ def publish_check(
             "[yellow]publish-check is disabled in vibeguard.yaml "
             "(publish_check.enabled = false). Skipping.[/]"
         )
-        raise typer.Exit(0)
+        raise typer.Exit(EXIT_OK)
 
     threshold = _parse_severity(fail_on) if fail_on else cfg.publish_check.fail_on
     effective_ecosystem = ecosystem if ecosystem is not None else cfg.publish_check.ecosystem
@@ -968,7 +1016,7 @@ def publish_check(
             f"[red]Invalid --ecosystem: {effective_ecosystem!r}. "
             f"Valid options: {', '.join(sorted(valid_ecosystems))}[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
     manifest, result = run_publish_check(path, cfg, ecosystem=effective_ecosystem)  # type: ignore[arg-type]
 
@@ -1000,7 +1048,7 @@ def publish_check(
     else:
         if output is not None:
             err_console.print("[red]Error: --output requires --json or --markdown.[/]")
-            raise typer.Exit(2)
+            raise typer.Exit(EXIT_USAGE)
         err_console.print(
             f"[bold]publish-check[/] ecosystem=[cyan]{manifest.ecosystem}[/] "
             f"files=[bold]{len(manifest.files)}[/] "
@@ -1017,7 +1065,7 @@ def publish_check(
             f"\n[bold red]✗ publish-check failed:[/] findings at or above "
             f"[bold]{threshold.value}[/] severity detected.\n"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_BLOCKED)
     err_console.print(
         f"\n[bold green]✓ publish-check passed:[/] no findings at or above "
         f"[bold]{threshold.value}[/] severity in the published file set.\n"
@@ -1045,7 +1093,7 @@ def _resolve_explain_adapter(name: str):
         return get_explain_adapter(name)
     except ValueError as exc:
         err_console.print(f"[red]{exc}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
 
 @app.command()
@@ -1123,7 +1171,7 @@ def explain(
     # unknown identifier is a hard error (exit 2) so a typo in CI doesn't
     # silently masquerade as a passed explain. See issue #90.
     err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=finding_id)}[/]")
-    raise typer.Exit(2)
+    raise typer.Exit(EXIT_USAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -1152,10 +1200,10 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
         except Exception as exc:
             err_console.print(f"[red]Error loading config {config_path}: {exc}[/]")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
     # Auto-discover vibeguard.yaml in scan path
     candidate = scan_path / "vibeguard.yaml"
@@ -1167,7 +1215,7 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
         except Exception as exc:
             err_console.print(f"[yellow]⚠ Could not load {candidate}: {exc}. Using defaults.[/]")
 
@@ -1184,7 +1232,7 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
     return VibeGuardConfig()
 
 
@@ -1192,9 +1240,9 @@ def _parse_severity(value: str) -> Severity:
     valid = [s.value for s in Severity]
     try:
         return Severity(value.lower())
-    except ValueError:
+    except ValueError as exc:
         err_console.print(f"[red]Invalid severity: {value!r}. Valid options: {', '.join(valid)}[/]")
-        raise typer.Exit(2) from None
+        raise typer.Exit(EXIT_USAGE) from exc
 
 
 def _apply_policy(result: ScanResult, cfg: VibeGuardConfig) -> ScanResult:
@@ -1232,7 +1280,7 @@ def _apply_baseline(
         baseline = Baseline.load(bp)
     except BaselineLoadError as exc:
         err_console.print(f"[red]Error: {exc}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
     filtered = filter_baselined(result.findings, baseline)
     return result.model_copy(update={"findings": filtered})
 
@@ -1496,7 +1544,7 @@ def rules_explain(
 
     if meta is None:
         err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=identifier)}[/]")
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
     finding_lines = [f"  • {fid}" for fid in meta.finding_ids] or ["  (none registered)"]
     body_lines = [
@@ -1575,7 +1623,7 @@ def dev_new_rule(
         )
     except ScaffoldError as exc:
         err_console.print(f"[red]{escape(str(exc))}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
     c = Console()
     if dry_run:

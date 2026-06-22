@@ -74,6 +74,19 @@ Exit `2` is reserved for "the tool could not run as asked". It is distinct
 from `1` ("the tool ran and the gate failed") so CI can tell a real failure
 from a misconfiguration.
 
+These codes are exposed in the CLI as the named constants `EXIT_OK`,
+`EXIT_BLOCKED`, and `EXIT_USAGE` so the contract lives in one place rather than
+scattered integer literals (#183). `validate` additionally uses exit `1` to
+report that a config file is invalid.
+
+**Fail-closed on a degraded scan (opt-in).** `gate --strict-errors` (or
+`gate.strict_errors: true`) makes `gate` exit `1` when the scan itself ran
+degraded — a rule crashed, a plugin failed to load, git context was unavailable
+in `--diff` mode, an opt-in registry lookup failed, or a file was unreadable —
+even with zero blocking findings (#218). Routine binary/oversize skips never
+trip it. It is **off by default**, so existing pipelines are unaffected;
+security-sensitive repositories are encouraged to enable it.
+
 ## Config file compatibility
 
 - The `vibeguard.yaml` schema is **stable and additive**: new optional keys
@@ -188,8 +201,10 @@ job. The following operational cases are guaranteed and test-backed:
 | Zero files scanned due to user error | surfaced, not silently "clean" | `tests/test_cli_e2e.py` (#83) |
 | `scan --pr-comment` with blocking findings | headline is **FAIL**, not PASS | `tests/test_pr_comment.py` (#82) |
 | `explain` / `rules explain` unknown ID | exit `2`, consistent message | `tests/test_cli.py`, `tests/test_cli_e2e.py` (#90) |
-| Plugin fails to load | scan continues; failure is reported, not swallowed | `tests/test_plugin_discovery.py` |
-| `git` unavailable in `--diff` mode | reported; does not crash the gate | diff-scope handling |
+| Plugin fails to load | scan continues; failure is reported as a `plugin_load` diagnostic, not swallowed | `tests/test_plugin_discovery.py` |
+| `git` unavailable in `--diff` mode | reported as a `git_context` diagnostic; does not crash the gate | diff-scope handling |
+| Degraded scan under `gate --strict-errors` | exit `1` even with zero findings; routine binary/oversize skips do **not** trip it | `tests/test_scan_diagnostics.py::TestGateStrictErrors` (#218) |
+| Malformed config under `scan`/`gate` | exit `2`, error message names the underlying cause | `tests/test_cli_e2e.py::TestMalformedConfigErrorContext` (#183) |
 | Base branch undetectable in `--diff` mode | scan degrades to `git diff HEAD` **and emits a diagnostic** (shallow clones get a `fetch-depth: 0` hint) — never a silent narrowing | `tests/test_diff_scope.py::TestDegradedGitDiagnostic` (#182) |
 | Unverifiable explicit `--base` / `git.base_branch` | warning recorded, falls back to detection — not silently ignored | `tests/test_git.py` (#208) |
 

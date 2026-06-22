@@ -142,24 +142,32 @@ class TestRegistryCheck:
         assert self.rule.scan(self._pkg(tmp_path, registry_check=False)) == []
 
     def test_missing_package_flagged(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (False, None))
+        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (False, None, None))
         findings = self.rule.scan(self._pkg(tmp_path, registry_check=True))
         assert [f.id for f in findings] == ["SLOP-REGISTRY-MISSING"]
         assert findings[0].severity == Severity.HIGH
 
     def test_young_package_flagged(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (True, 5))
+        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (True, 5, None))
         findings = self.rule.scan(self._pkg(tmp_path, registry_check=True))
         assert [f.id for f in findings] == ["SLOP-REGISTRY-YOUNG"]
         assert findings[0].severity == Severity.MEDIUM
 
     def test_established_package_not_flagged(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (True, 900))
+        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (True, 900, None))
         assert self.rule.scan(self._pkg(tmp_path, registry_check=True)) == []
 
     def test_inconclusive_lookup_stays_silent(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (None, None))
-        assert self.rule.scan(self._pkg(tmp_path, registry_check=True)) == []
+        # An inconclusive lookup is a failure per the _registry_lookup contract:
+        # exists is None *iff* a failure category is set (e.g. "timeout"). The
+        # rule emits no finding (it never guesses), but the degradation must be
+        # visible as one aggregated `network` diagnostic on the context sink (#191).
+        monkeypatch.setattr(slop_mod, "_registry_lookup", lambda *a, **k: (None, None, "timeout"))
+        ctx = self._pkg(tmp_path, registry_check=True)
+        assert self.rule.scan(ctx) == []
+        net = [d for d in ctx.diagnostics if d.category == "network"]
+        assert len(net) == 1
+        assert "timeout" in net[0].message
 
 
 class TestLockNameExtraction:

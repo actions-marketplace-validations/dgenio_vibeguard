@@ -47,7 +47,7 @@ from vibeguard.manifests import (
     pyproject_dependency_names,
     requirements_dependency_names,
 )
-from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.models import Confidence, Finding, ScanContext, ScanDiagnostic, Severity
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -130,8 +130,10 @@ class SlopsquatRule(Rule):
         registry_check = bool(getattr(context.config.slopsquat, "registry_check", False))
         # Cache registry lookups for the whole scan so a dependency declared in
         # several manifests (or repeated within one) costs at most one network
-        # call. Keyed by (ecosystem, lower-cased name).
-        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]] = {}
+        # call. Keyed by (ecosystem, lower-cased name); value is the lookup's
+        # ``(exists, age_days, failure)`` outcome. The ``failure`` element lets
+        # the scan aggregate network degradation into one diagnostic (#191).
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None, str | None]] = {}
 
         for path in files_to_check:
             if path.name == _NODE_MANIFEST:
@@ -164,7 +166,41 @@ class SlopsquatRule(Rule):
                 )
             )
 
+        # Registry verification is the only networked feature; when enabled in a
+        # restricted network it can fail on every lookup and otherwise look
+        # identical to "ran and found nothing". Surface that degradation as a
+        # single aggregated diagnostic so users know verification was skipped
+        # and findings reflect offline heuristics only (#191).
+        if registry_check and registry_cache:
+            self._record_registry_failures(context, registry_cache)
+
         return findings
+
+    @staticmethod
+    def _record_registry_failures(
+        context: ScanContext,
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None, str | None]],
+    ) -> None:
+        """Emit one aggregated diagnostic if any registry lookup failed (#191)."""
+        categories = [outcome[2] for outcome in registry_cache.values() if outcome[2]]
+        if not categories:
+            return
+        attempted = len(registry_cache)
+        failed = len(categories)
+        kinds = ", ".join(sorted(set(categories)))
+        context.diagnostics.append(
+            ScanDiagnostic(
+                category="network",
+                severity="warning",
+                rule="slopsquat",
+                message=(
+                    f"slopsquat registry check: {failed}/{attempted} lookup(s) failed "
+                    f"({kinds}) — registry verification was skipped for those; "
+                    "findings reflect offline heuristics only."
+                ),
+                detail=kinds,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Per-dependency evaluation
@@ -179,7 +215,7 @@ class SlopsquatRule(Rule):
         locked_names: set[str],
         registry_check: bool,
         context: ScanContext,
-        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]],
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None, str | None]],
     ) -> list[Finding]:
         findings: list[Finding] = []
         for name in deps:
@@ -225,19 +261,20 @@ class SlopsquatRule(Rule):
         rel: str,
         ecosystem: str,
         context: ScanContext,
-        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None]],
+        registry_cache: dict[tuple[str, str], tuple[bool | None, int | None, str | None]],
     ) -> list[Finding]:
         timeout = float(getattr(context.config.slopsquat, "registry_timeout_seconds", 3.0))
         max_age_days = int(getattr(context.config.slopsquat, "registry_max_age_days", 30))
 
         cache_key = (ecosystem, name.lower())
         if cache_key in registry_cache:
-            exists, age_days = registry_cache[cache_key]
+            exists, age_days, _failure = registry_cache[cache_key]
         else:
-            exists, age_days = _registry_lookup(name, ecosystem, timeout)
-            registry_cache[cache_key] = (exists, age_days)
+            exists, age_days, failure = _registry_lookup(name, ecosystem, timeout)
+            registry_cache[cache_key] = (exists, age_days, failure)
         if exists is None:
-            # Network failed/inconclusive — stay silent rather than guess.
+            # Network failed/inconclusive — stay silent here rather than guess;
+            # the failure is aggregated into one scan diagnostic later (#191).
             return []
         if not exists:
             return [
@@ -318,11 +355,18 @@ class SlopsquatRule(Rule):
     # by file name, mirroring ``DependenciesRule``.
 
 
-def _registry_lookup(name: str, ecosystem: str, timeout: float) -> tuple[bool | None, int | None]:
-    """Return ``(exists, age_days)`` for a package, or ``(None, None)`` on error.
+def _registry_lookup(
+    name: str, ecosystem: str, timeout: float
+) -> tuple[bool | None, int | None, str | None]:
+    """Return ``(exists, age_days, failure)`` for a package.
 
-    Isolated network access. Never raises — any failure returns an inconclusive
-    ``(None, None)`` so the rule stays silent rather than emitting a guess.
+    Isolated network access. Never raises. ``failure`` is ``None`` on a
+    conclusive answer (the package exists, or a ``404`` proves it does not);
+    otherwise it is a short category naming why the lookup could not complete —
+    ``"timeout"``, ``"network"`` (DNS/connection), ``"http"`` (a non-404 status),
+    or ``"error"`` (an unexpected/parse failure). ``exists`` is ``None`` whenever
+    ``failure`` is set so the rule stays silent rather than guessing; the scan
+    aggregates these failures into one diagnostic (#191).
     """
     import urllib.error
     import urllib.parse
@@ -347,11 +391,21 @@ def _registry_lookup(name: str, ecosystem: str, timeout: float) -> tuple[bool | 
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — fixed https host
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as exc:
+        # A 404 is a conclusive "this package does not exist" — not a failure.
         if exc.code == 404:
-            return False, None
-        return None, None
-    except Exception:  # noqa: BLE001 — network/parse failure is inconclusive
-        return None, None
+            return False, None, None
+        return None, None, "http"
+    except TimeoutError:
+        # socket.timeout is an alias of TimeoutError since Python 3.10.
+        return None, None, "timeout"
+    except urllib.error.URLError as exc:
+        # URLError wraps the lower-level cause; a wrapped timeout still reads as
+        # a timeout, everything else (DNS, refused connection) as a network fault.
+        if isinstance(getattr(exc, "reason", None), TimeoutError):
+            return None, None, "timeout"
+        return None, None, "network"
+    except Exception:  # noqa: BLE001 — unexpected/parse failure is inconclusive
+        return None, None, "error"
 
     created: str | None = None
     if ecosystem == "npm":
@@ -367,16 +421,16 @@ def _registry_lookup(name: str, ecosystem: str, timeout: float) -> tuple[bool | 
         created = min(uploads) if uploads else None
 
     if not created:
-        return True, None
+        return True, None, None
     try:
         ts = created.replace("Z", "+00:00")
         published = datetime.fromisoformat(ts)
         if published.tzinfo is None:
             published = published.replace(tzinfo=timezone.utc)
         age = (datetime.now(timezone.utc) - published).days
-        return True, max(age, 0)
+        return True, max(age, 0), None
     except ValueError:
-        return True, None
+        return True, None, None
 
 
 register_rule(

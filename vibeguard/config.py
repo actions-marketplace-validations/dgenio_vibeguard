@@ -391,6 +391,24 @@ class GitConfig(BaseModel):
     base_branch: str | None = None
 
 
+class GateConfig(BaseModel):
+    """Settings specific to the ``gate`` command (#218).
+
+    ``strict_errors`` makes ``gate`` fail closed (non-zero exit) when the scan
+    itself ran *degraded* — a rule crashed, a plugin failed to load, the git
+    context was unavailable in ``--diff`` mode, an opt-in registry lookup failed,
+    or a file could not be read. Routine skips (binary/oversize files) never trip
+    it. Off by default so the gate stays fail-open on degradation unless a team
+    opts in; the ``--strict-errors`` CLI flag overrides this value either way.
+    Recommended for security-sensitive repositories where a partially-broken
+    scan must not show a green check.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    strict_errors: bool = False
+
+
 class OutputConfig(BaseModel):
     """Report-output settings shared by scan/gate/publish-check.
 
@@ -463,6 +481,7 @@ class VibeGuardConfig(BaseModel):
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     git: GitConfig = Field(default_factory=GitConfig)
+    gate: GateConfig = Field(default_factory=GateConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
@@ -581,6 +600,14 @@ DEFAULT_CONFIG_YAML = """\
 
 policy: balanced      # relaxed | balanced | strict
 fail_on: high         # info | low | medium | high | critical
+
+# gate:
+#   # Fail the gate when the scan itself ran degraded (a rule crashed, a plugin
+#   # failed to load, git context was unavailable in --diff mode, a registry
+#   # lookup failed, or a file was unreadable). Routine binary/oversize skips
+#   # never trip it. Off by default; --strict-errors overrides this. Recommended
+#   # for security-sensitive repos. See docs/stability-contract.md.
+#   strict_errors: false
 
 ignore:
   # gitignore-style patterns (same syntax as .vibeguardignore and .gitignore).
