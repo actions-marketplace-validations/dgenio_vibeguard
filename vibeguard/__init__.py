@@ -13,6 +13,8 @@ except PackageNotFoundError:  # pragma: no cover — running from a source tree 
     __version__ = "0.0.0+unknown"
 
 # Public plugin API version. Increment the major component on any
-# backwards-incompatible change to vibeguard.api or vibeguard.rules.base.
+# backwards-incompatible change to vibeguard.api or vibeguard.rules.base, and
+# the minor component on a purely additive change (e.g. a new exported symbol).
+# 1.1 adds the additive `vibeguard.api.scan_patch` entry point (#153).
 # See docs/plugin-api.md for the versioning policy.
-PLUGIN_API_VERSION = "1.0"
+PLUGIN_API_VERSION = "1.1"

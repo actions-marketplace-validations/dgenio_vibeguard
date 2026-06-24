@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from vibeguard.api import scan_patch
 from vibeguard.cli import app
 from vibeguard.git import reconstruct_patch_files
 
@@ -27,6 +28,9 @@ runner = CliRunner()
 
 # A high-severity secret that trips the gate at --fail-on high.
 _SECRET_LINE = 'key = "AKIAIOSFODNN7EXAMPLE"\n'
+
+# Realistic PR-scenario fixtures, reused for the --patch/--diff parity check.
+_SCENARIOS = Path(__file__).resolve().parent.parent / "examples" / "pr-scenarios"
 
 
 def _findings(result_stdout: str) -> list[dict]:
@@ -273,3 +277,92 @@ class TestScopeModeValidation:
         result = runner.invoke(app, ["gate", str(tmp_path / "a"), str(tmp_path / "b"), "--diff"])
         assert result.exit_code == 2
         assert "single repository" in result.stdout + (result.stderr or "")
+
+
+# ---------------------------------------------------------------------------
+# #153 — public API (vibeguard.api.scan_patch)
+# ---------------------------------------------------------------------------
+class TestScanPatchApi:
+    """The programmatic entry point behind ``--patch`` (#153 acceptance)."""
+
+    def test_scan_patch_finds_added_secret(self) -> None:
+        result = scan_patch(_PATCH_NEW_FILE)
+        assert {f.id for f in result.findings}
+        assert {f.path for f in result.findings} == {"new.py"}
+        # Stable, deterministic scan_path — never the throwaway temp directory.
+        assert result.scan_path == "<patch>"
+
+    def test_scan_patch_clean_diff_has_no_findings(self) -> None:
+        patch = "--- a/clean.py\n+++ b/clean.py\n@@ -1 +1,2 @@\n print('ok')\n+x = 1\n"
+        assert scan_patch(patch).findings == []
+
+    def test_scan_patch_matches_cli(self) -> None:
+        # The API and the CLI --patch path must produce the same findings.
+        cli = runner.invoke(app, ["scan", "--patch", "-", "--json"], input=_PATCH_NEW_FILE)
+        assert cli.exit_code == 0
+        assert {f.id for f in scan_patch(_PATCH_NEW_FILE).findings} == {
+            f["id"] for f in _findings(cli.stdout)
+        }
+
+
+# ---------------------------------------------------------------------------
+# #153 — --patch / --diff parity on real scenarios
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+class TestPatchDiffParity:
+    """``--patch`` on ``git diff`` output must agree with ``--diff`` on the same
+    change for real example scenarios (#153 acceptance: at least three cases)."""
+
+    PARITY_SCENARIOS = [
+        "01-tls-verify-disabled",
+        "02-auth-bypass-left-in",
+        "06-risky-db-write-no-tests",
+    ]
+
+    @staticmethod
+    def _id_path(out: str) -> set[tuple[str, str]]:
+        return {(f["id"], f["path"]) for f in _findings(out)}
+
+    @pytest.mark.parametrize("scenario", PARITY_SCENARIOS)
+    def test_patch_agrees_with_diff(self, scenario: str, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-q", "-b", "main")
+        _git(repo, "config", "user.email", "t@example.com")
+        _git(repo, "config", "user.name", "T")
+        # Baseline commit on main so base...HEAD has a base to diff against.
+        (repo / ".keep").write_text("\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "baseline")
+        # Put the change on a feature branch so `main...HEAD` is non-empty.
+        _git(repo, "checkout", "-q", "-b", "feature")
+        # Apply the scenario's files as the change under review.
+        src = _SCENARIOS / scenario
+        for f in sorted(src.rglob("*")):
+            if f.is_file() and f.name != "README.md":
+                dest = repo / f.relative_to(src)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", scenario)
+
+        # --diff: real repo, working-tree content scoped to the change set.
+        diff_res = runner.invoke(
+            app, ["scan", "--path", str(repo), "--diff", "--base", "main", "--json"]
+        )
+        assert diff_res.exit_code == 0, diff_res.stdout
+
+        # --patch: the same change as a unified diff, scanned standalone.
+        proc = subprocess.run(
+            ["git", "-c", "core.quotePath=false", "diff", "main...HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        patch_res = runner.invoke(app, ["scan", "--patch", "-", "--json"], input=proc.stdout)
+        assert patch_res.exit_code == 0, patch_res.stdout
+
+        # The scenario must actually fire, and both modes must agree exactly.
+        assert self._id_path(diff_res.stdout)
+        assert self._id_path(patch_res.stdout) == self._id_path(diff_res.stdout)

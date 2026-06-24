@@ -157,7 +157,7 @@ def _collect_files(
     return sorted(files), skipped
 
 
-def _normalize_targets(path: Path | Sequence[Path]) -> list[Path]:
+def _normalize_targets(path: Path | str | Sequence[Path]) -> list[Path]:
     """Resolve the scan input into a non-empty list of absolute target paths (#213)."""
     targets = [Path(path)] if isinstance(path, (str, Path)) else [Path(p) for p in path]
     if not targets:
@@ -176,7 +176,13 @@ def _relativization_root(targets: list[Path]) -> Path:
     if len(targets) == 1 and targets[0].is_dir():
         return targets[0]
     dirs = [t if t.is_dir() else t.parent for t in targets]
-    return Path(os.path.commonpath([str(d) for d in dirs]))
+    try:
+        return Path(os.path.commonpath([str(d) for d in dirs]))
+    except ValueError:
+        # No common ancestor exists — e.g. targets span different drives on
+        # Windows. Degrade to the first target's directory so finding paths
+        # stay usable instead of letting ``commonpath`` raise out of the scan.
+        return dirs[0]
 
 
 def _collect_targets(
@@ -218,7 +224,7 @@ def _collect_targets(
 
 
 def run_scan(
-    path: Path | Sequence[Path],
+    path: Path | str | Sequence[Path],
     config: VibeGuardConfig,
     diff_only: bool = False,
     git_meta: GitMetadata | None = None,
@@ -237,7 +243,11 @@ def run_scan(
 
     * ``diff_only`` — restrict findings to the git change set (``base...HEAD``).
     * ``staged`` — restrict to the git index (``git diff --cached``), the fast
-      pre-commit gate (#209). Implies diff-scope filtering.
+      pre-commit gate (#209). Only the staged files are collected (the scan cost
+      scales with the change, not the repo), so cross-file rules see just the
+      staged set in ``context.files``; rules already branch on
+      ``context.changed_files``, which is unchanged. Implies diff-scope
+      filtering.
     * ``patch_text`` — scan a unified diff standalone, gating a change before it
       is applied (#153); ``path`` is ignored.
     """
@@ -272,9 +282,23 @@ def run_scan(
             gitignore_spec = compile_pathspec(tuple(gitignore_patterns))
             tracked = get_tracked_files(root)
 
-    all_files, skipped = _collect_targets(
-        targets, root, config, ignore_spec, gitignore_spec, tracked
-    )
+    # #209 fast staged path: collect only the staged files so the scan cost
+    # scales with the change, not the whole repo (a full-tree gate on every
+    # commit is the main reason developers disable the hook). The staged paths
+    # are treated as explicit file targets — size/binary checks still apply, and
+    # a deleted staged file simply isn't on disk to collect. Cross-file rules
+    # therefore see only the staged set in ``context.files`` and are
+    # correspondingly weaker in staged mode (documented in docs/scan-scope.md);
+    # rules keyed on ``context.changed_files`` are unaffected.
+    if staged and git_meta.is_available:
+        staged_targets = [root / cf for cf in git_meta.changed_files]
+        all_files, skipped = _collect_targets(
+            staged_targets, root, config, ignore_spec, gitignore_spec, tracked
+        )
+    else:
+        all_files, skipped = _collect_targets(
+            targets, root, config, ignore_spec, gitignore_spec, tracked
+        )
 
     changed_paths: list[Path] = []
     if git_meta.is_available and git_meta.changed_files:

@@ -9,6 +9,31 @@ rules, and how findings are filtered in each mode.
 `scan` is informational (always exits `0`); `gate` enforces (exits non-zero on
 blocking findings). Scope selection is identical for both.
 
+## The scan pipeline
+
+Every scan flows through the same ordered stages. Each stage can *remove* a file
+or a finding from what is ultimately reported, which is why "why wasn't X
+flagged?" almost always resolves to "which stage dropped it":
+
+```
+targets ─▶ collect ─▶ run rules ─▶ scope filter ─▶ suppressions ─▶ policy ─▶ baseline ─▶ report
+           │            │            │               │              │          │
+   ignore/size/binary   findings  diff/staged/patch  inline       severity   known
+   prune the file set   per file  keep only changed  # vibeguard:  overrides  findings
+                                  lines/files        ignore        + fail-on  filtered out
+```
+
+- **collect** — resolve targets into a concrete file set (see *Targets* and the
+  exclusion-mechanism table below).
+- **run rules** — every enabled rule inspects the collected files / changed set.
+- **scope filter** — in `--diff` / `--staged` / `--patch`, findings are reduced
+  to the change set (see *Scope modes*); a full scan skips this stage.
+- **suppressions** — inline `# vibeguard: ignore[...]` comments drop matching
+  findings.
+- **policy** — severity overrides and `--fail-on` decide what blocks.
+- **baseline** — previously accepted findings are filtered out, if a baseline is
+  configured.
+
 ## Targets: what to scan
 
 By default VibeGuard scans the current directory. You can point it at one or
@@ -53,6 +78,26 @@ When walking a directory, files are excluded by, in order:
 Ignored directories are pruned *during* the walk, so their contents are never
 enumerated.
 
+### Exclusion mechanisms (what drops a file or a finding)
+
+The mechanisms below decide what survives to be reported. They apply at
+different pipeline stages, and within the collection stage they apply in the
+order listed (a later layer's `!` negation can re-include a path an earlier
+layer excluded):
+
+| Mechanism | Syntax | Semantics | Stage | Notes / precedence |
+| --- | --- | --- | --- | --- |
+| `ignore.paths` (config) | gitignore (pathspec) | Excludes matching paths | collect | Unified last-match-wins with `.vibeguardignore` |
+| `.vibeguardignore` | gitignore (pathspec) | Excludes matching paths | collect | Same spec as above; a `!` negation can re-include |
+| `.gitignore` | gitignore (pathspec) | Excludes matching paths when `scanner.respect_gitignore` (default on) | collect | Git-tracked carve-out: a tracked file is still scanned |
+| Size limit | `scanner.max_file_size_kb` | Skips files over the cap | collect | Universal — applies to explicit file targets too |
+| Binary sniff | null-byte in first 8 KB | Skips binary files | collect | Universal — applies to explicit file targets too |
+| Explicit file target | positional path / `--path FILE` | **Bypasses** the three ignore layers above | collect | Size/binary still apply |
+| Scope filter | `--diff` / `--staged` / `--patch` | Keeps only findings on the change set's added/changed lines (file-level findings on a changed file kept; aggregate findings always kept) | scope filter | Skipped entirely for a full scan |
+| Inline suppression | `# vibeguard: ignore[ID]` | Drops the matching finding on that line | suppressions | Requires a `reason=` (warns otherwise) |
+| Policy / `--fail-on` | config / CLI | Decides which surviving findings *block* | policy | Does not remove findings from the report |
+| Baseline | baseline file | Filters out previously accepted findings | baseline | Optional; off unless configured |
+
 ## Scope modes
 
 Exactly one scope mode may be active. `--diff`, `--staged`, and `--patch` are
@@ -62,7 +107,7 @@ mutually exclusive; selecting more than one is a usage error (exit `2`).
 | --- | --- | --- | --- |
 | Full | *(default)* | All files under the targets | — (every finding kept) |
 | Diff | `--diff` | Working-tree files, findings restricted to the change set | `git diff <base>...HEAD` (or `git diff HEAD`) |
-| Staged | `--staged` | Working-tree files, findings restricted to the staged change set | `git diff --cached` |
+| Staged | `--staged` | Only the staged files (content from the working tree) | `git diff --cached` |
 | Patch | `--patch FILE`/`-` | A unified diff, standalone | the diff itself |
 
 ### Full scan
@@ -97,13 +142,24 @@ natural fast gate for a `pre-commit` hook:
 vibeguard gate --staged --fail-on high
 ```
 
-VibeGuard ships a ready-made hook for this — `vibeguard-gate-staged` — alongside
-the full-tree `vibeguard-gate` hook (see [pre-commit.md](pre-commit.md)). An
-empty index simply means "nothing staged" and passes cleanly.
+Unlike `--diff` (which walks the whole working tree and then filters findings),
+`--staged` **collects only the staged files**, so the scan cost scales with the
+size of the change rather than the size of the repository — the property that
+keeps a per-commit hook fast on a large repo. VibeGuard ships a ready-made hook
+for this — `vibeguard-gate-staged` — alongside the full-tree `vibeguard-gate`
+hook (see [pre-commit.md](pre-commit.md)). An empty index simply means "nothing
+staged" and passes cleanly.
 
-> Note: like `--diff`, staged mode reads file *content* from the working tree
-> and uses the diff only to scope which lines count. If a staged file has
-> further unstaged edits, the content scanned is the working-tree version.
+> Note: staged mode reads file *content* from the working tree and uses the
+> index only to choose which files (and lines) are in scope. If a staged file
+> has further unstaged edits, the content scanned is the working-tree version.
+
+> Cross-file trade-off: because only the staged files are collected, rules that
+> reason across the whole tree (e.g. package-leak detection, or missing-test
+> cross-references that look for a sibling test file) see only the staged set in
+> staged mode and are correspondingly weaker than in a full or `--diff` scan.
+> Rules that key on the changed-file set behave identically. For an exhaustive
+> cross-file pass, run a full or `--diff` scan in CI.
 
 ### `--patch` (gate a diff before it is applied)
 
