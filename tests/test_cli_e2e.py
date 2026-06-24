@@ -210,7 +210,13 @@ class TestMalformedConfigErrorContext:
 
 
 class TestPathValidation:
-    """`--path` must fail closed on a missing or non-directory input (#81, #83)."""
+    """Scan targets must fail closed on a missing input (#81, #83).
+
+    Since #213, an explicitly named *file* is a valid target (scanned directly)
+    rather than rejected; the #83 guarantee — never silently scan 0 files — is
+    preserved by scanning the file. Git-backed modes (`--diff`/`--staged`) still
+    require a directory.
+    """
 
     def test_gate_missing_path_fails_closed(self):
         result = runner.invoke(app, ["gate", "--path", "/does/not/exist", "--fail-on", "high"])
@@ -225,9 +231,19 @@ class TestPathValidation:
         assert result.exit_code == 2
         assert "does not exist" in result.stdout + (result.stderr or "")
 
-    def test_scan_file_path_rejected(self):
+    def test_scan_file_path_is_scanned(self):
+        """#213: a single file target is scanned directly, never silently 0."""
         env_file = EXAMPLES_DIR / "vulnerable-node-package" / ".env"
-        result = runner.invoke(app, ["scan", "--path", str(env_file)])
+        result = runner.invoke(app, ["scan", "--path", str(env_file), "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["scanned_files"] == 1
+        assert "must be a directory" not in result.stdout + (result.stderr or "")
+
+    def test_diff_file_path_rejected(self):
+        """Git-backed modes still require a directory, not a file (#83)."""
+        env_file = EXAMPLES_DIR / "vulnerable-node-package" / ".env"
+        result = runner.invoke(app, ["gate", "--path", str(env_file), "--diff"])
         assert result.exit_code == 2
         assert "must be a directory" in result.stdout + (result.stderr or "")
 

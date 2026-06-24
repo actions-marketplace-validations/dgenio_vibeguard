@@ -46,7 +46,7 @@ def _collect(root: Path, config: VibeGuardConfig | None = None) -> set[str]:
         if gitignore_patterns:
             gitignore_spec = compile_pathspec(tuple(gitignore_patterns))
             tracked = get_tracked_files(root)
-    files, _ = _collect_files(root, config, ignore_spec, gitignore_spec, tracked)
+    files, _ = _collect_files(root, root, config, ignore_spec, gitignore_spec, tracked)
     return {p.relative_to(root).as_posix() for p in files}
 
 
@@ -153,7 +153,7 @@ class TestDirectoryPruning:
         (tmp_path / "pkg").mkdir()
         (tmp_path / "pkg/z.py").write_text("x = 1\n")
         ignore_spec = compile_pathspec(tuple(VibeGuardConfig().ignore.paths))
-        files, _ = _collect_files(tmp_path, VibeGuardConfig(), ignore_spec)
+        files, _ = _collect_files(tmp_path, tmp_path, VibeGuardConfig(), ignore_spec)
         rels = [p.relative_to(tmp_path).as_posix() for p in files]
         assert rels == sorted(rels)
         assert rels == ["a.py", "b.py", "c.py", "pkg/z.py"]
@@ -259,7 +259,7 @@ class TestRespectGitignore:
         gitignore_spec = compile_pathspec(tuple(load_gitignore(tmp_path)))
         tracked = get_tracked_files(tmp_path)
         _, skipped = _collect_files(
-            tmp_path, VibeGuardConfig(), ignore_spec, gitignore_spec, tracked
+            tmp_path, tmp_path, VibeGuardConfig(), ignore_spec, gitignore_spec, tracked
         )
         assert any("1 gitignored file(s)" in message for message, _severity in skipped)
 

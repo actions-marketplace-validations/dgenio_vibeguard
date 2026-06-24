@@ -195,8 +195,8 @@ job. The following operational cases are guaranteed and test-backed:
 
 | Case | Behaviour | Guaranteed by |
 |---|---|---|
-| `--path` does not exist | exit `2`, error message, **never** "Gate passed" | `tests/test_cli_e2e.py::TestPathValidation` (#81) |
-| `--path` is a file, not a directory | exit `2`, "must be a directory" | `tests/test_cli_e2e.py::TestPathValidation` (#83) |
+| A scan target does not exist | exit `2`, error message, **never** "Gate passed" | `tests/test_cli_e2e.py::TestPathValidation` (#81) |
+| A file is named as a scan target | scanned directly (never silently 0 files); `--diff`/`--staged` still require a directory (exit `2`) | `tests/test_cli_e2e.py::TestPathValidation` (#83, #213) |
 | Malformed / invalid config | exit `2`, fail closed | `tests/test_config.py` |
 | Zero files scanned due to user error | surfaced, not silently "clean" | `tests/test_cli_e2e.py` (#83) |
 | `scan --pr-comment` with blocking findings | headline is **FAIL**, not PASS | `tests/test_pr_comment.py` (#82) |
@@ -228,6 +228,12 @@ The base ref is resolved as `--base` → `git.base_branch` config → automatic
 detection (`origin/main` → `origin/master` → `main` → `master`). The diff text
 contract is pinned (`color.diff=never`, `core.quotePath=false`, `--no-ext-diff`,
 explicit `a/`/`b/` prefixes) so local git configuration cannot change scoping.
+
+`--staged` (the staged index, `git diff --cached`) and `--patch` (a unified diff
+scanned standalone, before it is applied) apply the same change-set filtering as
+`--diff`. The three are mutually exclusive. See
+[scan-scope.md](scan-scope.md) for the full scan-scope reference — targets,
+modes, and precedence.
 
 ## What is *not* covered by this contract
 

@@ -36,6 +36,7 @@ the threshold via `args`:
 | Hook ID                     | Command              | Exit behaviour                                        | Typical use                                          |
 | --------------------------- | -------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
 | `vibeguard-gate`            | `vibeguard gate`     | Non-zero on findings at or above `--fail-on` (default `high`). | Block risky commits in pre-commit / pre-push.        |
+| `vibeguard-gate-staged`     | `vibeguard gate --staged` | Non-zero on findings in the **staged** changes only. | Fast pre-commit gate — scan just what you're committing. |
 | `vibeguard-scan`            | `vibeguard scan`     | Always 0 — informational only.                        | Print findings without blocking commits.             |
 | `vibeguard-validate-config` | `vibeguard validate` | Non-zero if `vibeguard.yaml` fails schema validation. | Catch config typos before they break CI.             |
 
@@ -43,6 +44,11 @@ Each hook declares `pass_filenames: false` because VibeGuard scans the
 working tree as a whole; passing individual staged paths would drop the
 cross-file context the rules rely on (e.g. package leak detection, missing-
 tests checks).
+
+`vibeguard-gate-staged` scopes the scan to the git index (`git diff --cached`)
+for a faster gate on large repositories: it inspects only the changes you are
+about to commit rather than the whole tree. See
+[scan-scope.md](scan-scope.md) for the full scope-mode reference.
 
 `vibeguard-validate-config` is the one exception — it runs only when
 `vibeguard.yaml` itself changes (`files: ^vibeguard\.yaml$`).
