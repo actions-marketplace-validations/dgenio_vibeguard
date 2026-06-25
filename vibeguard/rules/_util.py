@@ -108,7 +108,7 @@ def is_comment_line(line: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Triple-quoted (docstring / multiline-string) span detection
+# Triple-quoted (docstring / multiline-string) span masking
 # ---------------------------------------------------------------------------
 
 # Python triple-quote string delimiters.
@@ -127,14 +127,15 @@ def _next_triple(line: str, start: int) -> tuple[int, str | None]:
     return best, best_delim
 
 
-def _advance_triple_state(line: str, state: str | None) -> tuple[bool, str | None]:
-    """Advance triple-quote state across one ``line``.
+def _mask_triple_line(line: str, state: str | None) -> tuple[str, str | None]:
+    """Blank out triple-quoted span content on one ``line``.
 
-    Returns ``(is_noncode, new_state)`` where ``is_noncode`` is ``True`` when any
-    part of the line lies inside a triple-quoted span and ``new_state`` is the
-    still-open delimiter (or ``None``) carried to the next line.
+    Characters inside a triple-quoted span (and the delimiters themselves) are
+    replaced with spaces; code outside the span is preserved. ``state`` carries
+    the still-open delimiter from the previous line. Returns
+    ``(masked_line, new_state)``.
     """
-    noncode = state is not None
+    chars = list(line)
     i = 0
     n = len(line)
     while i < n:
@@ -142,37 +143,44 @@ def _advance_triple_state(line: str, state: str | None) -> tuple[bool, str | Non
             pos, delim = _next_triple(line, i)
             if pos == -1:
                 break
+            for j in range(pos, pos + 3):
+                chars[j] = " "
             state = delim
-            noncode = True
             i = pos + 3
         else:
             close = line.find(state, i)
             if close == -1:
-                break  # span continues onto the next line
-            state = None
-            i = close + 3
-    return noncode, state
+                for j in range(i, n):
+                    chars[j] = " "
+                i = n
+            else:
+                for j in range(i, close + 3):
+                    chars[j] = " "
+                state = None
+                i = close + 3
+    return "".join(chars), state
 
 
-def docstring_line_numbers(content: str) -> set[int]:
-    """Return the 1-based line numbers that fall inside triple-quoted spans.
+def mask_triple_quoted_spans(content: str) -> list[str]:
+    """Return ``content``'s lines with triple-quoted spans blanked out.
 
-    Python docstrings and multi-line ``\"\"\"``/``'''`` string literals are prose,
-    not executable code, yet the keyword-based line scanners (``risky_diff``,
-    ``sql``) would otherwise flag a keyword that appears only in a docstring
-    (e.g. "refund" in a module docstring — #138). This is the line-oriented
-    companion to :func:`is_comment_line`: it tracks triple-quote open/close state
-    across lines and reports every line wholly or partly inside a span so callers
-    can skip it.
+    Python docstrings and multi-line ``\"\"\"``/``'''`` literals are prose or
+    inert string data, not executable code, yet the keyword-based line scanners
+    (``risky_diff``, ``sql``) would otherwise match a keyword that appears only
+    inside one — e.g. "refund" in a module docstring (#138). Blanking the span
+    *content* (rather than skipping whole lines) keeps any real code that shares
+    a line with a string literal scannable: ``os.system(\"\"\"rm -rf\"\"\")``
+    still exposes ``os.system(`` to the rules while the quoted text is masked.
 
-    The heuristic is deliberately simple — it does not model escaped quotes or
-    triple-quotes embedded inside single-quoted strings — matching the
-    "skip the obvious, do not tokenize" posture of :func:`is_comment_line`.
+    The returned list has one entry per input line (``splitlines`` semantics),
+    index-aligned so callers can match on the masked text while reporting
+    evidence from the original line. The heuristic is deliberately simple — it
+    does not model escaped quotes or triple-quotes nested inside single-quoted
+    strings — matching the posture of :func:`is_comment_line`.
     """
-    inside: set[int] = set()
+    masked: list[str] = []
     state: str | None = None  # the open delimiter, or None when outside a span
-    for lineno, line in enumerate(content.splitlines(), start=1):
-        noncode, state = _advance_triple_state(line, state)
-        if noncode:
-            inside.add(lineno)
-    return inside
+    for line in content.splitlines():
+        out, state = _mask_triple_line(line, state)
+        masked.append(out)
+    return masked

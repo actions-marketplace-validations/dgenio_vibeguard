@@ -32,8 +32,9 @@ from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressio
 
 _BINARY_SNIFF_SIZE = 8192
 
-# File types whose findings can carry inline ``# vibeguard: ignore`` comments
-# (#210). Beyond source code this now includes config/IaC/markup formats whose
+# File types whose findings can carry inline ``vibeguard: ignore`` comments
+# (#210), in whatever single-line comment syntax the file uses (``#``, ``//``,
+# ``--``, ``<!--``). Beyond source code this now includes config/IaC/markup formats whose
 # rules emit line-anchored findings (ci_docker, iac, packaging, prompt_injection),
 # so an IaC- or Markdown-heavy repo can suppress in place rather than falling back
 # to coarse repo-wide ``vibeguard.yaml`` entries.

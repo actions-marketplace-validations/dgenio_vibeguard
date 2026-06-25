@@ -82,9 +82,10 @@ Inline suppressions are parsed in these file types:
 Dockerfile (and Dockerfile.* variants)
 ```
 
-Suppression semantics are strictly same-line, so multi-line block comments
-(`/* ... */`) are not recognised — put the suppression on a single comment
-line instead.
+The suppression *directive* must sit on a single line, so multi-line block
+comments (`/* ... */`) are not recognised — put it on a single comment line.
+(This is separate from *placement*, which is "same line or the line above" as
+described above.)
 
 ### The `SUPPRESSION-NO-REASON` warning
 

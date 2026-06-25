@@ -5,15 +5,18 @@ from __future__ import annotations
 import re
 
 # Matches: # vibeguard: ignore ID1,ID2 reason="some reason"
-# Recognised single-line comment leaders cover the syntaxes VibeGuard scans (#210):
-#   #     Python, shell, YAML, TOML, Dockerfile, HCL
+# Recognised single-line comment leaders cover the syntaxes VibeGuard scans
+# (#210). The HTML/Markdown leader is listed first so a ``<!-- ... -->`` wrapper
+# is matched as a whole rather than via the ``--`` inside it:
+#   <!--  HTML, Markdown  (e.g. <!-- vibeguard: ignore ID reason="..." -->)
 #   //    JS/TS, Go, HCL
 #   --    SQL
-#   <!--  HTML, Markdown  (e.g. <!-- vibeguard: ignore ID reason="..." -->)
-# Suppression semantics remain strictly same-line, so multi-line block comments
-# (/* ... */) are still unsupported.
+#   #     Python, shell, YAML, TOML, Dockerfile, HCL
+# The suppression *directive* must sit on a single physical line; multi-line
+# block comments (``/* ... */``) are not recognised. Placement is same-line or
+# the line directly above the finding (see scanner._apply_inline_suppressions).
 _SUPPRESSION_RE = re.compile(
-    r"(?:#|//|--|<!--)\s*vibeguard:\s*ignore\s+"
+    r"(?:<!--|//|--|#)\s*vibeguard:\s*ignore\s+"
     r"(?P<ids>[A-Z][A-Z0-9\-,]+)"
     r'(?:\s+reason\s*=\s*"(?P<reason>[^"]*)")?'
 )

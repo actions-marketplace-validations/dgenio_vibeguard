@@ -107,6 +107,13 @@ def charge():
         findings = self.rule.scan(ctx)
         assert any("PAYMENTLOGIC" in f.id for f in findings)
 
+    def test_code_sharing_line_with_triple_quote_still_flagged(self, tmp_path: Path):
+        # Recall guard (#268 review): a real risky call must still flag even when
+        # its arguments are a triple-quoted literal on the same line.
+        ctx = _ctx(tmp_path, {"app.py": 'os.system("""rm -rf /tmp/build""")\n'})
+        findings = self.rule.scan(ctx)
+        assert any("SUBPROCESSSHELL" in f.id for f in findings)
+
     def test_cors_wildcard_detected(self, tmp_path: Path):
         ctx = _ctx(tmp_path, {"server.js": "app.use(cors({ origins: '*' }))\n"})
         findings = self.rule.scan(ctx)

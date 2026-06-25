@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import docstring_line_numbers, is_comment_line
+from vibeguard.rules._util import is_comment_line, mask_triple_quoted_spans
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -106,13 +106,13 @@ class SqlRule(Rule):
             except OSError:
                 continue
 
-            # Skip lines inside Python docstrings/multiline strings: a query
-            # quoted as documentation is prose, not an executed statement (#138).
-            docstring_lines = docstring_line_numbers(content) if ext == ".py" else set()
+            # Mask Python docstring / multiline-string spans: a query quoted as
+            # documentation is prose, not an executed statement (#138). Patterns
+            # run against the masked text; evidence comes from the original line.
+            lines = content.splitlines()
+            masked = mask_triple_quoted_spans(content) if ext == ".py" else lines
 
-            for lineno, line in enumerate(content.splitlines(), start=1):
-                if lineno in docstring_lines:
-                    continue
+            for lineno, (line, scan_line) in enumerate(zip(lines, masked, strict=True), start=1):
                 stripped = line.strip()
                 # Skip comment lines (shared heuristic — #178).
                 if is_comment_line(stripped):
@@ -122,7 +122,7 @@ class SqlRule(Rule):
                     key = (rel, finding_id)
                     if key in seen:
                         continue
-                    if pattern.search(line):
+                    if pattern.search(scan_line):
                         seen.add(key)
                         findings.append(
                             Finding(

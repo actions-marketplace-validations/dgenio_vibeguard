@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import docstring_line_numbers, is_comment_line, is_test_file
+from vibeguard.rules._util import is_comment_line, is_test_file, mask_triple_quoted_spans
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -210,17 +210,16 @@ class RiskyDiffRule(Rule):
             except OSError:
                 continue
 
-            # Python docstrings/multiline strings are prose, not code — skip the
-            # lines inside them so a keyword like "refund" in a docstring is not
-            # mistaken for payment logic (#138). Single-line comments in every
-            # language are still handled by the per-line check below.
-            docstring_lines = (
-                docstring_line_numbers(content) if path.suffix.lower() == ".py" else set()
-            )
+            # Mask Python docstring / multiline-string spans so a keyword that
+            # appears only inside one (e.g. "refund" in a docstring) is not
+            # mistaken for code, while real code sharing the line stays
+            # scannable (#138). Patterns run against the masked text; evidence is
+            # taken from the original line. Other languages rely on the per-line
+            # comment check below.
+            lines = content.splitlines()
+            masked = mask_triple_quoted_spans(content) if path.suffix.lower() == ".py" else lines
 
-            for lineno, line in enumerate(content.splitlines(), start=1):
-                if lineno in docstring_lines:
-                    continue
+            for lineno, (line, scan_line) in enumerate(zip(lines, masked, strict=True), start=1):
                 # Skip comment lines (shared heuristic — #178).
                 stripped = line.strip()
                 if is_comment_line(stripped):
@@ -231,7 +230,7 @@ class RiskyDiffRule(Rule):
                     key = (rel, fid)
                     if key in seen:
                         continue
-                    if pattern.search(line):
+                    if pattern.search(scan_line):
                         seen.add(key)
                         if is_test:
                             sev = Severity.LOW
@@ -269,7 +268,7 @@ class RiskyDiffRule(Rule):
                     if key in seen:
                         continue
 
-                    if pattern.search(line):
+                    if pattern.search(scan_line):
                         seen.add(key)
                         sev = Severity.LOW if is_test else Severity.MEDIUM
                         findings.append(
