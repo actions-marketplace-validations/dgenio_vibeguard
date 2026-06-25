@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import is_comment_line
+from vibeguard.rules._util import docstring_line_numbers, is_comment_line
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -16,7 +16,18 @@ _PY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     (
         "SQL-PY-FSTRING",
         "f-string SQL query",
-        re.compile(r'f["\'].*\b(SELECT|INSERT|UPDATE|DELETE)\b.*\{', re.IGNORECASE),
+        # Require structural SQL evidence, not a lone keyword (#137): the
+        # f-string must contain an interpolation (the lookahead ``\{``) *and* a
+        # verb paired with its companion clause (SELECT…FROM, UPDATE…SET,
+        # INSERT…INTO, DELETE…FROM). This stops prose like
+        # ``f"Update on your request: {topic}"`` from masquerading as a query
+        # while still matching genuine interpolated SQL.
+        re.compile(
+            r"""f["'](?=[^"']*\{)[^"']*(?:\bSELECT\b[^"']*\bFROM\b"""
+            r"""|\bUPDATE\b[^"']*\bSET\b|\bINSERT\b[^"']*\bINTO\b"""
+            r"""|\bDELETE\b[^"']*\bFROM\b)""",
+            re.IGNORECASE,
+        ),
     ),
     (
         "SQL-PY-CONCAT",
@@ -95,7 +106,13 @@ class SqlRule(Rule):
             except OSError:
                 continue
 
+            # Skip lines inside Python docstrings/multiline strings: a query
+            # quoted as documentation is prose, not an executed statement (#138).
+            docstring_lines = docstring_line_numbers(content) if ext == ".py" else set()
+
             for lineno, line in enumerate(content.splitlines(), start=1):
+                if lineno in docstring_lines:
+                    continue
                 stripped = line.strip()
                 # Skip comment lines (shared heuristic — #178).
                 if is_comment_line(stripped):

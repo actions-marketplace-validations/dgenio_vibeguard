@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import is_comment_line, is_test_file
+from vibeguard.rules._util import docstring_line_numbers, is_comment_line, is_test_file
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -210,7 +210,17 @@ class RiskyDiffRule(Rule):
             except OSError:
                 continue
 
+            # Python docstrings/multiline strings are prose, not code — skip the
+            # lines inside them so a keyword like "refund" in a docstring is not
+            # mistaken for payment logic (#138). Single-line comments in every
+            # language are still handled by the per-line check below.
+            docstring_lines = (
+                docstring_line_numbers(content) if path.suffix.lower() == ".py" else set()
+            )
+
             for lineno, line in enumerate(content.splitlines(), start=1):
+                if lineno in docstring_lines:
+                    continue
                 # Skip comment lines (shared heuristic — #178).
                 stripped = line.strip()
                 if is_comment_line(stripped):

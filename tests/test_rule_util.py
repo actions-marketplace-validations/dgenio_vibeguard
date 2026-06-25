@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from vibeguard.rules._util import (
+    docstring_line_numbers,
     is_comment_line,
     is_test_file,
     is_test_path,
@@ -95,3 +96,26 @@ class TestIsCommentLine:
     )
     def test_negative(self, line: str):
         assert is_comment_line(line) is False
+
+
+class TestDocstringLineNumbers:
+    def test_no_docstring(self):
+        content = "x = 1\ny = 2\n"
+        assert docstring_line_numbers(content) == set()
+
+    def test_single_line_docstring(self):
+        content = 'def f():\n    """One-liner about a refund."""\n    return 1\n'
+        assert docstring_line_numbers(content) == {2}
+
+    def test_multiline_docstring(self):
+        content = 'def f():\n    """Line one.\n\n    Line three mentions billing.\n    """\n    return 1\n'
+        # Lines 2-5 are the docstring span (open, body, blank, close).
+        assert docstring_line_numbers(content) == {2, 3, 4, 5}
+
+    def test_single_quote_triple(self):
+        content = "x = '''multi\nline'''\ny = 1\n"
+        assert docstring_line_numbers(content) == {1, 2}
+
+    def test_open_without_close_runs_to_eof(self):
+        content = 'a = 1\n"""unterminated\nstill inside\n'
+        assert docstring_line_numbers(content) == {2, 3}

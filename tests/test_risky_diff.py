@@ -79,6 +79,34 @@ class TestRiskyDiffRule:
         findings = self.rule.scan(ctx)
         assert len(findings) == 0
 
+    # #138: keywords inside Python docstrings are prose, not code, and must not
+    # be mistaken for risk-sensitive logic.
+    def test_docstring_keyword_not_flagged(self, tmp_path: Path):
+        content = '''"""Maintenance helper.
+
+This script processes a refund and reconciles billing records.
+"""
+
+
+def cleanup() -> None:
+    return None
+'''
+        ctx = _ctx(tmp_path, {"maintenance.py": content})
+        findings = self.rule.scan(ctx)
+        assert not any("PAYMENTLOGIC" in f.id for f in findings)
+
+    def test_docstring_does_not_mask_following_code(self, tmp_path: Path):
+        # The docstring must be skipped without swallowing real code beneath it.
+        content = '''"""Charges customers."""
+
+
+def charge():
+    stripe.charge(amount)
+'''
+        ctx = _ctx(tmp_path, {"billing.py": content})
+        findings = self.rule.scan(ctx)
+        assert any("PAYMENTLOGIC" in f.id for f in findings)
+
     def test_cors_wildcard_detected(self, tmp_path: Path):
         ctx = _ctx(tmp_path, {"server.js": "app.use(cors({ origins: '*' }))\n"})
         findings = self.rule.scan(ctx)
