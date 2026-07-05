@@ -11,7 +11,7 @@ import pathspec
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from vibeguard.models import Severity
+from vibeguard.models import ScanContext, Severity
 from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack, merge_policy_pack
 
 if TYPE_CHECKING:
@@ -857,3 +857,12 @@ def apply_policy_suppressions(
             active.append(finding)
 
     return active, warnings
+
+
+# Resolve the ``ScanContext.config: "VibeGuardConfig"`` forward reference now
+# that ``VibeGuardConfig`` is defined (#217, #189). ``vibeguard.models`` cannot
+# import this module at runtime — ``config`` imports ``Severity``/``ScanContext``
+# from ``models`` — so the annotation is a string there and is bound here, the
+# single place where both classes are in scope. Keep this the only rebuild site
+# so the deferred-annotation wiring lives in one documented location.
+ScanContext.model_rebuild()

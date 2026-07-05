@@ -45,6 +45,7 @@ from vibeguard.reporters.registry import MACHINE_FORMATS, render_format
 from vibeguard.scanner import run_scan
 
 if TYPE_CHECKING:
+    from vibeguard.explain.base import ExplainAdapter
     from vibeguard.models import Finding, ScanResult
 
 app = typer.Typer(
@@ -1242,7 +1243,7 @@ _UNKNOWN_FINDING_MESSAGE = (
 )
 
 
-def _resolve_explain_adapter(name: str):
+def _resolve_explain_adapter(name: str) -> ExplainAdapter:
     """Construct the explain adapter named ``name`` or exit 2.
 
     Centralised so both ``explain`` and any future commands wanting an

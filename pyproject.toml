@@ -53,6 +53,10 @@ dev = [
     "types-PyYAML>=6.0",
     "hypothesis>=6.31",
     "jsonschema>=4.0",
+    # Enforces the offline guarantee (#223): sockets are disabled by default in
+    # the test run (see ``[tool.pytest.ini_options].addopts``), so any test that
+    # opens a real network connection fails instead of silently phoning home.
+    "pytest-socket>=0.7.0",
 ]
 
 [project.scripts]
@@ -83,11 +87,52 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.10"
 strict = false
+# Typing ratchet (#189): first wave. These two flags let the checker see the
+# core data flow — every function in ``vibeguard/`` carries annotations, and an
+# implicit ``Optional`` is no longer silently inferred. Global
+# ``ignore_missing_imports`` is intentionally *not* set: unstubbed third-party
+# imports are allow-listed per-module below so a genuinely missing first-party
+# type can't hide behind a blanket ignore. Further strictness flags land in
+# later waves.
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+# Unstubbed third-party imports. ``pathspec`` ships no type stubs; ``tomli`` /
+# ``tomllib`` are the version-guarded TOML parser pair in ``rules/_util.py``
+# (stdlib ``tomllib`` on 3.11+, the ``tomli`` backport on 3.10) — under the
+# 3.10 target mypy can't resolve the stdlib name, so both are allow-listed.
+[[tool.mypy.overrides]]
+module = ["pathspec.*", "tomli", "tomllib"]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+# Branch coverage is enabled deliberately (#187): it reads lower than line
+# coverage but catches untested conditional paths, which matter most for a
+# gate. Measured against the ``vibeguard`` package only (tests/benchmarks are
+# not the subject under test).
+branch = true
+source = ["vibeguard"]
+
+[tool.coverage.report]
+# Enforced floor (#187), a ratchet: it only moves *up*. Set 2 points below the
+# measured branch coverage at introduction (~89%) to absorb per-run variance;
+# a PR that meaningfully raises coverage may raise this number, but nothing
+# may lower it. ``pytest-cov`` reads this automatically, so CI fails when a
+# change drops below it without any extra workflow flag. See CONTRIBUTING.md.
+fail_under = 87
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+# ``--disable-socket`` enforces the offline guarantee (#223): the whole suite
+# runs with network sockets blocked, so a rule, reporter, or dependency that
+# starts making network calls fails loudly here instead of eroding the
+# "no network, no API key" thesis. The opt-in slopsquat registry check is
+# tested with its lookup mocked, so it needs no socket. If a test ever
+# legitimately requires a socket, mark it ``@pytest.mark.enable_socket``.
+addopts = "-v --disable-socket"
+markers = [
+    "enable_socket: allow a test to open network sockets (opt-in exception to the offline guarantee, #223)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["vibeguard"]
