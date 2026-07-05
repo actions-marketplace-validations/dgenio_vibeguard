@@ -234,19 +234,38 @@ jobs:
       # dependency — that is the failure this job exists to surface.
       - name: Run core commands with networking disabled
         run: |
-          set -uxo pipefail
+          set -x
           VG="$(command -v vibeguard)"
-          run_offline() { sudo unshare --net -- "$VG" "$@"; }
-          assert_not_usage() {
-            # Accept success/blocking-findings (0/1); fail on operational
-            # error (2) or any other non-{0,1} code.
-            local rc="$1" name="$2"
-            if [ "$rc" -gt 1 ]; then
-              echo "::error::'$name' exited $rc with networking disabled (expected 0 or 1)"
-              exit 1
+
+          # Preflight: prove the sandbox itself works. If 'sudo unshare --net' is
+          # blocked/unsupported on the runner it commonly exits non-zero — catch
+          # that here and fail loudly, so it can never be misread as a command's
+          # "blocking findings" (exit 1) in the checks below.
+          if ! sudo unshare --net -- true; then
+            echo "::error::'sudo unshare --net' is unavailable on this runner; cannot enforce the no-network job"
+            exit 1
+          fi
+
+          fail=0
+          # $1 = label, $2 = accepted exit codes (space-separated), rest = argv.
+          # ``|| rc=$?`` keeps the runner's default ``bash -e`` from aborting on a
+          # command's expected non-zero (gate/publish-check block on findings).
+          run_offline() {
+            local name="$1" accept="$2"; shift 2
+            local rc=0
+            sudo unshare --net -- "$VG" "$@" || rc=$?
+            if ! printf '%s\n' $accept | grep -qx "$rc"; then
+              echo "::error::'$name' exited $rc with networking disabled (accepted: $accept)"
+              fail=1
             fi
           }
-          run_offline scan --path examples/vulnerable-python-package; assert_not_usage $? "scan"
-          run_offline gate --path examples/vulnerable-python-package --fail-on critical; assert_not_usage $? "gate"
-          run_offline publish-check --path examples/vulnerable-python-package; assert_not_usage $? "publish-check"
-          run_offline explain SEC-ENV; assert_not_usage $? "explain"
+          # Per-command expected codes: scan/explain are informational and must
+          # succeed (0); gate/publish-check may block on findings (0 or 1). Any
+          # other code — especially 2 (operational error) — under no network
+          # signals an unexpected network dependency, which is what this job exists
+          # to surface.
+          run_offline scan "0" scan --path examples/vulnerable-python-package
+          run_offline gate "0 1" gate --path examples/vulnerable-python-package --fail-on critical
+          run_offline publish-check "0 1" publish-check --path examples/vulnerable-python-package
+          run_offline explain "0" explain SEC-ENV
+          exit "$fail"

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import jsonschema
 import pytest
@@ -426,8 +427,17 @@ class TestScanContextConfigTyped:
     statically checked. This guards against the ``Any`` hole reappearing."""
 
     def test_config_field_is_vibeguardconfig(self):
+        # The field must be typed as VibeGuardConfig, not Any. Across pydantic
+        # versions the stored annotation is either the resolved class (newer) or
+        # a ForwardRef('VibeGuardConfig') (the 2.0 floor, where model_rebuild
+        # does not eagerly resolve the introspection view) — both are correct;
+        # what matters is that it is not Any and names VibeGuardConfig. Runtime
+        # enforcement is proven separately by test_wrong_config_type_is_rejected.
         annotation = ScanContext.model_fields["config"].annotation
-        assert annotation is VibeGuardConfig
+        assert annotation is not Any
+        resolved = annotation is VibeGuardConfig
+        named = getattr(annotation, "__forward_arg__", None) == "VibeGuardConfig"
+        assert resolved or named, f"unexpected config annotation: {annotation!r}"
 
     def test_wrong_config_type_is_rejected(self, tmp_path: Path):
         with pytest.raises(ValidationError):
