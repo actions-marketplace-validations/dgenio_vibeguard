@@ -22,6 +22,10 @@ _PY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
         # INSERT…INTO, DELETE…FROM). This stops prose like
         # ``f"Update on your request: {topic}"`` from masquerading as a query
         # while still matching genuine interpolated SQL.
+        # Accepted limitation: interpolated prose that happens to pair a verb
+        # with its companion word (e.g. ``f"select a plan from {options}"``)
+        # can still match. #137 sanctioned the verb+clause heuristic; a tighter
+        # rule needs a real SQL parser, so this residual is left as-is.
         re.compile(
             r"""f["'](?=[^"']*\{)[^"']*(?:\bSELECT\b[^"']*\bFROM\b"""
             r"""|\bUPDATE\b[^"']*\bSET\b|\bINSERT\b[^"']*\bINTO\b"""

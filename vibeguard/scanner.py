@@ -63,16 +63,19 @@ _SUPPRESSION_EXTENSIONS = {
     ".dockerfile",
 }
 
-# Extensionless / prefixed filenames that still support inline suppression
-# (``Dockerfile``, ``Dockerfile.prod``, …).
-_SUPPRESSION_FILENAME_PREFIXES = ("dockerfile",)
+# Extensionless Dockerfile names that still support inline suppression:
+# ``Dockerfile`` itself and dotted variants like ``Dockerfile.prod``. Matched
+# exactly (or with a trailing ``.``) so unrelated names such as
+# ``dockerfile_notes.txt`` are not misclassified as suppression-eligible.
+_DOCKERFILE_NAME = "dockerfile"
 
 
 def _supports_inline_suppression(path: Path) -> bool:
     """Return True when ``path``'s file type can carry inline suppressions (#210)."""
     if path.suffix.lower() in _SUPPRESSION_EXTENSIONS:
         return True
-    return path.name.lower().startswith(_SUPPRESSION_FILENAME_PREFIXES)
+    name = path.name.lower()
+    return name == _DOCKERFILE_NAME or name.startswith(_DOCKERFILE_NAME + ".")
 
 
 def _is_binary(path: Path) -> bool | None:

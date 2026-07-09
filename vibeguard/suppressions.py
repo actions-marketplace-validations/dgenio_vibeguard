@@ -15,6 +15,11 @@ import re
 # The suppression *directive* must sit on a single physical line; multi-line
 # block comments (``/* ... */``) are not recognised. Placement is same-line or
 # the line directly above the finding (see scanner._apply_inline_suppressions).
+# Leaders are not scoped by file type — any recognised leader is accepted in any
+# suppression-eligible file (so ``--`` works in Markdown, ``<!--`` in SQL, and a
+# ``--`` inside a SQL string literal can read as a suppression). #210 accepts
+# this: the ``vibeguard: ignore`` marker is specific enough that an accidental
+# match is implausible, and a per-suffix leader map is not worth the complexity.
 _SUPPRESSION_RE = re.compile(
     r"(?:<!--|//|--|#)\s*vibeguard:\s*ignore\s+"
     r"(?P<ids>[A-Z][A-Z0-9\-,]+)"

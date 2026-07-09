@@ -140,11 +140,25 @@ class TestInlineSuppressionIntegration:
 class TestSuppressionFileTypeGate:
     @pytest.mark.parametrize(
         "name",
-        ["app.yaml", "config.toml", "main.tf", "schema.sql", "README.md", "Dockerfile", "run.sh"],
+        [
+            "app.yaml",
+            "config.toml",
+            "main.tf",
+            "schema.sql",
+            "README.md",
+            "Dockerfile",
+            "Dockerfile.prod",
+            "run.sh",
+        ],
     )
     def test_supported_file_types(self, name: str):
         assert _supports_inline_suppression(Path(name))
 
-    @pytest.mark.parametrize("name", ["image.png", "data.csv", "archive.zip"])
+    @pytest.mark.parametrize(
+        "name",
+        ["image.png", "data.csv", "archive.zip", "dockerfile_notes.txt"],
+    )
     def test_unsupported_file_types(self, name: str):
+        # #268 review: the Dockerfile match is exact/dotted, so an unrelated
+        # name that merely starts with "dockerfile" is not suppression-eligible.
         assert not _supports_inline_suppression(Path(name))

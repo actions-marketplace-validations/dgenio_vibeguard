@@ -73,6 +73,10 @@ fires.
 | `--`   | SQL |
 | `<!--` | HTML, Markdown — e.g. `<!-- vibeguard: ignore PI-HIDDENUNICODE reason="example" -->` |
 
+The "File types" column shows the *idiomatic* leader for each language. The
+parser is not file-type-scoped, so any leader above is accepted in any supported
+file — use the one that is a real comment in that language.
+
 Inline suppressions are parsed in these file types:
 
 ```text
