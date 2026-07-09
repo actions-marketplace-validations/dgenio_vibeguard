@@ -15,6 +15,7 @@ from vibeguard.rules._util import (
     is_test_file,
     is_test_path,
     load_toml,
+    mask_triple_quoted_spans,
 )
 
 
@@ -95,3 +96,42 @@ class TestIsCommentLine:
     )
     def test_negative(self, line: str):
         assert is_comment_line(line) is False
+
+
+class TestMaskTripleQuotedSpans:
+    def test_no_docstring(self):
+        assert mask_triple_quoted_spans("x = 1\ny = 2\n") == ["x = 1", "y = 2"]
+
+    def test_single_line_docstring_blanked(self):
+        masked = mask_triple_quoted_spans(
+            'def f():\n    """One-liner about a refund."""\n    x = 1\n'
+        )
+        assert masked[0] == "def f():"
+        assert masked[1].strip() == ""
+        assert masked[2] == "    x = 1"
+
+    def test_multiline_docstring_blanked(self):
+        content = '"""Line one.\n\nLine three mentions billing.\n"""\nx = 1\n'
+        masked = mask_triple_quoted_spans(content)
+        assert all(m.strip() == "" for m in masked[:4])
+        assert masked[4] == "x = 1"
+
+    def test_code_outside_span_preserved(self):
+        # Reviewer's recall case (#268): a real call sharing a line with a
+        # triple-quoted literal must stay scannable.
+        masked = mask_triple_quoted_spans('os.system("""rm -rf /tmp""")\n')
+        assert "os.system(" in masked[0]
+        assert "rm -rf" not in masked[0]
+
+    def test_single_quote_triple(self):
+        masked = mask_triple_quoted_spans("x = '''multi\nline'''\ny = 1\n")
+        assert masked[0].startswith("x = ")
+        assert "multi" not in masked[0]
+        assert masked[1].strip() == ""
+        assert masked[2] == "y = 1"
+
+    def test_open_without_close_runs_to_eof(self):
+        masked = mask_triple_quoted_spans('a = 1\n"""unterminated\nstill inside\n')
+        assert masked[0] == "a = 1"
+        assert masked[1].strip() == ""
+        assert masked[2].strip() == ""

@@ -5,12 +5,23 @@ from __future__ import annotations
 import re
 
 # Matches: # vibeguard: ignore ID1,ID2 reason="some reason"
-# Or:      // vibeguard: ignore ID1 reason="reason"
-# Note: only single-line comment styles (# and //) are supported.
-# Block comments (/* */) are not supported because suppression semantics
-# are strictly same-line.
+# Recognised single-line comment leaders cover the syntaxes VibeGuard scans
+# (#210). The HTML/Markdown leader is listed first so a ``<!-- ... -->`` wrapper
+# is matched as a whole rather than via the ``--`` inside it:
+#   <!--  HTML, Markdown  (e.g. <!-- vibeguard: ignore ID reason="..." -->)
+#   //    JS/TS, Go, HCL
+#   --    SQL
+#   #     Python, shell, YAML, TOML, Dockerfile, HCL
+# The suppression *directive* must sit on a single physical line; multi-line
+# block comments (``/* ... */``) are not recognised. Placement is same-line or
+# the line directly above the finding (see scanner._apply_inline_suppressions).
+# Leaders are not scoped by file type — any recognised leader is accepted in any
+# suppression-eligible file (so ``--`` works in Markdown, ``<!--`` in SQL, and a
+# ``--`` inside a SQL string literal can read as a suppression). #210 accepts
+# this: the ``vibeguard: ignore`` marker is specific enough that an accidental
+# match is implausible, and a per-suffix leader map is not worth the complexity.
 _SUPPRESSION_RE = re.compile(
-    r"(?:#|//)\s*vibeguard:\s*ignore\s+"
+    r"(?:<!--|//|--|#)\s*vibeguard:\s*ignore\s+"
     r"(?P<ids>[A-Z][A-Z0-9\-,]+)"
     r'(?:\s+reason\s*=\s*"(?P<reason>[^"]*)")?'
 )

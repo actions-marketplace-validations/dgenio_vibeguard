@@ -105,3 +105,82 @@ def is_comment_line(line: str) -> bool:
     """
     stripped = line.strip()
     return stripped.startswith(COMMENT_LINE_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Triple-quoted (docstring / multiline-string) span masking
+# ---------------------------------------------------------------------------
+
+# Python triple-quote string delimiters.
+_TRIPLE_DELIMS: tuple[str, ...] = ('"""', "'''")
+
+
+def _next_triple(line: str, start: int) -> tuple[int, str | None]:
+    """Find the earliest triple-quote delimiter in ``line`` at/after ``start``."""
+    best = -1
+    best_delim: str | None = None
+    for delim in _TRIPLE_DELIMS:
+        pos = line.find(delim, start)
+        if pos != -1 and (best == -1 or pos < best):
+            best = pos
+            best_delim = delim
+    return best, best_delim
+
+
+def _mask_triple_line(line: str, state: str | None) -> tuple[str, str | None]:
+    """Blank out triple-quoted span content on one ``line``.
+
+    Characters inside a triple-quoted span (and the delimiters themselves) are
+    replaced with spaces; code outside the span is preserved. ``state`` carries
+    the still-open delimiter from the previous line. Returns
+    ``(masked_line, new_state)``.
+    """
+    chars = list(line)
+    i = 0
+    n = len(line)
+    while i < n:
+        if state is None:
+            pos, delim = _next_triple(line, i)
+            if pos == -1:
+                break
+            for j in range(pos, pos + 3):
+                chars[j] = " "
+            state = delim
+            i = pos + 3
+        else:
+            close = line.find(state, i)
+            if close == -1:
+                for j in range(i, n):
+                    chars[j] = " "
+                i = n
+            else:
+                for j in range(i, close + 3):
+                    chars[j] = " "
+                state = None
+                i = close + 3
+    return "".join(chars), state
+
+
+def mask_triple_quoted_spans(content: str) -> list[str]:
+    """Return ``content``'s lines with triple-quoted spans blanked out.
+
+    Python docstrings and multi-line ``\"\"\"``/``'''`` literals are prose or
+    inert string data, not executable code, yet the keyword-based line scanners
+    (``risky_diff``, ``sql``) would otherwise match a keyword that appears only
+    inside one — e.g. "refund" in a module docstring (#138). Blanking the span
+    *content* (rather than skipping whole lines) keeps any real code that shares
+    a line with a string literal scannable: ``os.system(\"\"\"rm -rf\"\"\")``
+    still exposes ``os.system(`` to the rules while the quoted text is masked.
+
+    The returned list has one entry per input line (``splitlines`` semantics),
+    index-aligned so callers can match on the masked text while reporting
+    evidence from the original line. The heuristic is deliberately simple — it
+    does not model escaped quotes or triple-quotes nested inside single-quoted
+    strings — matching the posture of :func:`is_comment_line`.
+    """
+    masked: list[str] = []
+    state: str | None = None  # the open delimiter, or None when outside a span
+    for line in content.splitlines():
+        out, state = _mask_triple_line(line, state)
+        masked.append(out)
+    return masked

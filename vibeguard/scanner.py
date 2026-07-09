@@ -32,6 +32,51 @@ from vibeguard.suppressions import find_missing_reasons, parse_inline_suppressio
 
 _BINARY_SNIFF_SIZE = 8192
 
+# File types whose findings can carry inline ``vibeguard: ignore`` comments
+# (#210), in whatever single-line comment syntax the file uses (``#``, ``//``,
+# ``--``, ``<!--``). Beyond source code this now includes config/IaC/markup formats whose
+# rules emit line-anchored findings (ci_docker, iac, packaging, prompt_injection),
+# so an IaC- or Markdown-heavy repo can suppress in place rather than falling back
+# to coarse repo-wide ``vibeguard.yaml`` entries.
+_SUPPRESSION_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".go",
+    ".rb",
+    ".java",
+    ".cs",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".tf",
+    ".hcl",
+    ".sql",
+    ".md",
+    ".markdown",
+    ".html",
+    ".htm",
+    ".sh",
+    ".bash",
+    ".dockerfile",
+}
+
+# Extensionless Dockerfile names that still support inline suppression:
+# ``Dockerfile`` itself and dotted variants like ``Dockerfile.prod``. Matched
+# exactly (or with a trailing ``.``) so unrelated names such as
+# ``dockerfile_notes.txt`` are not misclassified as suppression-eligible.
+_DOCKERFILE_NAME = "dockerfile"
+
+
+def _supports_inline_suppression(path: Path) -> bool:
+    """Return True when ``path``'s file type can carry inline suppressions (#210)."""
+    if path.suffix.lower() in _SUPPRESSION_EXTENSIONS:
+        return True
+    name = path.name.lower()
+    return name == _DOCKERFILE_NAME or name.startswith(_DOCKERFILE_NAME + ".")
+
 
 def _is_binary(path: Path) -> bool | None:
     """Detect binary files via null-byte presence in the first 8 KB.
@@ -672,14 +717,13 @@ def _apply_inline_suppressions(
     file_suppressions: dict[str, dict[int, list[str]]] = {}
     warnings: list[Finding] = []
 
-    suppression_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb", ".java", ".cs"}
     # Cheap byte-substring filter — files without the literal `vibeguard:`
     # marker anywhere in their bytes can have neither suppressions nor
     # missing-reason warnings, so we skip the full text decode entirely.
     _MARKER = b"vibeguard:"
 
     for path in all_files:
-        if path.suffix.lower() not in suppression_extensions:
+        if not _supports_inline_suppression(path):
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
         has_findings = rel in files_with_findings

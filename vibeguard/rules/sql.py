@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from vibeguard.models import Confidence, Finding, ScanContext, Severity
-from vibeguard.rules._util import is_comment_line
+from vibeguard.rules._util import is_comment_line, mask_triple_quoted_spans
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
 
@@ -16,7 +16,22 @@ _PY_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     (
         "SQL-PY-FSTRING",
         "f-string SQL query",
-        re.compile(r'f["\'].*\b(SELECT|INSERT|UPDATE|DELETE)\b.*\{', re.IGNORECASE),
+        # Require structural SQL evidence, not a lone keyword (#137): the
+        # f-string must contain an interpolation (the lookahead ``\{``) *and* a
+        # verb paired with its companion clause (SELECT…FROM, UPDATE…SET,
+        # INSERT…INTO, DELETE…FROM). This stops prose like
+        # ``f"Update on your request: {topic}"`` from masquerading as a query
+        # while still matching genuine interpolated SQL.
+        # Accepted limitation: interpolated prose that happens to pair a verb
+        # with its companion word (e.g. ``f"select a plan from {options}"``)
+        # can still match. #137 sanctioned the verb+clause heuristic; a tighter
+        # rule needs a real SQL parser, so this residual is left as-is.
+        re.compile(
+            r"""f["'](?=[^"']*\{)[^"']*(?:\bSELECT\b[^"']*\bFROM\b"""
+            r"""|\bUPDATE\b[^"']*\bSET\b|\bINSERT\b[^"']*\bINTO\b"""
+            r"""|\bDELETE\b[^"']*\bFROM\b)""",
+            re.IGNORECASE,
+        ),
     ),
     (
         "SQL-PY-CONCAT",
@@ -95,7 +110,13 @@ class SqlRule(Rule):
             except OSError:
                 continue
 
-            for lineno, line in enumerate(content.splitlines(), start=1):
+            # Mask Python docstring / multiline-string spans: a query quoted as
+            # documentation is prose, not an executed statement (#138). Patterns
+            # run against the masked text; evidence comes from the original line.
+            lines = content.splitlines()
+            masked = mask_triple_quoted_spans(content) if ext == ".py" else lines
+
+            for lineno, (line, scan_line) in enumerate(zip(lines, masked, strict=True), start=1):
                 stripped = line.strip()
                 # Skip comment lines (shared heuristic — #178).
                 if is_comment_line(stripped):
@@ -105,7 +126,7 @@ class SqlRule(Rule):
                     key = (rel, finding_id)
                     if key in seen:
                         continue
-                    if pattern.search(line):
+                    if pattern.search(scan_line):
                         seen.add(key)
                         findings.append(
                             Finding(

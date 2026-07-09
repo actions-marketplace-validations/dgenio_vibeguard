@@ -593,6 +593,7 @@ Filing a bug, feature, rule request, or false-positive? Use the
 - **[docs/how-to-add-a-rule.md](docs/how-to-add-a-rule.md)** — step-by-step guide for adding a built-in rule.
 - **[docs/plugin-api.md](docs/plugin-api.md)** — public plugin API for shipping rules in your own package.
 - **[docs/policy-packs.md](docs/policy-packs.md)** — built-in policy packs (`oss-library`, `web-app`, `strict-ci`) and source-test mapping for monorepos.
+- **[docs/suppressions.md](docs/suppressions.md)** — silence findings with inline `# vibeguard: ignore` comments, policy entries, or a baseline.
 - **[docs/pre-commit.md](docs/pre-commit.md)** — run VibeGuard locally via the [pre-commit](https://pre-commit.com) framework.
 - **[docs/docker.md](docs/docker.md)** — run VibeGuard as a container in any CI environment.
 
