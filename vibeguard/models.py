@@ -5,9 +5,18 @@ from __future__ import annotations
 import hashlib
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+
+if TYPE_CHECKING:
+    # Type-only import: rules read ``context.config.<section>`` on every scan,
+    # so the field carries a real static type for mypy and editors. The import
+    # is guarded because ``vibeguard.config`` imports ``Severity`` from this
+    # module at runtime — a runtime import here would be circular. The forward
+    # reference is resolved by ``ScanContext.model_rebuild(...)`` at the end of
+    # ``vibeguard/config.py``, once ``VibeGuardConfig`` exists (#217, #189).
+    from vibeguard.config import VibeGuardConfig
 
 
 class Severity(str, Enum):
@@ -305,10 +314,8 @@ class GitMetadata(BaseModel):
 class ScanContext(BaseModel):
     """Everything a rule needs to perform a scan."""
 
-    model_config = {"arbitrary_types_allowed": True}
-
     root: Path
-    config: Any  # VibeGuardConfig — forward ref to avoid circular import
+    config: VibeGuardConfig
     files: list[Path] = Field(default_factory=list)
     changed_files: list[Path] = Field(default_factory=list)
     git: GitMetadata = Field(default_factory=GitMetadata)

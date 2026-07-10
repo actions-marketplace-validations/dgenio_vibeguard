@@ -605,6 +605,20 @@ def _execute(
     # after the scanner-level diagnostics so the existing ordering is preserved.
     diagnostics.extend(ctx.diagnostics)
 
+    # Canonical, contractual output ordering (#222): sort findings once here, by
+    # (path, line, id, fingerprint), so the order is a stable property of the
+    # *result* rather than an accident of rule-registration order and per-rule
+    # file iteration. This decouples ordering from internals (protecting a future
+    # parallel scanner, #164, from silently reshuffling downstream diffs/
+    # baselines) and folds the appended suppression warnings into the same order.
+    # File-level findings (no line) sort before line-scoped findings in the same
+    # file via the ``line or 0`` key. ``fingerprint`` is the final tiebreaker so
+    # the order is a *total* one even when several findings share the same
+    # (path, line, id) — e.g. one rule emitting multiple same-ID hits on a line
+    # via ``finditer`` — which (path, line, id) alone would leave in
+    # nondeterministic insertion order. The stability contract documents this.
+    findings.sort(key=lambda f: (f.path, f.line or 0, f.id, f.fingerprint))
+
     return ScanResult(
         findings=findings,
         scanned_files=len(all_files),

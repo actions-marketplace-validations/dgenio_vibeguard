@@ -79,7 +79,12 @@ engine behind the `vibeguard scan --patch` CLI — see
 ## Rule contract
 
 A rule subclasses `BaseRule` and implements `scan(self, context) ->
-list[Finding]`. The implementation:
+list[Finding]`. The `context.config` field is fully typed as
+`VibeGuardConfig`, so `context.config.<section>` access is checked by mypy and
+autocompletes in editors — a typo like `context.config.secrest` fails
+`mypy` rather than surfacing at runtime.
+
+The implementation:
 
 | Must                                                          | Must not                                             |
 |---------------------------------------------------------------|------------------------------------------------------|

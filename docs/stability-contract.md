@@ -14,6 +14,13 @@ release.
 > outputs, finding IDs, config). The *plugin* API has its own contract in
 > [`plugin-api.md`](plugin-api.md), governed by `PLUGIN_API_VERSION`.
 
+> Enforcement: the promises below are executable. A dedicated contract suite,
+> [`tests/test_stability_contract.py`](../tests/test_stability_contract.py),
+> pins the exit codes, the `scan`-vs-`gate` split, fail-closed behaviour,
+> output-schema keys, finding-ID set, fingerprint algorithm, and output
+> ordering — so the document and the binary cannot silently disagree. An
+> *intentional* contract change must update the doc and that suite together.
+
 ---
 
 ## TL;DR
@@ -161,6 +168,42 @@ The machine-readable reporters are integration surfaces and are stable:
   headline that reflects blocking findings) is stable, but exact column
   widths and prose are **experimental** and may change in a minor release.
   Do not parse the console output — use `--json`/`--sarif`.
+
+### Output ordering
+
+Findings are emitted in a **canonical, deterministic order: sorted by
+`(path, line, id)`** — file path first, then line number (file-level findings,
+which have no line, sort before line-scoped findings in the same file), then
+finding ID as the final tie-break. This order is applied once to the scan
+result, so it is a property of the result itself and is identical across the
+machine-readable reporters that preserve result order (JSON, RDJSON, SARIF,
+Sonar, IDE diagnostics) and stable across repeated runs and platforms. The
+human-facing console and Markdown renderers re-group by severity on top of this
+order for readability; that presentation ordering is **experimental** as noted
+above. Two consecutive scans of the same tree produce byte-identical JSON —
+downstream consumers that diff VibeGuard output (PR comments, baselines, golden
+files) can rely on it. Guaranteed by `tests/test_stability_contract.py`.
+
+## Offline guarantee
+
+The core gate performs **no network I/O**: `scan`, `gate`, `publish-check`,
+and `explain` run entirely offline — no telemetry, no API key, no LLM in the
+loop. This is the product thesis (air-gapped CI, supply-chain reviewability,
+deterministic behaviour), not a best-effort default.
+
+The one sanctioned exception is **opt-in**: the `slopsquat` rule's registry
+check (`slopsquat.registry_check: true`, off by default) makes network calls to
+verify a dependency exists and is not suspiciously new. With it off — the
+default — the gate never touches the network.
+
+The guarantee is mechanically enforced, not just documented:
+
+- The test suite runs with sockets disabled (`--disable-socket` via
+  `pytest-socket`), so any test that opens a network connection fails. A test
+  that legitimately needs a socket must opt in with `@pytest.mark.enable_socket`.
+- A CI job (`offline-guarantee` in `.github/workflows/ci.yml`) runs the four
+  core commands as subprocesses inside a network namespace with no
+  connectivity and asserts none fail with an operational error.
 
 ## Plugin API stability
 

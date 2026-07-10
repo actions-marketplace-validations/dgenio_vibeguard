@@ -82,6 +82,14 @@ make test
 
 This runs `pytest tests/ -v --cov=vibeguard --cov-report=term-missing --cov-report=xml`.
 
+**Coverage ratchet.** Branch coverage is enforced with a floor
+(`fail_under` in `pyproject.toml`, under `[tool.coverage.report]`), so a change
+that drops coverage below the floor fails CI. The floor is a **ratchet — it
+only moves up**: a PR that meaningfully raises coverage may bump the number,
+but no PR may lower it. Check your effect locally with
+`pytest --cov=vibeguard` before pushing; if you're adding code, add the tests
+that cover it in the same PR.
+
 ## Linting and formatting
 
 VibeGuard uses [`ruff`](https://docs.astral.sh/ruff/) for both linting and
@@ -101,9 +109,16 @@ The Makefile wraps these as `make lint` and `make format-check`.
 mypy vibeguard/
 ```
 
-`mypy` runs in non-strict mode (`tool.mypy.strict = false` in
-`pyproject.toml`). Don't add `# type: ignore` to silence warnings unless
-you genuinely cannot avoid them — usually a small refactor is cleaner.
+`mypy` runs in a **ratcheting** configuration (`pyproject.toml`): not full
+`strict` yet, but `disallow_untyped_defs` and `no_implicit_optional` are on,
+so **new code in `vibeguard/` must be annotated** — every function needs
+argument and return types, and an optional parameter must say `X | None`
+explicitly rather than relying on an implicit default. Unstubbed third-party
+imports are allow-listed per-module (see `[[tool.mypy.overrides]]`); do not
+re-introduce a global `ignore_missing_imports`. The strictness only tightens
+over time — new flags are added in waves, never relaxed. Don't add
+`# type: ignore` to silence warnings unless you genuinely cannot avoid them,
+and add a comment when you must — usually a small refactor is cleaner.
 
 ## Full CI pipeline locally
 
