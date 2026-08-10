@@ -82,16 +82,16 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
-      # Pin every runtime dependency to its declared lower bound so the
-      # suite proves each `>=X` specifier is truthful — not just that the
-      # latest versions a normal resolve picks happen to work.
-      - name: Install with minimum dependency versions
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]" -c constraints-min.txt
+      - name: Install uv
+        run: python -m pip install uv
+
+      # Resolve every direct requirement to the lower bound declared in
+      # pyproject.toml. This removes the second, hand-maintained source of truth
+      # that constraints-min.txt used to duplicate while preserving the same
+      # runtime proof that each >= floor is truthful.
+      - name: Install declared minimum dependency versions
+        run: uv pip install --system --resolution lowest-direct -e ".[dev]"
 
       - name: Show resolved floor versions
         run: pip list
