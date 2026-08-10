@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install -e . --group dev
 
       - name: Lint with ruff
         run: ruff check vibeguard/ tests/ benchmarks/
@@ -91,7 +91,7 @@ jobs:
       # that constraints-min.txt used to duplicate while preserving the same
       # runtime proof that each >= floor is truthful.
       - name: Install declared minimum dependency versions
-        run: uv pip install --system --resolution lowest-direct -e ".[dev]"
+        run: uv pip install --system --resolution lowest-direct -e . --group dev
 
       - name: Show resolved floor versions
         run: pip list
@@ -124,7 +124,7 @@ jobs:
       - name: Install with newest (pre-release) dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install -e . --group dev
           pip install --pre --upgrade typer rich pydantic pyyaml pathspec
 
       - name: Show resolved versions
@@ -195,7 +195,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install VibeGuard
-        run: pip install -e ".[dev]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . --group dev
 
       - name: Run VibeGuard gate
         run: vibeguard gate --path . --fail-on critical
@@ -220,7 +222,7 @@ jobs:
       - name: Install VibeGuard
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install -e . --group dev
 
       # Unit-level enforcement lives in the test job (pytest runs with
       # ``--disable-socket``, #223). This job is the integration proof: run the

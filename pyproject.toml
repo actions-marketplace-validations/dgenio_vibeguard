@@ -44,7 +44,16 @@ dependencies = [
     "tomli>=2.0.0; python_version<'3.11'",
 ]
 
+# Backward-compatible source-install shim only. Historical docs/releases may
+# still contain `pip install -e ".[dev]"`; keeping the empty extra makes that
+# command harmless without publishing any maintainer-only dependencies.
 [project.optional-dependencies]
+dev = []
+
+# PEP 735 local-only tooling. This dependency group is not published in wheel
+# metadata and is only for contributors / CI. The separate `dev` optional extra
+# above is intentionally empty and exists only as a backward-compatibility shim.
+[dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
