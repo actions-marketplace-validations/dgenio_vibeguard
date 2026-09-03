@@ -25,6 +25,9 @@ larger change, skim:
 - **[docs/stability-contract.md](docs/stability-contract.md)** — the
   promises core rules and outputs carry, so you know what counts as a
   breaking change.
+- **[docs/threat-model.md](docs/threat-model.md)** — the normative security
+  boundaries, guarantees/non-guarantees, trust assumptions, and residual-risk
+  policy for Trustworthy Observe.
 
 Good first contributions: issues labelled `good-first-issue`,
 false-positive reports with a clear repro, and docs. New rules and
@@ -32,13 +35,25 @@ integrations land most easily when they match the **Now / Next** focus in
 the roadmap. Maintainers cutting a release should follow
 [docs/release-checklist.md](docs/release-checklist.md).
 
+### Threat-model review gate
+
+Any change to **scope resolution, policy/configuration, suppressions, baselines,
+plugin trust, execution/completeness status, evidence/report semantics, or CI
+integration/permissions** must review and update the normative
+[threat model](docs/threat-model.md) in the same PR when the security boundary,
+mitigation, residual risk, evidence signal, or review cadence changes. Do not
+merge such a change on the assumption that existing threat-model wording still
+applies; make that review explicit in the PR.
+
 ---
 
 ## Prerequisites
 
 - **Python 3.10 or newer.** CI tests the full matrix 3.10 → 3.14, plus a
-  floor-deps job that installs the minimum declared dependency versions
-  (`constraints-min.txt`) on 3.10.
+  floor-deps job that resolves the minimum declared direct dependency versions
+  from `pyproject.toml` with uv `lowest-direct` on 3.10.
+- **pip 25.1 or newer** for local PEP 735 dependency-group installation. The
+  command below upgrades pip before using `--group`.
 - **git** with a clone of the repository.
 - Recommended: a fresh virtual environment (`python -m venv .venv && source .venv/bin/activate`)
   or a tool like [`pyenv`](https://github.com/pyenv/pyenv) /
@@ -49,12 +64,15 @@ the roadmap. Maintainers cutting a release should follow
 From the repo root:
 
 ```bash
-pip install -e ".[dev]"
+python -m pip install --upgrade pip
+python -m pip install -e . --group dev
 ```
 
-This installs VibeGuard in editable mode along with the dev tooling
-(`pytest`, `pytest-cov`, `ruff`, `mypy`, `types-PyYAML`). The CLI is then
-available as `vibeguard`.
+This installs VibeGuard in editable mode plus the local PEP 735 `dev`
+dependency group (`pytest`, `pytest-cov`, `ruff`, `mypy`, `types-PyYAML`,
+etc.). The group is contributor/CI tooling only and is **not published as an
+optional dependency of the VibeGuard wheel**. The CLI is then available as
+`vibeguard`.
 
 Verify the install:
 
@@ -82,6 +100,14 @@ make test
 
 This runs `pytest tests/ -v --cov=vibeguard --cov-report=term-missing --cov-report=xml`.
 
+**Coverage ratchet.** Branch coverage is enforced with a floor
+(`fail_under` in `pyproject.toml`, under `[tool.coverage.report]`), so a change
+that drops coverage below the floor fails CI. The floor is a **ratchet — it
+only moves up**: a PR that meaningfully raises coverage may bump the number,
+but no PR may lower it. Check your effect locally with
+`pytest --cov=vibeguard` before pushing; if you're adding code, add the tests
+that cover it in the same PR.
+
 ## Linting and formatting
 
 VibeGuard uses [`ruff`](https://docs.astral.sh/ruff/) for both linting and
@@ -101,9 +127,16 @@ The Makefile wraps these as `make lint` and `make format-check`.
 mypy vibeguard/
 ```
 
-`mypy` runs in non-strict mode (`tool.mypy.strict = false` in
-`pyproject.toml`). Don't add `# type: ignore` to silence warnings unless
-you genuinely cannot avoid them — usually a small refactor is cleaner.
+`mypy` runs in a **ratcheting** configuration (`pyproject.toml`): not full
+`strict` yet, but `disallow_untyped_defs` and `no_implicit_optional` are on,
+so **new code in `vibeguard/` must be annotated** — every function needs
+argument and return types, and an optional parameter must say `X | None`
+explicitly rather than relying on an implicit default. Unstubbed third-party
+imports are allow-listed per-module (see `[[tool.mypy.overrides]]`); do not
+re-introduce a global `ignore_missing_imports`. The strictness only tightens
+over time — new flags are added in waves, never relaxed. Don't add
+`# type: ignore` to silence warnings unless you genuinely cannot avoid them,
+and add a comment when you must — usually a small refactor is cleaner.
 
 ## Full CI pipeline locally
 

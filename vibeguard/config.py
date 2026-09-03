@@ -3,17 +3,35 @@
 from __future__ import annotations
 
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
+import pathspec
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from vibeguard.models import Severity
+from vibeguard.models import ScanContext, Severity
 from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack, merge_policy_pack
 
 if TYPE_CHECKING:
     from vibeguard.models import Finding
+
+
+@lru_cache(maxsize=128)
+def compile_pathspec(patterns: tuple[str, ...]) -> pathspec.PathSpec:
+    """Compile gitignore-syntax ``patterns`` into a cached :class:`pathspec.PathSpec`.
+
+    One pattern grammar (gitignore, via ``pathspec``) governs every ignore
+    source — ``ignore.paths`` config, ``.vibeguardignore``, and ``.gitignore``
+    (#216, #211) — instead of the per-component ``fnmatch`` that used to back
+    ``ignore.paths`` and silently never matched multi-segment patterns like
+    ``packages/*/build/``.
+
+    Cached on the (hashable) pattern tuple so the scanner can recompile a merged
+    ignore set once per scan rather than paying the parse cost for every file.
+    """
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
 
 
 PolicyPackName = Literal["oss-library", "web-app", "strict-ci"]
@@ -347,6 +365,63 @@ class ScannerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_file_size_kb: int = Field(default=1024, ge=1)
+    respect_gitignore: bool = Field(
+        default=True,
+        description=(
+            "Honor the scan root's .gitignore during file collection (#211). "
+            "Git-tracked files are always scanned even when gitignored, so a "
+            "committed-but-usually-ignored file (e.g. a checked-in .env) still "
+            "triggers findings. Set false to scan gitignored files too."
+        ),
+    )
+
+
+class GitConfig(BaseModel):
+    """Git/diff-mode settings.
+
+    ``base_branch`` sets the ref that ``--diff`` compares against (``base...HEAD``)
+    instead of the automatic ``origin/main`` → ``origin/master`` → ``main`` →
+    ``master`` detection. The ``--base`` CLI flag overrides this value. Useful for
+    teams whose default branch is ``develop``/``trunk`` or for stacked-PR bases;
+    in GitHub Actions, pass ``--base "origin/${{ github.base_ref }}"``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_branch: str | None = None
+
+
+class GateConfig(BaseModel):
+    """Settings specific to the ``gate`` command (#218).
+
+    ``strict_errors`` makes ``gate`` fail closed (non-zero exit) when the scan
+    itself ran *degraded* — a rule crashed, a plugin failed to load, the git
+    context was unavailable in ``--diff`` mode, an opt-in registry lookup failed,
+    or a file could not be read. Routine skips (binary/oversize files) never trip
+    it. Off by default so the gate stays fail-open on degradation unless a team
+    opts in; the ``--strict-errors`` CLI flag overrides this value either way.
+    Recommended for security-sensitive repositories where a partially-broken
+    scan must not show a green check.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    strict_errors: bool = False
+
+
+class OutputConfig(BaseModel):
+    """Report-output settings shared by scan/gate/publish-check.
+
+    ``sarif_max_results`` caps the number of results in a single SARIF run so a
+    large scan stays under GitHub Code Scanning's documented per-run ingestion
+    limit (5,000). When exceeded, the SARIF reporter keeps the most severe
+    findings and records the overflow in a ``toolExecutionNotifications`` entry
+    (#227). Result sets at or below the cap are unaffected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sarif_max_results: int = Field(default=5000, ge=1)
 
 
 class PluginsConfig(BaseModel):
@@ -405,6 +480,9 @@ class VibeGuardConfig(BaseModel):
     publish_check: PublishCheckConfig = Field(default_factory=PublishCheckConfig)
     explain: ExplainConfig = Field(default_factory=ExplainConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
+    git: GitConfig = Field(default_factory=GitConfig)
+    gate: GateConfig = Field(default_factory=GateConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod
@@ -463,31 +541,53 @@ class VibeGuardConfig(BaseModel):
         return cls.model_validate(data)
 
     def is_path_ignored(self, path: str | Path) -> bool:
-        """Return True if the path matches any ignore pattern."""
-        import fnmatch
+        """Return True if ``path`` matches an ``ignore.paths`` pattern.
 
+        Patterns use gitignore syntax (compiled via ``pathspec``), the same
+        language as ``.vibeguardignore`` and ``.gitignore`` (#216). This
+        replaced an earlier per-component ``fnmatch`` that could never match a
+        multi-segment pattern such as ``packages/*/build/``. For the common
+        directory-name case (``node_modules/``, ``__pycache__/``) the result is
+        unchanged.
+        """
         path_str = str(path).replace("\\", "/")
-        parts = path_str.split("/")
-        for pattern in self.ignore.paths:
-            # Normalize pattern – strip trailing slash for directory matching
-            clean = pattern.rstrip("/")
-            # Check individual path components against the pattern
-            for part in parts:
-                if fnmatch.fnmatch(part, clean):
-                    return True
-        return False
+        return compile_pathspec(tuple(self.ignore.paths)).match_file(path_str)
+
+
+def _read_ignore_lines(file_path: Path) -> list[str]:
+    r"""Return non-blank, non-comment lines from an ignore file, verbatim.
+
+    Shared by :func:`load_ignorefile` and :func:`load_gitignore`. Patterns are
+    passed through unchanged so ``pathspec`` can apply gitignore's own rules
+    (trailing whitespace is insignificant unless escaped with ``\``; ``\``
+    escapes). Only blank/whitespace-only lines are dropped, and a line counts as
+    a comment only when ``#`` is its first character — git does not treat an
+    indented ``#`` as a comment, and stripping each line first (as an earlier
+    version did) silently changed those edge cases.
+    """
+    if not file_path.exists():
+        return []
+    return [
+        line
+        for line in file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
 
 
 def load_ignorefile(root: Path) -> list[str]:
-    """Load .vibeguardignore patterns from the scan root using pathspec."""
-    ignore_path = root / ".vibeguardignore"
-    if not ignore_path.exists():
-        return []
-    return [
-        line.strip()
-        for line in ignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    """Load ``.vibeguardignore`` patterns from the scan root (gitignore syntax)."""
+    return _read_ignore_lines(root / ".vibeguardignore")
+
+
+def load_gitignore(root: Path) -> list[str]:
+    """Load the scan root's ``.gitignore`` patterns (#211).
+
+    Only the scan-root ``.gitignore`` is read in v1; nested ``.gitignore`` files
+    deeper in the tree are deferred. Git-tracked files are re-included by the
+    collector's carve-out regardless of these patterns, so a committed file that
+    is also gitignored is still scanned.
+    """
+    return _read_ignore_lines(root / ".gitignore")
 
 
 DEFAULT_CONFIG_YAML = """\
@@ -501,7 +601,17 @@ DEFAULT_CONFIG_YAML = """\
 policy: balanced      # relaxed | balanced | strict
 fail_on: high         # info | low | medium | high | critical
 
+# gate:
+#   # Fail the gate when the scan itself ran degraded (a rule crashed, a plugin
+#   # failed to load, git context was unavailable in --diff mode, a registry
+#   # lookup failed, or a file was unreadable). Routine binary/oversize skips
+#   # never trip it. Off by default; --strict-errors overrides this. Recommended
+#   # for security-sensitive repos. See docs/stability-contract.md.
+#   strict_errors: false
+
 ignore:
+  # gitignore-style patterns (same syntax as .vibeguardignore and .gitignore).
+  # Multi-segment patterns like packages/*/build/ are supported.
   paths:
     - .git/
     - node_modules/
@@ -528,6 +638,19 @@ package_allowlist:
 
 scanner:
   max_file_size_kb: 1024  # skip files larger than this (KB)
+  # Honor the scan root's .gitignore (git-tracked files are always scanned).
+  # Set false to also scan gitignored files. config ignore.paths +
+  # .vibeguardignore are the hard-ignore layer applied first; .gitignore only
+  # excludes additional *untracked* files and cannot re-include a hard-ignored
+  # path.
+  respect_gitignore: true
+
+# git:
+#   # Base ref for --diff comparisons (base...HEAD). Overrides the default
+#   # origin/main -> origin/master -> main -> master detection. The --base
+#   # CLI flag wins over this value. In GitHub Actions, prefer passing
+#   # --base "origin/${{ github.base_ref }}" on the command line.
+#   base_branch: origin/develop
 
 secrets:
   enabled: true
@@ -734,3 +857,12 @@ def apply_policy_suppressions(
             active.append(finding)
 
     return active, warnings
+
+
+# Resolve the ``ScanContext.config: "VibeGuardConfig"`` forward reference now
+# that ``VibeGuardConfig`` is defined (#217, #189). ``vibeguard.models`` cannot
+# import this module at runtime — ``config`` imports ``Severity``/``ScanContext``
+# from ``models`` — so the annotation is a string there and is bound here, the
+# single place where both classes are in scope. Keep this the only rebuild site
+# so the deferred-annotation wiring lives in one documented location.
+ScanContext.model_rebuild()

@@ -5,7 +5,14 @@ from __future__ import annotations
 import math
 import re
 
-from vibeguard.models import Confidence, Finding, ScanContext, Severity
+from vibeguard.models import (
+    Confidence,
+    Finding,
+    Remediation,
+    RemediationKind,
+    ScanContext,
+    Severity,
+)
 from vibeguard.rules._util import is_test_path
 from vibeguard.rules.base import Rule
 from vibeguard.rules.registry import RuleMetadata, register_rule
@@ -216,6 +223,16 @@ class SecretsRule(Rule):
                             ),
                             tags=["secrets", "env"],
                             confidence=Confidence.HIGH,
+                            remediation=Remediation(
+                                kind=RemediationKind.ADD_IGNORE_ENTRY,
+                                target=".gitignore",
+                                content=path.name,
+                                description=(
+                                    f"Add `{path.name}` to `.gitignore`, remove it from the "
+                                    "repository, and rotate any secrets it contained."
+                                ),
+                                confidence=Confidence.HIGH,
+                            ),
                         )
                     )
                 continue

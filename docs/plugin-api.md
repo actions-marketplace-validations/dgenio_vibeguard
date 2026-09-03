@@ -26,6 +26,7 @@ from vibeguard.api import (
     ScanContext,     # everything a rule needs to scan
     ScanResult,
     Severity,        # finding severity enum
+    scan_patch,      # programmatic --patch scan (since API 1.1)
 )
 ```
 
@@ -37,7 +38,8 @@ deeper paths — open an issue if you need something that isn't exposed in
 `PLUGIN_API_VERSION` is a `"MAJOR.MINOR"` string. Plugins should pin a
 range in their dependency metadata that tracks **the API version**, not
 the release version of `vibeguard-gate`. Today `PLUGIN_API_VERSION` is
-`1.0`, so a safe pin is:
+`1.1` (the `1.1` minor added the additive `scan_patch` entry point), so a
+safe pin is:
 
 ```toml
 dependencies = ["vibeguard-gate>=0.8"]
@@ -51,10 +53,38 @@ ships a `PLUGIN_API_VERSION` major bump (`1.x` → `2.0`) the release
 notes will tell you to add an upper bound (e.g. `<1.0` if you can't
 yet support the new major) and update your imports.
 
+## Programmatic scanning: `scan_patch`
+
+Besides authoring rules, the API exposes a scanning entry point for callers
+that hold a diff in memory — an agent harness, a review bot, or an MCP tool that
+wants to ask "is this patch safe?" without a checkout:
+
+```python
+from vibeguard.api import Severity, scan_patch
+
+result = scan_patch(patch_text)              # patch_text is `git diff` output
+blocking = [f for f in result.findings if f.severity >= Severity.HIGH]
+```
+
+`scan_patch(patch_text, base_path=None)` reconstructs the **new side** of every
+file in the diff into a throwaway temporary tree, scans it, and restricts
+findings to the **added** lines (context lines give multi-line rules structure
+but are never reported). It returns the standard `ScanResult`; its
+`scan_path` is the stable placeholder `"<patch>"`, never a temp directory. Pass
+`base_path` to auto-discover a `vibeguard.yaml` so your rule configuration and
+suppressions apply; otherwise built-in defaults are used. This is the same
+engine behind the `vibeguard scan --patch` CLI — see
+[scan-scope.md](scan-scope.md#--patch-gate-a-diff-before-it-is-applied).
+
 ## Rule contract
 
 A rule subclasses `BaseRule` and implements `scan(self, context) ->
-list[Finding]`. The implementation:
+list[Finding]`. The `context.config` field is fully typed as
+`VibeGuardConfig`, so `context.config.<section>` access is checked by mypy and
+autocompletes in editors — a typo like `context.config.secrest` fails
+`mypy` rather than surfacing at runtime.
+
+The implementation:
 
 | Must                                                          | Must not                                             |
 |---------------------------------------------------------------|------------------------------------------------------|

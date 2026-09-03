@@ -7,6 +7,9 @@
 [![CI](https://github.com/dgenio/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/dgenio/vibeguard/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![Read the Weaver Stack overview on Towards AI](https://img.shields.io/badge/Read_the_overview-Towards_AI-black?logo=medium&logoColor=white)](https://pub.towardsai.net/the-weaver-stack-one-contract-layer-for-safe-llm-agents-7f733cad5eac)
+
+Security boundary: read the [normative Trustworthy Observe threat model](docs/threat-model.md) for the exact guarantees, non-guarantees, trust assumptions, and residual-risk policy. A complete or no-findings run is **not** a security certification.
 
 ---
 
@@ -107,7 +110,7 @@ Or from source:
 ```bash
 git clone https://github.com/dgenio/vibeguard
 cd vibeguard
-pip install -e ".[dev]"
+python -m pip install -e . --group dev
 ```
 
 Initialize a config file:
@@ -126,6 +129,16 @@ Gate your CI (exits 1 if blocking findings found):
 
 ```bash
 vibeguard gate --diff --fail-on high
+```
+
+For security-sensitive repositories, add `--strict-errors` so the gate also
+fails closed when the scan itself ran degraded (a rule crashed, a plugin failed
+to load, git context was unavailable, or a registry lookup failed) instead of
+showing a green check on a partial scan. Routine binary/oversize skips never
+trip it:
+
+```bash
+vibeguard gate --diff --fail-on high --strict-errors
 ```
 
 ---
@@ -199,11 +212,24 @@ Scans a repository and prints findings. **Always exits 0** (informational).
 vibeguard scan
 vibeguard scan --path .
 vibeguard scan --diff                  # only changed files (requires git)
+vibeguard scan --diff --base origin/develop  # compare against a non-default base
 vibeguard scan --json                  # machine-readable output
 vibeguard scan --markdown              # for PR comments
+vibeguard scan --sarif                 # GitHub code scanning
+vibeguard scan --rdjson                # reviewdog (GitHub/GitLab/Gerrit/Bitbucket)
+vibeguard scan --sonar                 # SonarQube generic issue import
 vibeguard scan --verbose               # detailed descriptions
 vibeguard scan --fail-on medium        # set threshold (informational only)
+
+vibeguard scan --sarif --output vibeguard.sarif   # write to a file (no shell redirection)
+vibeguard gate --report sarif=vg.sarif --report pr-comment=comment.md  # several reports, one scan
 ```
+
+Output formats can be written to a file with `--output PATH` (`-` = stdout), or
+emitted several at once from a single scan with the repeatable
+`--report FORMAT=PATH`. See [docs/output-schemas.md](docs/output-schemas.md) for
+every format (including the machine-actionable `remediation` metadata and the
+SARIF code-scanning result cap).
 
 ### `vibeguard gate`
 
@@ -212,7 +238,19 @@ Same as `scan` but **exits 1** when findings meet or exceed the threshold.
 ```bash
 vibeguard gate --path . --fail-on high
 vibeguard gate --diff --fail-on medium
+vibeguard gate --diff --base origin/develop --fail-on medium
 ```
+
+#### Diff-mode scope
+
+In `--diff` mode VibeGuard reports only findings **introduced or touched by the
+change set** — findings whose file is not part of the diff (pre-existing
+repository state) are not reported, so a PR gate cannot be blocked by unrelated
+history. The base ref is resolved as: `--base` flag → `git.base_branch` config →
+automatic detection (`origin/main` → `origin/master` → `main` → `master`). When
+no base can be detected the scan degrades to `git diff HEAD` and emits a visible
+diagnostic — in CI use `fetch-depth: 0` (and/or `--base`) so the base branch is
+available. See [docs/stability-contract.md](docs/stability-contract.md).
 
 ### `vibeguard publish-check`
 
@@ -313,6 +351,8 @@ policy: balanced
 fail_on: high
 
 ignore:
+  # gitignore-style patterns (same syntax as .vibeguardignore and .gitignore);
+  # multi-segment patterns like packages/*/build/ are supported.
   paths:
     - .git/
     - node_modules/
@@ -320,6 +360,15 @@ ignore:
     - dist/
     - build/
   findings: []        # suppress specific finding IDs
+
+scanner:
+  max_file_size_kb: 1024
+  # Honor the scan root's .gitignore by default. Git-tracked files are always
+  # scanned (so a committed .env still triggers SEC-ENV); set this to false to
+  # scan gitignored files too. config ignore.paths + .vibeguardignore form the
+  # hard-ignore layer applied first; .gitignore only excludes additional
+  # *untracked* files and cannot re-include a hard-ignored path.
+  respect_gitignore: true
 
 secrets:
   enabled: true
@@ -519,6 +568,9 @@ VibeGuard is meant to be enforced in CI, so its behaviour is contractual:
   surfaces are stable (CLI, exit codes, finding IDs, JSON/SARIF), how
   `scan` and `gate` differ, the versioning policy, and the fail-closed
   guarantees for bad paths, malformed config, and empty scans.
+- **[docs/scan-scope.md](docs/scan-scope.md)** — what gets scanned in each
+  mode (full, `--diff`, `--staged`, `--patch`), how file/directory targets
+  resolve, and the precedence rules.
 - **[docs/roadmap.md](docs/roadmap.md)** — where the project is heading
   (trust before breadth), the label taxonomy, what makes a good rule, and
   when to ship a plugin instead of a core rule.
@@ -544,6 +596,7 @@ Filing a bug, feature, rule request, or false-positive? Use the
 - **[docs/how-to-add-a-rule.md](docs/how-to-add-a-rule.md)** — step-by-step guide for adding a built-in rule.
 - **[docs/plugin-api.md](docs/plugin-api.md)** — public plugin API for shipping rules in your own package.
 - **[docs/policy-packs.md](docs/policy-packs.md)** — built-in policy packs (`oss-library`, `web-app`, `strict-ci`) and source-test mapping for monorepos.
+- **[docs/suppressions.md](docs/suppressions.md)** — silence findings with inline `# vibeguard: ignore` comments, policy entries, or a baseline.
 - **[docs/pre-commit.md](docs/pre-commit.md)** — run VibeGuard locally via the [pre-commit](https://pre-commit.com) framework.
 - **[docs/docker.md](docs/docker.md)** — run VibeGuard as a container in any CI environment.
 

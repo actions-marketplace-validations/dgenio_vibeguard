@@ -1,4 +1,19 @@
-"""VibeGuard CLI — entry point."""
+"""VibeGuard CLI — entry point.
+
+Exit-code contract (stable; mirrored in ``docs/stability-contract.md``). These
+codes are exposed as the named constants below so the contract lives in one
+place instead of scattered integer literals (#183):
+
+* ``EXIT_OK`` (0)      — the command ran to completion with no blocking outcome.
+  ``scan`` is informational and always returns this on findings; ``gate`` /
+  ``publish-check`` return it when nothing meets ``--fail-on``.
+* ``EXIT_BLOCKED`` (1) — ``gate`` / ``publish-check`` found blocking findings, or
+  ``gate --strict-errors`` ran on a degraded scan (#218). ``validate`` also uses
+  ``1`` to report that a config file is invalid.
+* ``EXIT_USAGE`` (2)   — operational/usage error (bad path, malformed config,
+  unknown ID); every command fails closed here so CI can tell "the tool could
+  not run as asked" apart from "the gate failed".
+"""
 
 from __future__ import annotations
 
@@ -25,14 +40,12 @@ from vibeguard.policies import KNOWN_PACK_NAMES, load_policy_pack
 from vibeguard.publish import run_publish_check
 from vibeguard.reporters.annotations import emit_annotations, is_github_actions
 from vibeguard.reporters.console import render_findings
-from vibeguard.reporters.diagnostics import print_diagnostics
-from vibeguard.reporters.json_reporter import print_json
-from vibeguard.reporters.markdown import render_markdown, render_pr_comment
-from vibeguard.reporters.sarif import print_sarif
-from vibeguard.reporters.weaver import print_weaver
+from vibeguard.reporters.markdown import render_markdown
+from vibeguard.reporters.registry import MACHINE_FORMATS, render_format
 from vibeguard.scanner import run_scan
 
 if TYPE_CHECKING:
+    from vibeguard.explain.base import ExplainAdapter
     from vibeguard.models import Finding, ScanResult
 
 app = typer.Typer(
@@ -42,6 +55,12 @@ app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 err_console = Console(stderr=True)
+
+# Exit-code contract (#183). See the module docstring and
+# ``docs/stability-contract.md`` for the meaning of each value.
+EXIT_OK = 0
+EXIT_BLOCKED = 1
+EXIT_USAGE = 2
 
 
 def _version_callback(value: bool) -> None:
@@ -83,18 +102,18 @@ def init(
     config_path = path / "vibeguard.yaml"
     if config_path.exists():
         err_console.print(f"[yellow]vibeguard.yaml already exists at {config_path}. Skipping.[/]")
-        raise typer.Exit(0)
+        raise typer.Exit(EXIT_OK)
 
     if policy_pack is not None:
         try:
             load_policy_pack(policy_pack)
         except ValueError as exc:
             err_console.print(f"[red]{exc}[/]")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
     body = render_config_body(policy_pack)
 
     path.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(body)
+    config_path.write_text(body, encoding="utf-8")
     err_console.print(f"[green]✓[/] Created [bold]{config_path}[/]")
     if policy_pack is not None:
         err_console.print(
@@ -167,7 +186,7 @@ def setup_github_actions_cmd(
         )
     except SetupError as exc:
         err_console.print(f"[red]{escape(str(exc))}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
     if dry_run:
         err_console.print("[bold]Dry run — no files written.[/] Would create:")
@@ -234,7 +253,7 @@ def validate(
     config_path = config or (path / "vibeguard.yaml")
     if not config_path.exists():
         err_console.print(f"[red]Config file not found: {config_path}[/]")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_BLOCKED)
 
     try:
         VibeGuardConfig.load(config_path)
@@ -243,10 +262,10 @@ def validate(
         for error in exc.errors():
             loc = " → ".join(str(p) for p in error["loc"])
             err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-        raise typer.Exit(1) from None
+        raise typer.Exit(EXIT_BLOCKED) from exc
     except Exception as exc:
         err_console.print(f"[red]Error reading config: {exc}[/]")
-        raise typer.Exit(1) from None
+        raise typer.Exit(EXIT_BLOCKED) from exc
 
     typer.echo(f"✓ Config is valid: {config_path}")
 
@@ -263,6 +282,8 @@ def _validate_output_options(
     pr_comment_output: bool = False,
     diagnostics_output: bool = False,
     weaver_output: bool = False,
+    rdjson_output: bool = False,
+    sonar_output: bool = False,
     annotations_explicit: bool = False,
 ) -> None:
     """Fail fast if mutually exclusive output options are set together."""
@@ -274,26 +295,168 @@ def _validate_output_options(
             pr_comment_output,
             diagnostics_output,
             weaver_output,
+            rdjson_output,
+            sonar_output,
         ]
     )
     if selected > 1:
         err_console.print(
-            "[red]Error: --json, --markdown, --sarif, --pr-comment, --diagnostics, and"
-            " --weaver are mutually exclusive. Choose one.[/]"
+            "[red]Error: --json, --markdown, --sarif, --pr-comment, --diagnostics,"
+            " --weaver, --rdjson, and --sonar are mutually exclusive. Choose one"
+            " (or use repeated --report FORMAT=PATH for several files).[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
     if annotations_explicit and selected >= 1:
         # Annotations are workflow commands printed to stdout. Combining them
-        # with structured output (JSON/SARIF/Markdown/diagnostics/weaver)
+        # with structured output (JSON/SARIF/Markdown/diagnostics/weaver/...)
         # interleaves them into the report and breaks downstream parsers.
         # Annotations still auto-enable in GitHub Actions when no structured
         # output is selected.
         err_console.print(
-            "[red]Error: --annotations cannot be combined with --json, --markdown,"
-            " --sarif, --pr-comment, --diagnostics, or --weaver (annotations would"
-            " corrupt the structured output).[/]"
+            "[red]Error: --annotations cannot be combined with a structured output"
+            " format (annotations would corrupt the structured output).[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
+
+
+def _active_format(
+    json_output: bool,
+    sarif_output: bool,
+    markdown_output: bool,
+    pr_comment_output: bool,
+    diagnostics_output: bool,
+    weaver_output: bool,
+    rdjson_output: bool,
+    sonar_output: bool,
+) -> str | None:
+    """Return the single selected machine-format name, or ``None`` for console.
+
+    ``_validate_output_options`` has already guaranteed at most one flag is set,
+    so a simple ordered scan resolves the active format.
+    """
+    for name, on in (
+        ("json", json_output),
+        ("sarif", sarif_output),
+        ("markdown", markdown_output),
+        ("pr-comment", pr_comment_output),
+        ("diagnostics", diagnostics_output),
+        ("weaver", weaver_output),
+        ("rdjson", rdjson_output),
+        ("sonar", sonar_output),
+    ):
+        if on:
+            return name
+    return None
+
+
+def _write_report(text: str, dest: str) -> None:
+    """Write rendered report ``text`` to ``dest`` (a path, or ``-`` for stdout).
+
+    A trailing newline is ensured so files end cleanly, matching the newline the
+    stdout reporters already emit. Unwritable destinations fail closed with exit
+    code 2 (consistent with the CLI error contract)."""
+    normalized = text if text.endswith("\n") else text + "\n"
+    if dest == "-":
+        # Emit the normalized text as-is (it already ends in exactly one
+        # newline) so stdout matches the file path byte-for-byte; nl=False stops
+        # ``echo`` from appending a second newline.
+        typer.echo(normalized, nl=False)
+        return
+    try:
+        Path(dest).write_text(normalized, encoding="utf-8")
+    except OSError as exc:
+        err_console.print(f"[red]Error: cannot write report to {escape(dest)}: {exc}[/]")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+
+def _parse_report_specs(reports: list[str]) -> list[tuple[str, str]]:
+    """Parse repeatable ``--report FORMAT=PATH`` specs, exiting 2 on bad input."""
+    specs: list[tuple[str, str]] = []
+    for spec in reports:
+        fmt, sep, dest = spec.partition("=")
+        fmt = fmt.strip()
+        dest = dest.strip()
+        if not sep or not fmt or not dest:
+            err_console.print(f"[red]Error: --report expects FORMAT=PATH, got {escape(spec)!r}.[/]")
+            raise typer.Exit(EXIT_USAGE)
+        if fmt not in MACHINE_FORMATS:
+            err_console.print(
+                f"[red]Error: unknown --report format {escape(fmt)!r}."
+                f" Valid formats: {', '.join(MACHINE_FORMATS)}.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        specs.append((fmt, dest))
+    return specs
+
+
+def _emit_reports(
+    result: ScanResult,
+    *,
+    single_format: str | None,
+    output: Path | None,
+    reports: list[str],
+    gate_passed: bool,
+    threshold: Severity,
+    blocking: bool,
+    sarif_max_results: int,
+    verbose: bool,
+) -> bool:
+    """Render scan output to stdout and/or files.
+
+    Resolution order: repeatable ``--report FORMAT=PATH`` (multi-file) wins;
+    otherwise ``--output PATH`` writes the single selected format to a file;
+    otherwise the single format prints to stdout (byte-identical to the historic
+    reporters), or the Rich console table renders when no format is selected.
+
+    Returns ``True`` when a machine format was emitted (so callers can suppress
+    auto-annotations / the console table accordingly). Exits 2 on invalid
+    ``--output``/``--report`` combinations.
+    """
+
+    def _render(fmt: str) -> str:
+        return render_format(
+            fmt,
+            result,
+            gate_passed=gate_passed,
+            threshold=threshold,
+            blocking=blocking,
+            sarif_max_results=sarif_max_results,
+        )
+
+    report_specs = _parse_report_specs(reports)
+    if report_specs:
+        if single_format is not None or output is not None:
+            err_console.print(
+                "[red]Error: --report cannot be combined with --output or a single"
+                " format flag. Use repeated --report FORMAT=PATH for multiple files.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        for fmt, dest in report_specs:
+            _write_report(_render(fmt), dest)
+            if dest != "-":
+                err_console.print(f"[dim]Wrote {fmt} report → {escape(dest)}[/]")
+        return True
+
+    if output is not None:
+        if single_format is None:
+            err_console.print(
+                "[red]Error: --output requires a format flag (--json, --sarif,"
+                " --markdown, --pr-comment, --diagnostics, --weaver, --rdjson,"
+                " --sonar).[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        dest = str(output)
+        _write_report(_render(single_format), dest)
+        if dest != "-":
+            err_console.print(f"[dim]Wrote {single_format} report → {escape(dest)}[/]")
+        return True
+
+    if single_format is None:
+        render_findings(result, verbose=verbose)
+        return False
+
+    typer.echo(_render(single_format))
+    return True
 
 
 def _validate_scan_path(path: Path) -> None:
@@ -313,20 +476,154 @@ def _validate_scan_path(path: Path) -> None:
             f"[red]Error: --path does not exist: {shown}[/]\n"
             "Pass the repository root you want to scan."
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
     if not path.is_dir():
         err_console.print(
             f"[red]Error: --path must be a directory, but got a file: {shown}[/]\n"
             "Pass the repository root (a directory), not an individual file."
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
+
+
+def _resolve_scan_targets(
+    paths: list[Path] | None,
+    path: Path,
+    *,
+    diff: bool,
+    staged: bool,
+    patch: Path | None,
+) -> list[Path]:
+    """Validate scan inputs and return the target paths (#213, #209, #153).
+
+    Positional ``paths`` take precedence over ``--path``; either may name files
+    or directories for a full scan (#213). The scope modes ``--diff`` /
+    ``--staged`` / ``--patch`` are mutually exclusive, and the git-backed modes
+    scope a single repository directory. For ``--patch`` the returned targets are
+    unused — the file set comes from the diff itself.
+    """
+    active = [
+        name
+        for name, on in (("--diff", diff), ("--staged", staged), ("--patch", patch is not None))
+        if on
+    ]
+    if len(active) > 1:
+        err_console.print(
+            f"[red]Error: {', '.join(active)} are mutually exclusive; choose one scan scope.[/]"
+        )
+        raise typer.Exit(EXIT_USAGE)
+
+    targets = list(paths) if paths else [path]
+
+    if patch is not None:
+        if paths:
+            err_console.print(
+                "[red]Error: --patch reads its file list from the diff itself; "
+                "do not also pass path arguments.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        return targets
+
+    if diff or staged:
+        mode = "--staged" if staged else "--diff"
+        if len(targets) > 1:
+            err_console.print(
+                f"[red]Error: {mode} scans a single repository; pass one directory, "
+                f"not {len(targets)} paths.[/]"
+            )
+            raise typer.Exit(EXIT_USAGE)
+        # Git-backed modes need a repository directory; reuse the fail-closed
+        # path guard (#81/#83) that rejects a missing path or a single file.
+        _validate_scan_path(targets[0])
+        return targets
+
+    # Full scan: positional targets may be files or directories (#213). Validate
+    # existence so a typo'd path fails closed instead of silently scanning 0.
+    for target in targets:
+        if not target.exists():
+            err_console.print(
+                f"[red]Error: path does not exist: {escape(str(target))}[/]\n"
+                "Pass a file or directory to scan."
+            )
+            raise typer.Exit(EXIT_USAGE)
+    return targets
+
+
+def _read_patch_text(patch: Path) -> str:
+    """Read a unified diff from a file, or stdin when ``patch`` is ``-`` (#153)."""
+    if str(patch) == "-":
+        return sys.stdin.read()
+    try:
+        return patch.read_text(encoding="utf-8")
+    except OSError as exc:
+        err_console.print(f"[red]Error: cannot read --patch file {escape(str(patch))}: {exc}[/]")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+
+def _config_search_root(targets: list[Path], patch: Path | None, path: Path) -> Path:
+    """Pick the directory to auto-discover ``vibeguard.yaml`` in.
+
+    For ``--patch`` there is no real tree, so fall back to ``--path`` (cwd by
+    default). Otherwise use the first target — or its parent when it is a file —
+    so ``vibeguard scan src/app.py`` still finds the repo's config.
+    """
+    if patch is not None:
+        return path
+    first = targets[0]
+    return first if first.is_dir() else first.parent
+
+
+def _execute_scan(
+    targets: list[Path],
+    cfg: VibeGuardConfig,
+    *,
+    base: str | None,
+    diff: bool,
+    staged: bool,
+    patch: Path | None,
+    config_root: Path,
+) -> ScanResult:
+    """Resolve the selected scope mode into a :class:`ScanResult`.
+
+    Shared by ``scan`` and ``gate`` so both expose identical positional-path
+    (#213), ``--staged`` (#209), and ``--patch`` (#153) semantics. Mode
+    exclusivity/validation has already been enforced by
+    :func:`_resolve_scan_targets`.
+    """
+    if patch is not None:
+        return run_scan(config_root, cfg, patch_text=_read_patch_text(patch))
+
+    if diff or staged:
+        root = targets[0].resolve()
+        # --base wins over git.base_branch config; both fall back to automatic
+        # base detection (and --staged ignores the base entirely).
+        effective_base = base or cfg.git.base_branch
+        git_meta = get_git_metadata(root, base_branch=effective_base, staged=staged)
+        if not git_meta.is_available:
+            err_console.print(
+                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
+            )
+            return run_scan(targets, cfg)
+        return run_scan(root, cfg, diff_only=diff, git_meta=git_meta, staged=staged)
+
+    return run_scan(targets, cfg)
 
 
 @app.command()
 def scan(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help=(
+                "Files or directories to scan (default: current directory). "
+                "Multiple paths are allowed. Ignored when --patch is used."
+            ),
+        ),
+    ] = None,
     path: Annotated[
         Path,
-        typer.Option("--path", "-p", help="Repository or directory to scan"),
+        typer.Option(
+            "--path", "-p", help="Repository or directory to scan (alias for a path argument)"
+        ),
     ] = Path("."),
     config: Annotated[
         Path | None,
@@ -334,8 +631,37 @@ def scan(
     ] = None,
     diff: Annotated[
         bool,
-        typer.Option("--diff", help="Scan only changed files (requires git)"),
+        typer.Option("--diff", help="Scan only changed files vs the base branch (requires git)"),
     ] = False,
+    staged: Annotated[
+        bool,
+        typer.Option(
+            "--staged",
+            help="Scan only git-staged changes (git diff --cached) — the fast pre-commit gate",
+        ),
+    ] = False,
+    patch: Annotated[
+        Path | None,
+        typer.Option(
+            "--patch",
+            help=(
+                "Scan a unified diff from FILE (or '-' for stdin) standalone, "
+                "before it is applied. Mutually exclusive with --diff/--staged."
+            ),
+        ),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            help=(
+                "Base ref for --diff comparisons (base...HEAD). Overrides the "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
+                'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
+            ),
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output findings as JSON"),
@@ -366,6 +692,38 @@ def scan(
             help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
         ),
     ] = False,
+    rdjson_output: Annotated[
+        bool,
+        typer.Option("--rdjson", help="Output findings as reviewdog rdjson"),
+    ] = False,
+    sonar_output: Annotated[
+        bool,
+        typer.Option(
+            "--sonar",
+            help="Output findings as SonarQube Generic Issue Import JSON",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires a format flag."
+            ),
+        ),
+    ] = None,
+    report: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--report",
+            help=(
+                "Emit a report as FORMAT=PATH; repeatable to write several formats "
+                "from one scan (e.g. --report sarif=vg.sarif --report pr-comment=c.md)."
+            ),
+        ),
+    ] = None,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -404,7 +762,7 @@ def scan(
     ] = False,
 ) -> None:
     """Scan a repository for risky AI-generated code patterns."""
-    _validate_scan_path(path)
+    targets = _resolve_scan_targets(paths, path, diff=diff, staged=staged, patch=patch)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -412,22 +770,18 @@ def scan(
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path, policy_pack=policy_pack)
+    config_root = _config_search_root(targets, patch, path)
+    cfg = _load_config(config, config_root, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
-    git_meta = None
-    if diff:
-        git_meta = get_git_metadata(path.resolve())
-        if not git_meta.is_available:
-            err_console.print(
-                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
-            )
-            diff = False
-
-    result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
+    result = _execute_scan(
+        targets, cfg, base=base, diff=diff, staged=staged, patch=patch, config_root=config_root
+    )
 
     # Apply severity overrides and policy suppressions
     result = _apply_policy(result, cfg)
@@ -435,36 +789,39 @@ def scan(
     # Apply baseline filtering
     result = _apply_baseline(result, baseline_path, cfg)
 
-    # Determine annotation mode
-    emit_annot = _should_emit_annotations(
-        annotations,
+    single_fmt = _active_format(
         json_output,
-        markdown_output,
         sarif_output,
+        markdown_output,
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
+    )
+    reports = report or []
+
+    # Determine annotation mode (suppressed whenever machine output is in play).
+    emit_annot = _should_emit_annotations(
+        annotations,
+        structured_selected=(single_fmt is not None or bool(reports)),
     )
 
-    if json_output:
-        print_json(result)
-    elif sarif_output:
-        print_sarif(result)
-    elif pr_comment_output:
-        # scan still exits 0, but the PR-comment headline must reflect whether
-        # blocking findings exist — otherwise it claims PASS while listing them.
-        scan_gate_passed = not result.has_blocking(cfg.fail_on)
-        typer.echo(render_pr_comment(result, gate_passed=scan_gate_passed, threshold=cfg.fail_on))
-    elif markdown_output:
-        typer.echo(render_markdown(result))
-    elif diagnostics_output:
-        print_diagnostics(result)
-    elif weaver_output:
-        # scan is informational, so the report mode is advisory; the decision
-        # field still reflects whether blocking findings exist.
-        print_weaver(result, threshold=cfg.fail_on, blocking=False)
-    else:
-        render_findings(result, verbose=verbose)
+    # scan still exits 0, but the PR-comment headline / weaver decision must
+    # reflect whether blocking findings exist — otherwise it claims PASS while
+    # listing them. scan is informational, so the weaver report mode is advisory.
+    scan_gate_passed = not result.has_blocking(cfg.fail_on)
+    _emit_reports(
+        result,
+        single_format=single_fmt,
+        output=output,
+        reports=reports,
+        gate_passed=scan_gate_passed,
+        threshold=cfg.fail_on,
+        blocking=False,
+        sarif_max_results=cfg.output.sarif_max_results,
+        verbose=verbose,
+    )
 
     if emit_annot:
         emit_annotations(result)
@@ -483,9 +840,20 @@ def scan(
 
 @app.command()
 def gate(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help=(
+                "Files or directories to scan (default: current directory). "
+                "Multiple paths are allowed. Ignored when --patch is used."
+            ),
+        ),
+    ] = None,
     path: Annotated[
         Path,
-        typer.Option("--path", "-p", help="Repository or directory to scan"),
+        typer.Option(
+            "--path", "-p", help="Repository or directory to scan (alias for a path argument)"
+        ),
     ] = Path("."),
     config: Annotated[
         Path | None,
@@ -493,8 +861,37 @@ def gate(
     ] = None,
     diff: Annotated[
         bool,
-        typer.Option("--diff", help="Scan only changed files (requires git)"),
+        typer.Option("--diff", help="Scan only changed files vs the base branch (requires git)"),
     ] = False,
+    staged: Annotated[
+        bool,
+        typer.Option(
+            "--staged",
+            help="Scan only git-staged changes (git diff --cached) — the fast pre-commit gate",
+        ),
+    ] = False,
+    patch: Annotated[
+        Path | None,
+        typer.Option(
+            "--patch",
+            help=(
+                "Gate a unified diff from FILE (or '-' for stdin) standalone, "
+                "before it is applied. Mutually exclusive with --diff/--staged."
+            ),
+        ),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            help=(
+                "Base ref for --diff comparisons (base...HEAD). Overrides the "
+                "default origin/main -> origin/master -> main -> master detection "
+                "and git.base_branch config. "
+                'In GitHub Actions: --base "origin/${{ github.base_ref }}".'
+            ),
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output findings as JSON"),
@@ -525,6 +922,38 @@ def gate(
             help="Output a weaver-spec ArtifactSafetyReport (interop export for the Weaver Stack)",
         ),
     ] = False,
+    rdjson_output: Annotated[
+        bool,
+        typer.Option("--rdjson", help="Output findings as reviewdog rdjson"),
+    ] = False,
+    sonar_output: Annotated[
+        bool,
+        typer.Option(
+            "--sonar",
+            help="Output findings as SonarQube Generic Issue Import JSON",
+        ),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires a format flag."
+            ),
+        ),
+    ] = None,
+    report: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--report",
+            help=(
+                "Emit a report as FORMAT=PATH; repeatable to write several formats "
+                "from one scan (e.g. --report sarif=vg.sarif --report pr-comment=c.md)."
+            ),
+        ),
+    ] = None,
     annotations: Annotated[
         bool | None,
         typer.Option(
@@ -557,9 +986,21 @@ def gate(
         bool,
         typer.Option("--verbose", "-v", help="Show detailed finding descriptions"),
     ] = False,
+    strict_errors: Annotated[
+        bool | None,
+        typer.Option(
+            "--strict-errors/--no-strict-errors",
+            help=(
+                "Fail the gate when the scan itself ran degraded — a rule crashed, "
+                "a plugin failed to load, git context was unavailable in --diff mode, "
+                "a registry lookup failed, or a file was unreadable. Routine "
+                "binary/oversize skips never trip it. Overrides gate.strict_errors."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Scan and exit non-zero if blocking findings are found (for CI gates)."""
-    _validate_scan_path(path)
+    targets = _resolve_scan_targets(paths, path, diff=diff, staged=staged, patch=patch)
     _validate_output_options(
         json_output,
         markdown_output,
@@ -567,22 +1008,18 @@ def gate(
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
         annotations_explicit=(annotations is True),
     )
-    cfg = _load_config(config, path, policy_pack=policy_pack)
+    config_root = _config_search_root(targets, patch, path)
+    cfg = _load_config(config, config_root, policy_pack=policy_pack)
     if fail_on:
         cfg.fail_on = _parse_severity(fail_on)
 
-    git_meta = None
-    if diff:
-        git_meta = get_git_metadata(path.resolve())
-        if not git_meta.is_available:
-            err_console.print(
-                f"[yellow]⚠ Git not available: {git_meta.error}. Falling back to full scan.[/]"
-            )
-            diff = False
-
-    result = run_scan(path, cfg, diff_only=diff, git_meta=git_meta)
+    result = _execute_scan(
+        targets, cfg, base=base, diff=diff, staged=staged, patch=patch, config_root=config_root
+    )
 
     # Apply severity overrides and policy suppressions
     result = _apply_policy(result, cfg)
@@ -593,32 +1030,43 @@ def gate(
     threshold = cfg.fail_on
     gate_passed = not result.has_blocking(threshold)
 
-    # Determine annotation mode
-    emit_annot = _should_emit_annotations(
-        annotations,
+    # Strict mode (#218): the CLI flag overrides gate.strict_errors config. When
+    # on, a degraded scan (rule crash, plugin/git/registry failure, unreadable
+    # file) fails the gate even with zero blocking findings — a safety gate must
+    # not show green on a scan that never fully ran.
+    strict = cfg.gate.strict_errors if strict_errors is None else strict_errors
+    degraded = result.degraded_diagnostics() if strict else []
+
+    single_fmt = _active_format(
         json_output,
-        markdown_output,
         sarif_output,
+        markdown_output,
         pr_comment_output,
         diagnostics_output,
         weaver_output,
+        rdjson_output,
+        sonar_output,
+    )
+    reports = report or []
+
+    # Determine annotation mode (suppressed whenever machine output is in play).
+    emit_annot = _should_emit_annotations(
+        annotations,
+        structured_selected=(single_fmt is not None or bool(reports)),
     )
 
-    if json_output:
-        print_json(result)
-    elif sarif_output:
-        print_sarif(result)
-    elif pr_comment_output:
-        typer.echo(render_pr_comment(result, gate_passed=gate_passed, threshold=threshold))
-    elif markdown_output:
-        typer.echo(render_markdown(result))
-    elif diagnostics_output:
-        print_diagnostics(result)
-    elif weaver_output:
-        # gate enforces, so the report mode is blocking.
-        print_weaver(result, threshold=threshold, blocking=True)
-    else:
-        render_findings(result, verbose=verbose)
+    # gate enforces, so the weaver report mode is blocking.
+    _emit_reports(
+        result,
+        single_format=single_fmt,
+        output=output,
+        reports=reports,
+        gate_passed=gate_passed,
+        threshold=threshold,
+        blocking=True,
+        sarif_max_results=cfg.output.sarif_max_results,
+        verbose=verbose,
+    )
 
     if emit_annot:
         emit_annotations(result)
@@ -632,12 +1080,20 @@ def gate(
             f"\n[bold red]✗ Gate failed:[/] findings at or above "
             f"[bold]{threshold.value}[/] severity detected.\n"
         )
-        raise typer.Exit(1)
-    else:
+        raise typer.Exit(EXIT_BLOCKED)
+    if degraded:
+        # Findings passed, but strict mode fails closed on a degraded scan. The
+        # individual diagnostics were already printed above via result.errors.
+        kinds = ", ".join(sorted({d.category for d in degraded}))
         err_console.print(
-            f"\n[bold green]✓ Gate passed:[/] no findings at or above "
-            f"[bold]{threshold.value}[/] severity.\n"
+            f"\n[bold red]✗ Gate failed (--strict-errors):[/] the scan ran degraded "
+            f"({len(degraded)} diagnostic(s): {kinds}). Findings may be incomplete.\n"
         )
+        raise typer.Exit(EXIT_BLOCKED)
+    err_console.print(
+        f"\n[bold green]✓ Gate passed:[/] no findings at or above "
+        f"[bold]{threshold.value}[/] severity.\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +1129,17 @@ def publish_check(
         bool,
         typer.Option("--markdown", help="Output findings as Markdown"),
     ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Write the selected format to a file instead of stdout "
+                "(use '-' for stdout). Requires --json or --markdown."
+            ),
+        ),
+    ] = None,
     manifest_out: Annotated[
         Path | None,
         typer.Option(
@@ -701,7 +1168,7 @@ def publish_check(
             "[yellow]publish-check is disabled in vibeguard.yaml "
             "(publish_check.enabled = false). Skipping.[/]"
         )
-        raise typer.Exit(0)
+        raise typer.Exit(EXIT_OK)
 
     threshold = _parse_severity(fail_on) if fail_on else cfg.publish_check.fail_on
     effective_ecosystem = ecosystem if ecosystem is not None else cfg.publish_check.ecosystem
@@ -711,7 +1178,7 @@ def publish_check(
             f"[red]Invalid --ecosystem: {effective_ecosystem!r}. "
             f"Valid options: {', '.join(sorted(valid_ecosystems))}[/]"
         )
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
     manifest, result = run_publish_check(path, cfg, ecosystem=effective_ecosystem)  # type: ignore[arg-type]
 
@@ -723,6 +1190,7 @@ def publish_check(
         manifest_out.write_text(manifest.to_json(), encoding="utf-8")
         err_console.print(f"[green]✓[/] Wrote manifest to [bold]{manifest_out}[/]")
 
+    output_text: str | None = None
     if json_output:
         import json as _json
 
@@ -730,10 +1198,19 @@ def publish_check(
             "manifest": _json.loads(manifest.to_json()),
             "result": result.model_dump(mode="json"),
         }
-        typer.echo(_json.dumps(payload, indent=2, sort_keys=True))
+        output_text = _json.dumps(payload, indent=2, sort_keys=True)
     elif markdown_output:
-        typer.echo(render_markdown(result))
+        output_text = render_markdown(result)
+
+    if output_text is not None:
+        dest = str(output) if output is not None else "-"
+        _write_report(output_text, dest)
+        if dest != "-":
+            err_console.print(f"[dim]Wrote report → {escape(dest)}[/]")
     else:
+        if output is not None:
+            err_console.print("[red]Error: --output requires --json or --markdown.[/]")
+            raise typer.Exit(EXIT_USAGE)
         err_console.print(
             f"[bold]publish-check[/] ecosystem=[cyan]{manifest.ecosystem}[/] "
             f"files=[bold]{len(manifest.files)}[/] "
@@ -750,7 +1227,7 @@ def publish_check(
             f"\n[bold red]✗ publish-check failed:[/] findings at or above "
             f"[bold]{threshold.value}[/] severity detected.\n"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_BLOCKED)
     err_console.print(
         f"\n[bold green]✓ publish-check passed:[/] no findings at or above "
         f"[bold]{threshold.value}[/] severity in the published file set.\n"
@@ -766,7 +1243,7 @@ _UNKNOWN_FINDING_MESSAGE = (
 )
 
 
-def _resolve_explain_adapter(name: str):
+def _resolve_explain_adapter(name: str) -> ExplainAdapter:
     """Construct the explain adapter named ``name`` or exit 2.
 
     Centralised so both ``explain`` and any future commands wanting an
@@ -778,7 +1255,7 @@ def _resolve_explain_adapter(name: str):
         return get_explain_adapter(name)
     except ValueError as exc:
         err_console.print(f"[red]{exc}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
 
 @app.command()
@@ -856,7 +1333,7 @@ def explain(
     # unknown identifier is a hard error (exit 2) so a typo in CI doesn't
     # silently masquerade as a passed explain. See issue #90.
     err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=finding_id)}[/]")
-    raise typer.Exit(2)
+    raise typer.Exit(EXIT_USAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -885,10 +1362,10 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
         except Exception as exc:
             err_console.print(f"[red]Error loading config {config_path}: {exc}[/]")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
     # Auto-discover vibeguard.yaml in scan path
     candidate = scan_path / "vibeguard.yaml"
@@ -900,7 +1377,7 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
         except Exception as exc:
             err_console.print(f"[yellow]⚠ Could not load {candidate}: {exc}. Using defaults.[/]")
 
@@ -917,7 +1394,7 @@ def _load_config(
             for error in exc.errors():
                 loc = " → ".join(str(p) for p in error["loc"])
                 err_console.print(f"  [bold]{loc}[/]: {error['msg']}")
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
     return VibeGuardConfig()
 
 
@@ -925,9 +1402,9 @@ def _parse_severity(value: str) -> Severity:
     valid = [s.value for s in Severity]
     try:
         return Severity(value.lower())
-    except ValueError:
+    except ValueError as exc:
         err_console.print(f"[red]Invalid severity: {value!r}. Valid options: {', '.join(valid)}[/]")
-        raise typer.Exit(2) from None
+        raise typer.Exit(EXIT_USAGE) from exc
 
 
 def _apply_policy(result: ScanResult, cfg: VibeGuardConfig) -> ScanResult:
@@ -965,37 +1442,28 @@ def _apply_baseline(
         baseline = Baseline.load(bp)
     except BaselineLoadError as exc:
         err_console.print(f"[red]Error: {exc}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
     filtered = filter_baselined(result.findings, baseline)
     return result.model_copy(update={"findings": filtered})
 
 
 def _should_emit_annotations(
     annotations_flag: bool | None,
-    json_output: bool,
-    markdown_output: bool,
-    sarif_output: bool,
-    pr_comment_output: bool,
-    diagnostics_output: bool = False,
-    weaver_output: bool = False,
+    structured_selected: bool,
 ) -> bool:
-    """Determine whether to emit GitHub Actions annotations."""
+    """Determine whether to emit GitHub Actions annotations.
+
+    ``structured_selected`` is True when any machine output (a format flag or a
+    ``--report``/``--output`` destination) is in play — annotations would
+    otherwise interleave with that output.
+    """
     # Explicit flag takes precedence
     if annotations_flag is True:
         return True
     if annotations_flag is False:
         return False
     # Auto-enable in GitHub Actions unless another structured output is selected
-    return is_github_actions() and not any(
-        [
-            json_output,
-            markdown_output,
-            sarif_output,
-            pr_comment_output,
-            diagnostics_output,
-            weaver_output,
-        ]
-    )
+    return is_github_actions() and not structured_selected
 
 
 # ---------------------------------------------------------------------------
@@ -1238,7 +1706,7 @@ def rules_explain(
 
     if meta is None:
         err_console.print(f"[red]{_UNKNOWN_FINDING_MESSAGE.format(finding_id=identifier)}[/]")
-        raise typer.Exit(2)
+        raise typer.Exit(EXIT_USAGE)
 
     finding_lines = [f"  • {fid}" for fid in meta.finding_ids] or ["  (none registered)"]
     body_lines = [
@@ -1317,7 +1785,7 @@ def dev_new_rule(
         )
     except ScaffoldError as exc:
         err_console.print(f"[red]{escape(str(exc))}[/]")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_USAGE) from exc
 
     c = Console()
     if dry_run:

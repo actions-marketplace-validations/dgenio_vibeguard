@@ -1,0 +1,8 @@
+diff --git a/gone.py b/gone.py
+deleted file mode 100644
+index 814f4a4..0000000
+--- a/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-one
+-two

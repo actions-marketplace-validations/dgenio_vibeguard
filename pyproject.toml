@@ -4,13 +4,25 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibeguard-gate"
-version = "0.8.1"
-description = "Guardrails for vibe-coded software — a pre-merge safety gate for AI-generated changes"
+version = "0.10.0"
+description = "Offline change-integrity scanner and evidence gate for AI-assisted software changes"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [{ name = "VibeGuard Contributors" }]
-keywords = ["security", "ai", "code-review", "static-analysis", "devtools"]
+keywords = [
+    "security",
+    "ai",
+    "ai-coding",
+    "vibe-coding",
+    "coding-agents",
+    "code-review",
+    "change-integrity",
+    "supply-chain-security",
+    "devsecops",
+    "static-analysis",
+    "devtools",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -30,8 +42,8 @@ classifiers = [
 # not force version conflicts on adopters. Runtime deps therefore use
 # lower bounds only (``>=``) — no exact pins (``==``) and no speculative
 # upper-bound caps. Any cap added later must carry an inline comment citing
-# the specific incompatibility. The ``constraints-min.txt`` floor job in CI
-# proves these lower bounds actually resolve and pass the suite.
+# the specific incompatibility. The floor CI job resolves these declarations
+# directly with uv ``lowest-direct`` and proves the resulting suite passes.
 dependencies = [
     # typer<0.16 can't build CLI options annotated ``X | None`` and pulls a
     # click whose CliRunner mixes stderr into stdout; the floor job proves
@@ -44,7 +56,16 @@ dependencies = [
     "tomli>=2.0.0; python_version<'3.11'",
 ]
 
+# Backward-compatible source-install shim only. Historical docs/releases may
+# still contain `pip install -e ".[dev]"`; keeping the empty extra makes that
+# command harmless without publishing any maintainer-only dependencies.
 [project.optional-dependencies]
+dev = []
+
+# PEP 735 local-only tooling. This dependency group is not published in wheel
+# metadata and is only for contributors / CI. The separate `dev` optional extra
+# above is intentionally empty and exists only as a backward-compatibility shim.
+[dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
@@ -53,6 +74,10 @@ dev = [
     "types-PyYAML>=6.0",
     "hypothesis>=6.31",
     "jsonschema>=4.0",
+    # Enforces the offline guarantee (#223): sockets are disabled by default in
+    # the test run (see ``[tool.pytest.ini_options].addopts``), so any test that
+    # opens a real network connection fails instead of silently phoning home.
+    "pytest-socket>=0.7.0",
 ]
 
 [project.scripts]
@@ -83,11 +108,52 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.10"
 strict = false
+# Typing ratchet (#189): first wave. These two flags let the checker see the
+# core data flow — every function in ``vibeguard/`` carries annotations, and an
+# implicit ``Optional`` is no longer silently inferred. Global
+# ``ignore_missing_imports`` is intentionally *not* set: unstubbed third-party
+# imports are allow-listed per-module below so a genuinely missing first-party
+# type can't hide behind a blanket ignore. Further strictness flags land in
+# later waves.
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+# Unstubbed third-party imports. ``pathspec`` ships no type stubs; ``tomli`` /
+# ``tomllib`` are the version-guarded TOML parser pair in ``rules/_util.py``
+# (stdlib ``tomllib`` on 3.11+, the ``tomli`` backport on 3.10) — under the
+# 3.10 target mypy can't resolve the stdlib name, so both are allow-listed.
+[[tool.mypy.overrides]]
+module = ["pathspec.*", "tomli", "tomllib"]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+# Branch coverage is enabled deliberately (#187): it reads lower than line
+# coverage but catches untested conditional paths, which matter most for a
+# gate. Measured against the ``vibeguard`` package only (tests/benchmarks are
+# not the subject under test).
+branch = true
+source = ["vibeguard"]
+
+[tool.coverage.report]
+# Enforced floor (#187), a ratchet: it only moves *up*. Set 2 points below the
+# measured branch coverage at introduction (~89%) to absorb per-run variance;
+# a PR that meaningfully raises coverage may raise this number, but nothing
+# may lower it. ``pytest-cov`` reads this automatically, so CI fails when a
+# change drops below it without any extra workflow flag. See CONTRIBUTING.md.
+fail_under = 87
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+# ``--disable-socket`` enforces the offline guarantee (#223): the whole suite
+# runs with network sockets blocked, so a rule, reporter, or dependency that
+# starts making network calls fails loudly here instead of eroding the
+# "no network, no API key" thesis. The opt-in slopsquat registry check is
+# tested with its lookup mocked, so it needs no socket. If a test ever
+# legitimately requires a socket, mark it ``@pytest.mark.enable_socket``.
+addopts = "-v --disable-socket"
+markers = [
+    "enable_socket: allow a test to open network sockets (opt-in exception to the offline guarantee, #223)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["vibeguard"]

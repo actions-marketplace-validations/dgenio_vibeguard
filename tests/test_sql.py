@@ -85,3 +85,42 @@ class TestSqlRule:
         findings = self.rule.scan(ctx)
         sql_findings = [f for f in findings if f.id == "SQL-PY-FSTRING"]
         assert sql_findings[0].severity == Severity.HIGH
+
+    # #137: prose f-strings that merely contain a SQL keyword must not flag.
+    def test_py_fstring_prose_keyword_not_flagged(self, tmp_path: Path):
+        ctx = _ctx(
+            tmp_path,
+            {"emails.py": 'subject = f"Update on your request: {topic}"'},
+        )
+        findings = self.rule.scan(ctx)
+        assert not any(f.id == "SQL-PY-FSTRING" for f in findings)
+
+    def test_py_fstring_prose_where_not_flagged(self, tmp_path: Path):
+        # "where" is an ordinary English word; a bare keyword must not qualify.
+        ctx = _ctx(tmp_path, {"chat.py": 'msg = f"Tell me where {place} is located."'})
+        findings = self.rule.scan(ctx)
+        assert not any(f.id == "SQL-PY-FSTRING" for f in findings)
+
+    def test_py_fstring_interpolation_before_clause_still_flagged(self, tmp_path: Path):
+        # Interpolation may sit anywhere in a genuine query, including before FROM.
+        ctx = _ctx(tmp_path, {"db.py": 'query = f"SELECT {columns} FROM users"'})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "SQL-PY-FSTRING" for f in findings)
+
+    def test_py_fstring_update_set_still_flagged(self, tmp_path: Path):
+        ctx = _ctx(tmp_path, {"db.py": 'q = f"UPDATE users SET name = {name} WHERE id = {uid}"'})
+        findings = self.rule.scan(ctx)
+        assert any(f.id == "SQL-PY-FSTRING" for f in findings)
+
+    def test_py_fstring_in_docstring_not_flagged(self, tmp_path: Path):
+        # A query quoted as documentation is prose, not an executed statement.
+        content = '''def run():
+    """Example usage.
+
+    query = f"SELECT * FROM users WHERE id = {user_id}"
+    """
+    return None
+'''
+        ctx = _ctx(tmp_path, {"db.py": content})
+        findings = self.rule.scan(ctx)
+        assert not any(f.id == "SQL-PY-FSTRING" for f in findings)

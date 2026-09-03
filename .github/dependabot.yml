@@ -1,0 +1,56 @@
+version: 2
+
+# VibeGuard is a published Python library. pyproject.toml is the compatibility
+# contract; floor/latest CI proves the range. Routine bot PRs must not rewrite
+# public dependency floors merely because newer versions exist.
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 0
+    groups:
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "fix(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      docker-actions:
+        applies-to: version-updates
+        patterns:
+          - "docker/*"
+      actions-nonmajor:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "docker/*"
+        update-types:
+          - minor
+          - patch
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(ci)"

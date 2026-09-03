@@ -1,11 +1,19 @@
 # VibeGuard Output Schemas
 
-This page documents three stable outputs that downstream tools — CI dashboards,
+This page documents the stable outputs that downstream tools — CI dashboards,
 IDE extensions, AI coding agents — depend on:
 
 1. **Finding fingerprints** (`Finding.fingerprint`)
 2. **Repo health score** (`ScanResult.health_score`)
+2a. **Scan diagnostics** (`ScanResult.diagnostics` / `errors`)
 3. **Machine-readable diagnostics** (`vibeguard scan --diagnostics`)
+4. **Structured remediation metadata** (`Finding.remediation`, SARIF `fixes`)
+5. **SARIF ingestion safeguards** (result cap for code scanning)
+6. **reviewdog rdjson** (`vibeguard scan --rdjson`)
+7. **SonarQube generic issue import** (`vibeguard scan --sonar`)
+
+Writing any format to a file (instead of stdout) and emitting several at once
+is covered under [Writing reports to files](#8-writing-reports-to-files).
 
 Anything in this document is part of VibeGuard's public contract. Breaking
 changes require a major version bump.
@@ -110,6 +118,53 @@ without consulting this document.
 
 ---
 
+## 2a. Scan diagnostics (`ScanResult.diagnostics`)
+
+Separate from the editor-facing `--diagnostics` reporter below, every scan
+result carries a list of **scan diagnostics** — the non-finding events that
+happened while scanning. They appear in `--json` output as
+`diagnostics` (structured) alongside the legacy `errors` array (#195).
+
+```json
+"diagnostics": [
+  {
+    "category": "rule_error",
+    "severity": "error",
+    "message": "Rule secrets failed: ...",
+    "path": null,
+    "rule": "secrets",
+    "detail": "..."
+  }
+],
+"errors": ["Rule secrets failed: ..."]
+```
+
+* **`category`** — one of a small, stable taxonomy. New categories may be
+  **added** in a minor release; existing ones are never renamed:
+
+  | Category | Meaning |
+  |---|---|
+  | `skipped_file` | A file was not scanned (binary, oversize, gitignored, or unreadable). |
+  | `plugin_load` | A third-party rule plugin failed to load (scan continued). |
+  | `git_context` | Degraded git context in `--diff` mode (e.g. no base branch; HEAD-only diff). |
+  | `rule_error` | A rule raised an exception and was skipped (scan continued). |
+  | `network` | An opt-in networked check (slopsquat registry lookup) could not complete (#191). |
+
+* **`severity`** — `info` (routine, e.g. a binary skip), `warning`, or `error`.
+  This separates expected noise from a genuinely degraded scan.
+* **`message`** — a single human-readable line. The `errors` array is exactly
+  `[d.message for d in diagnostics]`, kept as a backward-compatible flat view;
+  prefer `diagnostics` for anything that needs to react per category.
+* **`path` / `rule` / `detail`** — optional context when available.
+
+`gate --strict-errors` (and `gate.strict_errors: true`) consumes this model: it
+fails the gate when any **degraded** diagnostic is present — every category
+except a routine (`info`) `skipped_file` — so a partially-broken scan cannot
+show a green check (#218). See the [Exit codes](stability-contract.md#exit-codes)
+contract.
+
+---
+
 ## 3. Diagnostics output (`--diagnostics`)
 
 `vibeguard scan --diagnostics` (and the equivalent flag on `gate`) emits a
@@ -194,3 +249,186 @@ hand-parsing this document.
   version. Consumers should ignore unknown keys.
 * Removing or renaming a required key, or changing `severity` semantics, is a
   breaking change and bumps the schema version.
+
+---
+
+## 4. Structured remediation metadata (`Finding.remediation`)
+
+For the mechanically-fixable subset of findings, VibeGuard attaches a structured
+`remediation` object so coding agents and review bots can apply or propose a fix
+without re-parsing the prose `recommendation` (#238). The field is **optional**
+and `null` when no machine-actionable fix is known — old consumers that ignore
+unknown/null fields are unaffected.
+
+### Shape
+
+```jsonc
+{
+  "id": "MAP-URL",
+  "rule": "sourcemaps",
+  // …the usual Finding fields…
+  "remediation": {
+    "kind": "replace-span",        // delete-file | add-line | replace-span | add-ignore-entry | manual
+    "target": "dist/app.js",       // path the fix edits (defaults to the finding path)
+    "line": 42,                     // 1-based line, when known
+    "content": "",                  // text to insert / the replacement span ("" = delete)
+    "description": "Delete the //# sourceMappingURL= comment.",
+    "confidence": "high"            // how safe the fix is to apply automatically
+  }
+}
+```
+
+### Kinds
+
+| Kind | Meaning | SARIF `fix`? |
+|------|---------|--------------|
+| `replace-span` | Replace (or delete, when `content` is empty) a known line | yes |
+| `add-line` | Insert `content` before `line` | yes |
+| `add-ignore-entry` | Append `content` to an ignore file (`.gitignore`/`.npmignore`) | no — JSON only |
+| `delete-file` | Remove the file at `target` | no — JSON only |
+| `manual` | Needs human judgement; carries guidance only | no |
+
+VibeGuard only emits a remediation when the edit is mechanically safe; a wrong
+auto-fix is worse than none. Applying fixes is out of scope here (it belongs to
+the separate `vibeguard fix` work) — this is the shared data model.
+
+### SARIF `fixes`
+
+Findings whose remediation is `replace-span` or `add-line` also emit a SARIF
+2.1.0 [`fix`](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+object (`result.fixes[]`), which GitHub Code Scanning renders as a one-click
+suggested change. `add-ignore-entry`/`delete-file`/`manual` can't be expressed
+as an in-file region edit, so they appear in JSON output only.
+
+---
+
+## 5. SARIF ingestion safeguards
+
+GitHub Code Scanning rejects SARIF uploads beyond a documented number of results
+per run (5,000 at time of writing). To keep a first scan of a large legacy repo
+from failing the whole upload, the SARIF reporter caps results (#227):
+
+* The cap defaults to **5,000** and is configurable via
+  `output.sarif_max_results` in `vibeguard.yaml`.
+* When the finding count exceeds the cap, findings are ordered **by severity**
+  (then path, then line for determinism) and the top *N* are emitted, so the
+  gate-relevant findings survive.
+* An informational `runs[].invocations[].toolExecutionNotifications[]` entry
+  records the total count and points at `--json` (or a baseline workflow) for
+  the full set.
+* Result sets **at or below** the cap are byte-identical to previous releases —
+  no reordering, no notification.
+
+For large repositories, baseline the existing findings first, then gate only new
+ones (see `docs/github-actions.md`).
+
+---
+
+## 6. reviewdog rdjson (`--rdjson`)
+
+`vibeguard scan --rdjson` (and `gate --rdjson`) emits reviewdog's
+[Diagnostic Format](https://github.com/reviewdog/reviewdog/blob/master/proto/rdf/README.md),
+so VibeGuard plugs into reviewdog's review backends (GitHub, GitLab, Gerrit,
+Bitbucket) without first-party support for each.
+
+```jsonc
+{
+  "source": { "name": "vibeguard", "url": "https://github.com/dgenio/vibeguard" },
+  "severity": "WARNING",
+  "diagnostics": [
+    {
+      "message": "Trust-all certificates: TLS verification disabled.",
+      "location": { "path": "src/client.py", "range": { "start": { "line": 42, "column": 1 } } },
+      "severity": "ERROR",                       // INFO/LOW→INFO, MEDIUM→WARNING, HIGH/CRITICAL→ERROR
+      "code": { "value": "AI-TRUSTALLCERTS", "url": ".../docs/rules.md#auth" },
+      "source": { "name": "vibeguard", "url": "https://github.com/dgenio/vibeguard" }
+    }
+  ]
+}
+```
+
+Consume it with `reviewdog -f=rdjson`:
+
+```yaml
+- run: vibeguard scan --diff --base "origin/${{ github.base_ref }}" --rdjson --output vg.rdjson
+- run: reviewdog -f=rdjson -name=vibeguard -reporter=github-pr-review < vg.rdjson
+```
+
+---
+
+## 7. SonarQube generic issue import (`--sonar`)
+
+`vibeguard scan --sonar` emits SonarQube's
+[Generic Issue Import](https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/importing-external-issues/external-analyzer-reports/)
+JSON for `sonar.externalIssuesReportPaths`.
+
+```jsonc
+{
+  "issues": [
+    {
+      "engineId": "vibeguard",
+      "ruleId": "SEC-ENV",
+      "type": "VULNERABILITY",        // VULNERABILITY for security-tagged rules, else CODE_SMELL
+      "severity": "CRITICAL",         // see mapping below
+      "primaryLocation": {
+        "message": "Sensitive file committed: .env",
+        "filePath": "src/.env",
+        "textRange": { "startLine": 9, "endLine": 9 }   // omitted for file-level findings
+      }
+    }
+  ]
+}
+```
+
+### Severity mapping
+
+| VibeGuard | SonarQube |
+|-----------|-----------|
+| `critical` | `BLOCKER` |
+| `high` | `CRITICAL` |
+| `medium` | `MAJOR` |
+| `low` | `MINOR` |
+| `info` | `INFO` |
+
+**Version compatibility:** this targets the stable
+`engineId`/`ruleId`/`type`/`severity` external-issue shape supported from
+SonarQube 7.x through the current 10.x line. (10.x also accepts the newer
+`impacts`/`cleanCodeAttribute` model, but the legacy fields remain valid and are
+the most portable.)
+
+`sonar-project.properties`:
+
+```properties
+sonar.externalIssuesReportPaths=vibeguard-sonar.json
+```
+
+```yaml
+- run: vibeguard scan --sonar --output vibeguard-sonar.json
+```
+
+---
+
+## 8. Writing reports to files
+
+Every machine format can be written to a file instead of stdout, and several can
+be produced from one scan (#233):
+
+* `--output PATH` (`-o`) writes the single selected format to `PATH`
+  (`-` means stdout). It requires a format flag; `--output` alone is an error
+  (exit 2), as is an unwritable destination.
+* `--report FORMAT=PATH` is repeatable and emits several formats from **one**
+  scan — no shell redirection, no double scan:
+
+  ```bash
+  vibeguard gate --diff --base "origin/${{ github.base_ref }}" \
+    --report sarif=vibeguard.sarif \
+    --report pr-comment=comment.md
+  ```
+
+  `--report` cannot be combined with `--output` or a bare format flag (exit 2).
+  Valid formats: `json`, `sarif`, `markdown`, `pr-comment`, `diagnostics`,
+  `weaver`, `rdjson`, `sonar`.
+
+The human pass/fail summary still prints to stderr, and exit codes are
+unchanged. Existing stdout invocations (no `--output`/`--report`) are
+byte-identical to previous releases.

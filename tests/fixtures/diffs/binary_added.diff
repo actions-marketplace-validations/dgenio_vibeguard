@@ -1,0 +1,11 @@
+diff --git a/also.py b/also.py
+new file mode 100644
+index 0000000..23ec297
+--- /dev/null
++++ b/also.py
+@@ -0,0 +1 @@
++text = 1
+diff --git a/blob.bin b/blob.bin
+new file mode 100644
+index 0000000..faa11f3
+Binary files /dev/null and b/blob.bin differ

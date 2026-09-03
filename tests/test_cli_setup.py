@@ -72,6 +72,14 @@ class TestRenderWorkflow:
         assert any(u.startswith("github/codeql-action/upload-sarif") for u in uses)
         assert any(u.startswith("actions/github-script") for u in uses)
 
+    def test_passes_pr_base_ref(self):
+        # The generated workflow pins --diff to the PR's target branch (#208) so
+        # diff scoping matches the merge base instead of relying on detection.
+        wf = render_workflow("high")
+        assert '--base "origin/${{ github.base_ref }}"' in wf
+        # Both the SARIF scan and the gate step thread the base ref.
+        assert wf.count('--base "origin/${{ github.base_ref }}"') == 2
+
     def test_no_action_tag_ref(self):
         # Generated workflow installs from PyPI so it never pins a
         # dgenio/vibeguard@vX.Y.Z tag that check_doc_versions.py would police.

@@ -2,7 +2,7 @@
 
 These guard against silent rot in the `.github/` issue/PR templates and the
 contributor-facing markdown — for example, a renamed rule that leaves a stale
-dropdown option, or a CONTRIBUTING file whose `pip install` line drifts from
+dropdown option, or a CONTRIBUTING file whose install command drifts from
 `pyproject.toml`.
 """
 
@@ -179,7 +179,8 @@ class TestContributingDoc:
     def test_install_command_matches_pyproject(self):
         """Avoid recommending an install command that doesn't actually work."""
         body = CONTRIBUTING.read_text(encoding="utf-8")
-        assert 'pip install -e ".[dev]"' in body
+        assert "python -m pip install -e . --group dev" in body
+        assert 'pip install -e ".[dev]"' not in body
 
     def test_lists_core_dev_commands(self):
         body = CONTRIBUTING.read_text(encoding="utf-8")
@@ -204,6 +205,12 @@ class TestReadmeQuickReference:
         body = README.read_text(encoding="utf-8")
         assert "CONTRIBUTING.md" in body
 
+    def test_source_install_uses_dev_group(self):
+        """The contributor-oriented source quickstart must install maintainer tooling."""
+        body = README.read_text(encoding="utf-8")
+        assert "python -m pip install -e . --group dev" in body
+        assert 'pip install -e ".[dev]"' not in body
+
     def test_install_command_uses_published_name(self):
         """The PyPI distribution name is `vibeguard-gate`, not `vibeguard`."""
         body = README.read_text(encoding="utf-8")
@@ -215,11 +222,8 @@ class TestReadmeQuickReference:
         # lookahead permits `vibeguard-gate` with any suffix
         # (e.g. `==0.6.0`, `[extra]`, trailing whitespace).
         bare_form = re.compile(r"\b(?:pip3?|python3?\s+-m\s+pip)\s+install\s+vibeguard\b(?!-gate)")
-        for line in body.splitlines():
-            stripped = line.strip()
-            if bare_form.search(stripped):
-                # Allow editable from-source install: `pip install -e ".[dev]"`.
-                assert "-e" in stripped, (
-                    f"README has a literal `pip install vibeguard` line "
-                    f"(should be `vibeguard-gate`): {line!r}"
-                )
+        bad_lines = [line for line in body.splitlines() if bare_form.search(line.strip())]
+        assert not bad_lines, (
+            "README has a literal `pip install vibeguard` line (should be `vibeguard-gate`): "
+            f"{bad_lines!r}"
+        )

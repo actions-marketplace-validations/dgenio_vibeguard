@@ -38,6 +38,14 @@ surfaces individually if you prefer to assemble the workflow by hand.
 
 The simplest setup: fail PRs that introduce high/critical findings.
 
+> **Diff base & `fetch-depth`.** `--diff` compares `base...HEAD`. Pass
+> `--base "origin/${{ github.base_ref }}"` so the diff is scoped to the PR's
+> target branch (works for `develop`/`trunk`/release bases, not just `main`),
+> and keep `fetch-depth: 0` so that base is fetched. Without a detectable base
+> VibeGuard degrades to `git diff HEAD` and prints a diagnostic — on a shallow
+> clone it also reminds you to set `fetch-depth: 0`. You can also set the base
+> in `vibeguard.yaml` under `git.base_branch`; the `--base` flag wins.
+
 ```yaml
 name: VibeGuard Gate
 on:
@@ -63,7 +71,17 @@ jobs:
         run: pip install vibeguard-gate
 
       - name: Run VibeGuard gate
-        run: vibeguard gate --diff --fail-on high
+        run: vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on high
+```
+
+For security-sensitive repositories, add `--strict-errors` so the gate fails
+closed when the scan itself ran degraded (a crashed rule, a failed plugin load,
+unavailable git context, or a failed registry lookup) rather than passing on a
+partial scan. Routine binary/oversize skips never trip it:
+
+```yaml
+      - name: Run VibeGuard gate (fail-closed on degraded scans)
+        run: vibeguard gate --diff --base "origin/${{ github.base_ref }}" --fail-on high --strict-errors
 ```
 
 Or using the first-party action:
@@ -107,7 +125,7 @@ jobs:
         run: pip install vibeguard-gate
 
       - name: Run VibeGuard scan (SARIF)
-        run: vibeguard scan --sarif > vibeguard.sarif
+        run: vibeguard scan --sarif --output vibeguard.sarif
         continue-on-error: true
 
       - name: Upload SARIF to Code Scanning
@@ -116,6 +134,19 @@ jobs:
           sarif_file: vibeguard.sarif
           category: vibeguard
 ```
+
+> **File output.** Use `--output PATH` (or `-o`) to write a report to a file
+> instead of redirecting stdout (`--sarif --output vibeguard.sarif`); pass `-`
+> for stdout. To emit several formats from a single scan, use the repeatable
+> `--report FORMAT=PATH`, e.g.
+> `vibeguard gate --diff --report sarif=vibeguard.sarif --report pr-comment=comment.md`.
+
+> **Large repositories.** GitHub Code Scanning caps SARIF at 5,000 results per
+> run. VibeGuard caps its SARIF output at that limit (configurable via
+> `output.sarif_max_results`), keeping the most severe findings and adding an
+> overflow notice rather than failing the upload. For a large legacy repo,
+> create a baseline first (section 4) and gate only new findings, so the diff
+> stays well under the cap. The full set is always available via `--json`.
 
 ## 3. PR Comment Workflow
 
